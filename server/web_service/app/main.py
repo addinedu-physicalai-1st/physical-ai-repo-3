@@ -6,6 +6,12 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.routers import menu as menu_router
+from app.routers import orders as orders_router
+from app.routers import pages as pages_router
+from app.routers import tables as tables_router
 
 SERVICE_NAME = os.getenv("WEB_SERVICE_NAME", "web_service")
 HTTP_HOST = os.getenv("WEB_SERVICE_HTTP_HOST", "0.0.0.0")
@@ -38,7 +44,7 @@ def error_response(message: str) -> dict[str, Any]:
 
 def status_data() -> dict[str, Any]:
     return {
-        "role": "Accepts HTTP requests from OrderVUI and communicates with BusinessService over TCP.",
+        "role": "Accepts HTTP requests from OrderVUI/TableGUI and communicates with BusinessService over TCP.",
         "dependencies": {
             "business_service": {"host": BUSINESS_SERVICE_HOST, "port": BUSINESS_SERVICE_PORT},
         },
@@ -46,6 +52,16 @@ def status_data() -> dict[str, Any]:
             "http": {"host": HTTP_HOST, "port": HTTP_PORT},
             "tcp": {"host": TCP_HOST, "port": TCP_PORT},
         },
+        "http_routes": [
+            "/",
+            "/kiosk",
+            "/table",
+            "/api/menu",
+            "/api/allergy",
+            "/api/tables",
+            "/api/orders",
+            "/api/orders/{order_id}",
+        ],
     }
 
 
@@ -105,6 +121,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Web Service", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(menu_router.router)
+app.include_router(tables_router.router)
+app.include_router(orders_router.router)
+app.include_router(pages_router.router)
 
 
 @app.get("/health")

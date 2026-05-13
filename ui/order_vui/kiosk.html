@@ -642,8 +642,10 @@ let selectedTable = null;
 let orderNumber = null;
 
 // ─── API ────────────────────────────────────────────
+const API_BASE_URL = 'http://localhost:8000';
+
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: { 'Content-Type': 'application/json' },
     ...opts,
   });
@@ -1055,5 +1057,3 @@ loadAllergy().catch(()=>{});
 </script>
 </body>
 </html>
-</content>
-</invoke>
