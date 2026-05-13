@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BREW — 테이블 주문</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0f0a05;
+    --surface:  #1c1208;
+    --card:     #261a0a;
+    --border:   #3a2910;
+    --accent:   #e8a84c;
+    --accent2:  #c47c20;
+    --text:     #f0e8d8;
+    --muted:    #7a6a52;
+    --danger:   #d9534f;
+    --success:  #4caf7d;
+  }
+
+  html, body {
+    min-height: 100vh;
+    background: var(--bg);
+    font-family: 'Noto Sans KR', sans-serif;
+    color: var(--text);
+  }
+
+  #app {
+    width: 100%;
+    max-width: 480px;
+    min-height: 100vh;
+    margin: 0 auto;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  .table-badge {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--muted);
+    letter-spacing: 1px;
+  }
+  .table-badge .pin { color: var(--accent); font-size: 16px; }
+  .table-badge .t-num { color: var(--accent); font-weight: 700; letter-spacing: 0; }
+
+  .screen {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .screen.active { display: flex; }
+  .screen.visible { opacity: 1; }
+
+  .screen-title {
+    margin: 16px 16px 12px;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+  }
+  .complete-sub {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 14px 0 0;
+  }
+
+  .page-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 18px 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .page-header .logo {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 24px; font-weight: 700;
+    color: var(--accent); letter-spacing: 3px;
+  }
+  .page-header .step { margin-left: auto; font-size: 11px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+  .back-btn { background: none; border: none; color: var(--muted); font-size: 20px; padding: 4px; cursor: pointer; }
+  .back-btn:hover { color: var(--accent); }
+
+  .btn {
+    border: none; cursor: pointer; border-radius: 10px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-weight: 700; transition: all 0.2s; display: flex;
+    align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-primary { background: var(--accent); color: #1a0f00; font-size: 15px; padding: 14px 24px; }
+  .btn-primary:active { transform: translateY(1px); }
+  .btn-outline { background: transparent; color: var(--text); border: 1.5px solid var(--border); font-size: 14px; padding: 12px 20px; }
+  .btn-danger { background: var(--danger); color: #fff; font-size: 15px; padding: 14px 24px; }
+  .btn-success { background: var(--success); color: #fff; font-size: 15px; padding: 14px 24px; }
+  .btn-lg { width: 100%; padding: 16px; font-size: 16px; border-radius: 12px; }
+
+  /* delivery (첫 화면) */
+  #screen-delivery .delivery-options {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 14px; padding: 0 16px;
+  }
+  .delivery-card {
+    background: var(--card); border: 2px solid var(--border);
+    border-radius: 16px; padding: 28px 14px;
+    cursor: pointer; transition: all 0.2s;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    text-align: center;
+  }
+  .delivery-card:active { transform: scale(0.98); }
+  .delivery-card .d-icon { font-size: 44px; }
+  .delivery-card .d-name { color: var(--text); font-size: 16px; font-weight: 700; }
+  .delivery-card .d-desc { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+  /* menu */
+  .menu-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px; padding: 0 14px 12px;
+  }
+  .menu-card {
+    background: var(--card); border: 1.5px solid var(--border);
+    border-radius: 14px; padding: 14px 10px;
+    cursor: pointer; transition: all 0.2s;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; gap: 6px; position: relative;
+  }
+  .menu-card.selected { border-color: var(--accent); background: #2e1c06; }
+  .menu-card .emoji { font-size: 32px; }
+  .menu-card .name { color: var(--text); font-size: 13px; font-weight: 700; }
+  .menu-card .price { color: var(--accent); font-size: 12px; }
+  .menu-card .badge {
+    position: absolute; top: 6px; right: 6px;
+    background: var(--accent); color: #1a0f00;
+    font-size: 11px; font-weight: 700;
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .cart-panel {
+    position: sticky; bottom: 0;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 12px 14px;
+  }
+  .cart-items {
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 110px; overflow-y: auto; margin-bottom: 8px;
+  }
+  .cart-item { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+  .cart-item .item-name { flex: 1; }
+  .cart-item .item-qty { display: flex; align-items: center; gap: 6px; }
+  .qty-btn {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text); width: 26px; height: 26px;
+    border-radius: 6px; font-size: 14px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cart-item .item-price { color: var(--accent); font-weight: 700; width: 70px; text-align: right; }
+  .cart-total { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 10px; }
+  .cart-total .label { color: var(--muted); font-size: 13px; }
+  .cart-total .amount { color: var(--accent); font-size: 20px; font-weight: 700; }
+  .cart-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 8px 0; }
+  .menu-actions { display: flex; gap: 10px; margin-top: 10px; }
+
+  /* confirm */
+  .confirm-list {
+    margin: 0 16px;
+    border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  }
+  .confirm-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 14px;
+  }
+  .confirm-row:last-child { border-bottom: none; }
+  .confirm-row .r-name { font-weight: 700; }
+  .confirm-row .r-qty { color: var(--muted); }
+  .confirm-row .r-price { color: var(--accent); font-weight: 700; }
+  .confirm-total {
+    margin: 14px 16px 0; display: flex; justify-content: space-between;
+    color: var(--text); font-size: 15px; font-weight: 700;
+  }
+  .confirm-total span:last-child { color: var(--accent); font-size: 20px; }
+  .actions-row { padding: 16px; display: flex; gap: 10px; }
+
+  /* options */
+  .options-nav { display: flex; gap: 6px; padding: 10px 16px 0; }
+  .options-nav .nav-dot { flex: 1; height: 3px; border-radius: 2px; background: var(--border); }
+  .options-nav .nav-dot.active { background: var(--accent); }
+  .options-scroll { padding: 0 16px 16px; }
+  .option-item-header {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px;
+    margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
+  }
+  .option-item-header .emoji { font-size: 26px; }
+  .option-item-header .name { color: var(--text); font-weight: 700; font-size: 15px; }
+  .option-section { margin-bottom: 18px; }
+  .option-label { color: var(--muted); font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; font-weight: 600; }
+  .option-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    background: var(--card); border: 1.5px solid var(--border);
+    color: var(--text); font-size: 13px; padding: 8px 14px;
+    border-radius: 50px; cursor: pointer; font-family: 'Noto Sans KR', sans-serif;
+  }
+  .chip.selected { background: var(--accent); border-color: var(--accent); color: #1a0f00; font-weight: 700; }
+  .option-price-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 16px; background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+  .option-price-row .label { color: var(--muted); font-size: 13px; }
+  .option-price-row .amount { color: var(--accent); font-size: 20px; font-weight: 700; }
+
+  /* allergy */
+  .allergy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px; margin-bottom: 14px; }
+  .allergy-badge {
+    background: var(--card); border: 1.5px solid var(--border);
+    border-radius: 10px; padding: 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .allergy-badge.has-allergy { border-color: #d9534f; background: #1a0808; }
+  .allergy-badge .icon { font-size: 18px; }
+  .allergy-badge .text { font-size: 12.5px; font-weight: 500; }
+  .allergy-badge .text small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+  .allergy-note { margin: 0 16px 14px; background: var(--card); border-radius: 12px; padding: 12px; border: 1px solid var(--border); }
+  .allergy-note p { color: var(--muted); font-size: 12px; line-height: 1.7; }
+
+  /* payment */
+  .payment-total { text-align: center; padding: 20px 0 16px; }
+  .payment-total .total-label { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+  .payment-total .total-amount {
+    color: var(--accent); font-size: 38px; font-weight: 700;
+    font-family: 'Cormorant Garamond', serif; letter-spacing: 2px;
+  }
+  .payment-methods { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 0 16px; }
+  .payment-card {
+    background: var(--card); border: 2px solid var(--border);
+    border-radius: 14px; padding: 18px 6px;
+    cursor: pointer; transition: all 0.2s;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    text-align: center;
+  }
+  .payment-card.selected { border-color: var(--accent); background: #2e1c06; }
+  .payment-card .pay-icon { font-size: 30px; }
+  .payment-card .pay-name { color: var(--text); font-size: 12px; font-weight: 700; }
+  .payment-card .pay-desc { color: var(--muted); font-size: 11px; }
+  .processing-overlay {
+    position: fixed; inset: 0; background: rgba(15,10,5,0.95);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; z-index: 200;
+  }
+  .spinner {
+    width: 50px; height: 50px;
+    border: 4px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* complete */
+  #screen-complete-pickup, #screen-complete-serving {
+    align-items: center; justify-content: center; text-align: center;
+    padding: 36px 24px;
+  }
+  .complete-icon { font-size: 72px; margin-bottom: 18px; animation: popIn 0.5s ease; }
+  @keyframes popIn { 0%{transform:scale(0);} 80%{transform:scale(1.1);} 100%{transform:scale(1);} }
+  .complete-title { font-family: 'Cormorant Garamond', serif; font-size: 32px; color: var(--accent); margin-bottom: 10px; }
+  .order-number-box {
+    background: var(--card); border: 2px solid var(--accent);
+    border-radius: 16px; padding: 22px 40px; margin: 22px 0;
+  }
+  .order-number-box .on-label { color: var(--muted); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+  .order-number-box .on-number { font-family: 'Cormorant Garamond', serif; font-size: 56px; color: var(--accent); font-weight: 700; letter-spacing: 4px; }
+  .complete-desc { color: var(--muted); font-size: 14px; line-height: 1.7; }
+
+  /* error screen */
+  #screen-error { align-items: center; justify-content: center; text-align: center; padding: 40px 24px; }
+  #screen-error .err-icon { font-size: 64px; margin-bottom: 16px; }
+  #screen-error h2 { color: var(--danger); margin-bottom: 12px; }
+  #screen-error p { color: var(--muted); font-size: 14px; line-height: 1.7; }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 12px 16px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <div class="table-badge" id="table-badge" style="display:none;">
+    <span class="pin">📍</span>
+    <span><span class="t-num" id="badge-table-num">--</span>번 테이블</span>
+  </div>
+
+  <!-- 잘못된 진입 -->
+  <div class="screen" id="screen-error">
+    <div class="err-icon">⚠️</div>
+    <h2>잘못된 접근</h2>
+    <p id="error-text">유효한 테이블 QR로 다시 접속해 주세요.</p>
+  </div>
+
+  <!-- S1: 픽업/서빙 선택 (첫 화면) -->
+  <div class="screen" id="screen-delivery">
+    <div class="page-header">
+      <div class="logo">BREW</div>
+      <div class="step">수령 방법</div>
+    </div>
+    <h3 class="screen-title">픽업하시겠어요? 서빙받으시겠어요?</h3>
+    <div class="delivery-options">
+      <div class="delivery-card" onclick="chooseDelivery('pickup')">
+        <div class="d-icon">🛍️</div>
+        <div class="d-name">픽업</div>
+        <div class="d-desc">카운터에서<br>직접 수령</div>
+      </div>
+      <div class="delivery-card" onclick="chooseDelivery('serving')">
+        <div class="d-icon">🤖</div>
+        <div class="d-name">로봇 서빙</div>
+        <div class="d-desc">테이블로<br>로봇이 서빙</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S2: 메뉴 -->
+  <div class="screen" id="screen-menu">
+    <div class="page-header">
+      <button class="back-btn" onclick="showScreen('screen-delivery')">←</button>
+      <div class="logo">BREW</div>
+      <div class="step">STEP 1 — 메뉴</div>
+    </div>
+    <div class="menu-grid" id="menu-grid"></div>
+    <div class="cart-panel">
+      <div class="cart-items" id="cart-items">
+        <div class="cart-empty">선택된 상품이 없습니다</div>
+      </div>
+      <div class="cart-total">
+        <span class="label">합계</span>
+        <span class="amount" id="cart-total-amount">₩0</span>
+      </div>
+      <div class="menu-actions">
+        <button class="btn btn-outline" style="flex:1" onclick="clearCart()">초기화</button>
+        <button class="btn btn-primary" style="flex:2" onclick="goToConfirm()">주문 확인 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- S3: 주문 확인 -->
+  <div class="screen" id="screen-confirm">
+    <div class="page-header">
+      <button class="back-btn" onclick="showScreen('screen-menu')">←</button>
+      <div class="logo">BREW</div>
+      <div class="step">STEP 2 — 주문 확인</div>
+    </div>
+    <h3 class="screen-title">주문하신 메뉴를 확인해 주세요</h3>
+    <div class="confirm-list" id="confirm-list"></div>
+    <div class="confirm-total">
+      <span>총 금액</span>
+      <span id="confirm-total-amt"></span>
+    </div>
+    <hr class="divider" style="margin-top:14px;">
+    <div class="actions-row">
+      <button class="btn btn-outline" style="flex:1" onclick="showScreen('screen-menu')">수정</button>
+      <button class="btn btn-primary" style="flex:2" onclick="goToOptions()">네, 맞아요 →</button>
+    </div>
+  </div>
+
+  <!-- S4: 옵션 -->
+  <div class="screen" id="screen-options">
+    <div class="page-header">
+      <button class="back-btn" onclick="showScreen('screen-confirm')">←</button>
+      <div class="logo">BREW</div>
+      <div class="step">STEP 3 — 옵션</div>
+    </div>
+    <h3 class="screen-title" id="options-title">옵션 선택</h3>
+    <div class="options-nav" id="options-nav"></div>
+    <div class="options-scroll" id="options-scroll"></div>
+    <div class="option-price-row">
+      <span class="label">현재 총 금액</span>
+      <span class="amount" id="options-total">₩0</span>
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-outline" style="flex:1" id="options-prev-btn" onclick="prevOption()">이전</button>
+      <button class="btn btn-primary" style="flex:2" id="options-next-btn" onclick="nextOption()">다음 →</button>
+    </div>
+  </div>
+
+  <!-- S5: 알러지 -->
+  <div class="screen" id="screen-allergy">
+    <div class="page-header">
+      <button class="back-btn" onclick="showScreen('screen-options')">←</button>
+      <div class="logo">BREW</div>
+      <div class="step">STEP 4 — 알러지</div>
+    </div>
+    <h3 class="screen-title">알러지 정보를 확인해 주세요</h3>
+    <div class="allergy-grid" id="allergy-grid"></div>
+    <div class="allergy-note">
+      <p>⚠️ 알러지가 우려되시면 직원에게 문의해 주세요.<br>본 메뉴는 동일한 시설에서 견과류를 취급합니다.</p>
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-danger" style="flex:1" onclick="allergyIssue()">알러지 있어요</button>
+      <button class="btn btn-success" style="flex:2" onclick="goToPayment()">확인했어요 →</button>
+    </div>
+  </div>
+
+  <!-- S6: 결제 -->
+  <div class="screen" id="screen-payment">
+    <div class="page-header">
+      <button class="back-btn" onclick="showScreen('screen-allergy')">←</button>
+      <div class="logo">BREW</div>
+      <div class="step">STEP 5 — 결제</div>
+    </div>
+    <h3 class="screen-title">결제 방법 선택</h3>
+    <div class="payment-total">
+      <div class="total-label">최종 결제 금액</div>
+      <div class="total-amount" id="payment-total-amt">₩0</div>
+    </div>
+    <div class="payment-methods">
+      <div class="payment-card" id="pay-card" onclick="selectPayment('card')">
+        <div class="pay-icon">💳</div>
+        <div class="pay-name">카드</div>
+        <div class="pay-desc">신용/체크</div>
+      </div>
+      <div class="payment-card" id="pay-apple" onclick="selectPayment('apple_pay')">
+        <div class="pay-icon">🍎</div>
+        <div class="pay-name">Apple Pay</div>
+        <div class="pay-desc">간편 결제</div>
+      </div>
+      <div class="payment-card" id="pay-samsung" onclick="selectPayment('samsung_pay')">
+        <div class="pay-icon">📱</div>
+        <div class="pay-name">Samsung Pay</div>
+        <div class="pay-desc">간편 결제</div>
+      </div>
+    </div>
+    <div class="actions-row" style="margin-top:auto;">
+      <button class="btn btn-primary btn-lg" onclick="processPayment()">결제하기</button>
+    </div>
+  </div>
+
+  <!-- S7-pickup: 완료 (픽업) -->
+  <div class="screen" id="screen-complete-pickup">
+    <div class="complete-icon">✅</div>
+    <div class="complete-title">주문 완료!</div>
+    <p class="complete-sub">주문이 완료되었습니다.<br>상품이 준비되면 번호로 불러드립니다.</p>
+    <div class="order-number-box">
+      <div class="on-label">주문 번호</div>
+      <div class="on-number" id="order-number-pickup">--</div>
+    </div>
+    <div class="complete-desc">
+      카운터에서 번호를 확인하시고 수령해 주세요.<br>
+      감사합니다 😊
+    </div>
+  </div>
+
+  <!-- S7-serving: 완료 (서빙) -->
+  <div class="screen" id="screen-complete-serving">
+    <div class="complete-icon">🤖</div>
+    <div class="complete-title">서빙 예약 완료!</div>
+    <p class="complete-sub" id="serving-complete-text">상품이 준비되면 테이블로 서빙하겠습니다.</p>
+    <div class="order-number-box">
+      <div class="on-label">주문 번호</div>
+      <div class="on-number" id="order-number-serving">--</div>
+    </div>
+    <div class="complete-desc">
+      자리에서 편히 기다려 주세요.<br>
+      감사합니다 😊
+    </div>
+  </div>
+
+</div><!-- #app -->
+
+<script>
+// ─── DATA ─────────────────────────────────────────
+let MENU = [];
+let ALLERGY_INFO = [];
+
+const SHOT_SURCHARGE = 500;
+const LOWFAT_SURCHARGE = 300;
+
+// ─── STATE ────────────────────────────────────────
+let tableNo = null;        // QR URL 파라미터에서 파싱
+let selectedDelivery = null;  // 'pickup' | 'serving'
+let cart = [];
+let currentScreen = null;
+let currentOptionIndex = 0;
+let selectedPayment = null;
+
+// ─── API ──────────────────────────────────────────
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (_) {}
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function loadMenu()    { MENU = await api('/api/menu'); }
+async function loadAllergy() { ALLERGY_INFO = await api('/api/allergy'); }
+
+function buildOrderPayload() {
+  return {
+    channel: 'table',
+    delivery: selectedDelivery,
+    payment: selectedPayment,
+    table_no: selectedDelivery === 'serving' ? tableNo : null,
+    items: cart.map(ci => ({
+      menu_id: ci.menuId,
+      qty: ci.qty,
+      options: ci.options,
+    })),
+  };
+}
+
+// ─── SCREEN CONTROL ───────────────────────────────
+function showScreen(id) {
+  if (currentScreen === id) return;
+  if (currentScreen) {
+    const prev = document.getElementById(currentScreen);
+    if (prev) { prev.classList.remove('visible'); setTimeout(()=>prev.classList.remove('active'),300); }
+  }
+  currentScreen = id;
+  const next = document.getElementById(id);
+  next.classList.add('active');
+  setTimeout(()=>next.classList.add('visible'), 10);
+  window.scrollTo(0, 0);
+}
+
+// ─── DELIVERY (FIRST SCREEN) ──────────────────────
+async function chooseDelivery(type) {
+  selectedDelivery = type;
+  if (MENU.length === 0) {
+    try { await loadMenu(); } catch (e) { alert('메뉴 로드 실패: ' + e.message); return; }
+  }
+  renderMenuGrid();
+  renderCartPanel();
+  showScreen('screen-menu');
+}
+
+// ─── MENU SCREEN ──────────────────────────────────
+function cartQty(id) {
+  const item = cart.find(c=>c.menuId===id);
+  return item ? item.qty : 0;
+}
+
+function renderMenuGrid() {
+  const grid = document.getElementById('menu-grid');
+  grid.innerHTML = MENU.map(m => `
+    <div class="menu-card ${cartQty(m.id)>0?'selected':''}" onclick="addToCart(${m.id})">
+      <div class="emoji">${m.emoji}</div>
+      <div class="name">${m.name}</div>
+      <div class="price">${m.price.toLocaleString()}원</div>
+      ${cartQty(m.id)>0?`<div class="badge">${cartQty(m.id)}</div>`:''}
+    </div>
+  `).join('');
+}
+
+function addToCart(id) {
+  const existing = cart.find(c=>c.menuId===id);
+  if (existing) existing.qty++;
+  else cart.push({ menuId:id, qty:1, options:{shot:'기본',ice:'기본 얼음',milk:'일반'} });
+  renderMenuGrid();
+  renderCartPanel();
+}
+
+function changeQty(id, delta) {
+  const item = cart.find(c=>c.menuId===id);
+  if (!item) return;
+  item.qty += delta;
+  if (item.qty <= 0) cart = cart.filter(c=>c.menuId!==id);
+  renderMenuGrid();
+  renderCartPanel();
+}
+
+function clearCart() {
+  cart = [];
+  renderMenuGrid();
+  renderCartPanel();
+}
+
+function cartTotal() {
+  return cart.reduce((sum, ci) => {
+    const m = MENU.find(m=>m.id===ci.menuId);
+    let p = m.price * ci.qty;
+    if (ci.options.shot==='추가') p += SHOT_SURCHARGE * ci.qty;
+    if (ci.options.milk==='저지방') p += LOWFAT_SURCHARGE * ci.qty;
+    return sum + p;
+  }, 0);
+}
+
+function renderCartPanel() {
+  const itemsEl = document.getElementById('cart-items');
+  const totalEl = document.getElementById('cart-total-amount');
+  if (cart.length === 0) {
+    itemsEl.innerHTML = '<div class="cart-empty">선택된 상품이 없습니다</div>';
+  } else {
+    itemsEl.innerHTML = cart.map(ci => {
+      const m = MENU.find(m=>m.id===ci.menuId);
+      let p = m.price * ci.qty;
+      if (ci.options.shot==='추가') p += SHOT_SURCHARGE * ci.qty;
+      if (ci.options.milk==='저지방') p += LOWFAT_SURCHARGE * ci.qty;
+      return `<div class="cart-item">
+        <span class="item-name">${m.emoji} ${m.name}</span>
+        <div class="item-qty">
+          <button class="qty-btn" onclick="changeQty(${m.id},-1)">−</button>
+          <span>${ci.qty}</span>
+          <button class="qty-btn" onclick="changeQty(${m.id},1)">+</button>
+        </div>
+        <span class="item-price">${p.toLocaleString()}원</span>
+      </div>`;
+    }).join('');
+  }
+  totalEl.textContent = '₩' + cartTotal().toLocaleString();
+}
+
+// ─── CONFIRM ──────────────────────────────────────
+function goToConfirm() {
+  if (cart.length === 0) { alert('메뉴를 선택해 주세요!'); return; }
+  const list = document.getElementById('confirm-list');
+  list.innerHTML = cart.map(ci => {
+    const m = MENU.find(m=>m.id===ci.menuId);
+    let p = m.price * ci.qty;
+    if (ci.options.shot==='추가') p += SHOT_SURCHARGE * ci.qty;
+    if (ci.options.milk==='저지방') p += LOWFAT_SURCHARGE * ci.qty;
+    return `<div class="confirm-row">
+      <span class="r-name">${m.emoji} ${m.name}</span>
+      <span class="r-qty">×${ci.qty}</span>
+      <span class="r-price">${p.toLocaleString()}원</span>
+    </div>`;
+  }).join('');
+  document.getElementById('confirm-total-amt').textContent = '₩' + cartTotal().toLocaleString();
+  showScreen('screen-confirm');
+}
+
+// ─── OPTIONS ──────────────────────────────────────
+function goToOptions() {
+  currentOptionIndex = 0;
+  renderOptionScreen();
+  showScreen('screen-options');
+}
+
+function renderOptionScreen() {
+  const items = cart.filter(ci => {
+    const m = MENU.find(m=>m.id===ci.menuId);
+    return m.shot || m.ice || m.milk;
+  });
+  if (items.length === 0) {
+    document.getElementById('options-nav').innerHTML = '';
+    document.getElementById('options-title').textContent = '선택할 옵션이 없습니다';
+    document.getElementById('options-scroll').innerHTML = `
+      <div style="padding: 50px 16px; text-align: center;">
+        <div style="font-size: 52px; margin-bottom: 16px;">✨</div>
+        <div style="color: var(--text); font-size: 15px; font-weight: 700; margin-bottom: 8px;">선택할 옵션이 없습니다</div>
+        <div style="color: var(--muted); font-size: 13px;">3초 후 다음 단계로 이동합니다...</div>
+      </div>`;
+    document.getElementById('options-total').textContent = '₩' + cartTotal().toLocaleString();
+    document.getElementById('options-prev-btn').style.display = 'none';
+    document.getElementById('options-next-btn').style.display = 'none';
+    setTimeout(() => { if (currentScreen === 'screen-options') goToAllergy(); }, 3000);
+    return;
+  }
+
+  document.getElementById('options-nav').innerHTML = items.map((_,i) =>
+    `<div class="nav-dot ${i===currentOptionIndex?'active':''}"></div>`
+  ).join('');
+
+  const ci = items[currentOptionIndex];
+  const m = MENU.find(m=>m.id===ci.menuId);
+  document.getElementById('options-title').textContent = `${m.name} 옵션 선택`;
+
+  let html = `<div class="option-item-header">
+    <span class="emoji">${m.emoji}</span>
+    <div><div class="name">${m.name}</div></div>
+  </div>`;
+
+  if (m.shot) {
+    html += `<div class="option-section">
+      <div class="option-label">☕ 에스프레소 샷</div>
+      <div class="option-chips">
+        ${['기본','추가 (+500원)'].map(v=>{
+          const key = v==='추가 (+500원)'?'추가':'기본';
+          return `<div class="chip ${ci.options.shot===key?'selected':''}" onclick="setOption(${ci.menuId},'shot','${key}')">${v}</div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+  if (m.ice) {
+    html += `<div class="option-section">
+      <div class="option-label">🧊 얼음</div>
+      <div class="option-chips">
+        ${['기본 얼음','각 얼음','얼음 없음'].map(v=>
+          `<div class="chip ${ci.options.ice===v?'selected':''}" onclick="setOption(${ci.menuId},'ice','${v}')">${v}</div>`
+        ).join('')}
+      </div>
+    </div>`;
+  }
+  if (m.milk) {
+    html += `<div class="option-section">
+      <div class="option-label">🥛 우유</div>
+      <div class="option-chips">
+        ${['일반','저지방 (+300원)'].map(v=>{
+          const key = v==='저지방 (+300원)'?'저지방':'일반';
+          return `<div class="chip ${ci.options.milk===key?'selected':''}" onclick="setOption(${ci.menuId},'milk','${key}')">${v}</div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('options-scroll').innerHTML = html;
+  document.getElementById('options-total').textContent = '₩' + cartTotal().toLocaleString();
+
+  const prevBtn = document.getElementById('options-prev-btn');
+  const nextBtn = document.getElementById('options-next-btn');
+  nextBtn.style.display = 'flex';
+  prevBtn.style.display = currentOptionIndex === 0 ? 'none' : 'flex';
+  nextBtn.textContent = currentOptionIndex === items.length - 1 ? '완료 →' : '다음 →';
+}
+
+function setOption(menuId, key, val) {
+  const ci = cart.find(c=>c.menuId===menuId);
+  if (ci) { ci.options[key] = val; renderOptionScreen(); }
+}
+
+function nextOption() {
+  const items = cart.filter(ci => {
+    const m = MENU.find(m=>m.id===ci.menuId);
+    return m.shot || m.ice || m.milk;
+  });
+  if (currentOptionIndex < items.length - 1) {
+    currentOptionIndex++;
+    renderOptionScreen();
+  } else {
+    goToAllergy();
+  }
+}
+function prevOption() {
+  if (currentOptionIndex > 0) { currentOptionIndex--; renderOptionScreen(); }
+}
+
+// ─── ALLERGY ──────────────────────────────────────
+async function goToAllergy() {
+  if (ALLERGY_INFO.length === 0) {
+    try { await loadAllergy(); } catch (e) { alert('알러지 정보 로드 실패: ' + e.message); return; }
+  }
+  const myItems = cart.map(ci => MENU.find(m=>m.id===ci.menuId).name);
+  const grid = document.getElementById('allergy-grid');
+  grid.innerHTML = ALLERGY_INFO.map(a => {
+    const hasIt = a.items.some(i => myItems.includes(i));
+    return `<div class="allergy-badge ${hasIt?'has-allergy':''}">
+      <span class="icon">${a.icon}</span>
+      <div class="text">
+        ${a.name}
+        ${hasIt?'<small>⚠️ 주문 메뉴에 포함</small>':'<small>해당 없음</small>'}
+      </div>
+    </div>`;
+  }).join('');
+  showScreen('screen-allergy');
+}
+
+function allergyIssue() {
+  alert('직원을 호출합니다. 잠시만 기다려 주세요.');
+}
+
+// ─── PAYMENT ──────────────────────────────────────
+const PAYMENT_LABELS = { card: '카드 결제 처리 중...', apple_pay: 'Apple Pay 인증 중...', samsung_pay: 'Samsung Pay 인증 중...' };
+
+function goToPayment() {
+  document.getElementById('payment-total-amt').textContent = '₩' + cartTotal().toLocaleString();
+  selectedPayment = null;
+  document.getElementById('pay-card').classList.remove('selected');
+  document.getElementById('pay-apple').classList.remove('selected');
+  document.getElementById('pay-samsung').classList.remove('selected');
+  showScreen('screen-payment');
+}
+
+function selectPayment(type) {
+  selectedPayment = type;
+  document.getElementById('pay-card').classList.toggle('selected', type==='card');
+  document.getElementById('pay-apple').classList.toggle('selected', type==='apple_pay');
+  document.getElementById('pay-samsung').classList.toggle('selected', type==='samsung_pay');
+}
+
+async function processPayment() {
+  if (!selectedPayment) { alert('결제 방법을 선택해 주세요.'); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'processing-overlay';
+  overlay.innerHTML = `<div class="spinner"></div><div style="color:var(--text); font-size:15px;">${PAYMENT_LABELS[selectedPayment] || '결제 처리 중...'}</div>`;
+  document.body.appendChild(overlay);
+
+  setTimeout(async () => {
+    try {
+      const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload()) });
+      overlay.remove();
+      if (selectedDelivery === 'pickup') {
+        document.getElementById('order-number-pickup').textContent = r.order_number;
+        showScreen('screen-complete-pickup');
+      } else {
+        document.getElementById('order-number-serving').textContent = r.order_number;
+        document.getElementById('serving-complete-text').textContent =
+          `${tableNo}번 테이블로 서빙하겠습니다.\n준비되면 곧 서빙해 드립니다.`;
+        showScreen('screen-complete-serving');
+      }
+    } catch (e) {
+      overlay.remove();
+      if (e.status === 409) {
+        alert('해당 테이블이 이미 사용 중으로 표시됩니다. 직원에게 문의해 주세요.');
+      } else {
+        alert('주문 생성 실패: ' + e.message);
+      }
+    }
+  }, 1500);
+}
+
+// ─── INIT ─────────────────────────────────────────
+function parseTableNo() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('table');
+  if (raw == null) return null;
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n) || n < 1) return null;
+  return n;
+}
+
+function init() {
+  tableNo = parseTableNo();
+  if (tableNo == null) {
+    document.getElementById('error-text').textContent =
+      '테이블 정보가 없습니다. QR 코드로 다시 접속해 주세요.';
+    showScreen('screen-error');
+    return;
+  }
+  document.getElementById('badge-table-num').textContent = tableNo;
+  document.getElementById('table-badge').style.display = 'flex';
+  showScreen('screen-delivery');
+  loadMenu().catch(()=>{});
+  loadAllergy().catch(()=>{});
+}
+
+init();
+</script>
+</body>
+</html>
