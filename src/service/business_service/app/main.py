@@ -1,90 +1,118 @@
-import asyncio
-import json
 import logging
 import os
-from typing import Any
+import socket
+import socketserver
 
 SERVICE_NAME = os.getenv("BUSINESS_SERVICE_NAME", "business_service")
 HOST = os.getenv("BUSINESS_SERVICE_HOST", "0.0.0.0")
 PORT = int(os.getenv("BUSINESS_SERVICE_PORT", "9001"))
-BUSINESS_DB_HOST = os.getenv("BUSINESS_SERVICE_DB_HOST", "business_db")
-BUSINESS_DB_PORT = int(os.getenv("BUSINESS_SERVICE_DB_PORT", "3306"))
 CONTROL_SERVICE_HOST = os.getenv("BUSINESS_SERVICE_CONTROL_SERVICE_HOST", "control_service")
 CONTROL_SERVICE_PORT = int(os.getenv("BUSINESS_SERVICE_CONTROL_SERVICE_PORT", "9002"))
 WEB_SERVICE_HOST = os.getenv("BUSINESS_SERVICE_WEB_SERVICE_HOST", "web_service")
 WEB_SERVICE_TCP_PORT = int(os.getenv("BUSINESS_SERVICE_WEB_SERVICE_TCP_PORT", "9004"))
 
+STX = 0x02
+HEALTH_CMD = 0x01
+STATUS_CMD = 0x10
+ETX = 0x03
+FRAME_SIZE = 4
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(SERVICE_NAME)
 
 
-def success_response(message_type: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {
-        "ok": True,
-        "type": message_type,
-        "service": SERVICE_NAME,
-        "data": data or {},
-    }
+def build_frame(cmd: int, seq: int) -> bytes:
+    return bytes([STX, cmd & 0xFF, seq & 0xFF, ETX])
 
 
-def error_response(message: str) -> dict[str, Any]:
-    return {
-        "ok": False,
-        "service": SERVICE_NAME,
-        "error": message,
-    }
+def build_status_frame(seq: int) -> bytes:
+    return build_frame(STATUS_CMD, seq)
 
 
-def handle_message(message: dict[str, Any]) -> dict[str, Any]:
-    message_type = message.get("type")
-
-    if message_type == "health":
-        return success_response("health", {"status": "ok"})
-
-    if message_type == "status":
-        return success_response(
-            "status",
-            {
-                "role": "Coordinates business workflows and connects WebService, ControlService, and BusinessDB.",
-                "dependencies": {
-                    "business_db": {"host": BUSINESS_DB_HOST, "port": BUSINESS_DB_PORT},
-                    "control_service": {"host": CONTROL_SERVICE_HOST, "port": CONTROL_SERVICE_PORT},
-                    "web_service": {"host": WEB_SERVICE_HOST, "tcp_port": WEB_SERVICE_TCP_PORT},
-                },
-            },
-        )
-
-    return error_response(f"unsupported message type: {message_type}")
+def parse_frame(frame: bytes) -> tuple[int, int]:
+    if len(frame) != FRAME_SIZE:
+        raise ValueError(f"invalid frame length: {len(frame)}")
+    stx, cmd, seq, etx = frame
+    if stx != STX:
+        raise ValueError(f"invalid STX: 0x{stx:02X}")
+    if cmd not in {HEALTH_CMD, STATUS_CMD}:
+        raise ValueError(f"unsupported CMD: 0x{cmd:02X}")
+    if etx != ETX:
+        raise ValueError(f"invalid ETX: 0x{etx:02X}")
+    return cmd, seq
 
 
-async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-    peer = writer.get_extra_info("peername")
-    logger.info("client connected: %s", peer)
-
+def send_status(host: str, port: int, seq: int, target_name: str) -> bool:
     try:
-        while line := await reader.readline():
+        with socket.create_connection((host, port), timeout=3.0) as sock:
+            sock.sendall(build_status_frame(seq))
+    except OSError as exc:
+        logger.warning("failed to send STATUS to %s at %s:%s: %s", target_name, host, port, exc)
+        return False
+
+    logger.info("sent STATUS to %s seq=%s", target_name, seq)
+    return True
+
+
+def run_health_test(seq: int) -> None:
+    send_status(CONTROL_SERVICE_HOST, CONTROL_SERVICE_PORT, seq, "ControlService")
+
+
+class ThreadingTcpServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class RequestHandler(socketserver.BaseRequestHandler):
+    def handle(self) -> None:
+        peer = self.client_address
+        logger.info("client connected: %s", peer)
+
+        try:
+            while True:
+                frame = self._read_exact()
+                if frame is None:
+                    return
+
+                try:
+                    cmd, seq = parse_frame(frame)
+                except ValueError as exc:
+                    logger.warning("invalid tcp test frame from %s: %s", peer, exc)
+                    continue
+
+                if cmd == HEALTH_CMD:
+                    logger.info("received HEALTH trigger from %s seq=%s", peer, seq)
+                    run_health_test(seq)
+                elif cmd == STATUS_CMD:
+                    logger.info("received STATUS probe from %s seq=%s", peer, seq)
+        finally:
+            logger.info("client disconnected: %s", peer)
+
+    def _read_exact(self) -> bytes | None:
+        chunks = bytearray()
+        while len(chunks) < FRAME_SIZE:
             try:
-                request = json.loads(line.decode("utf-8"))
-                response = handle_message(request)
-            except json.JSONDecodeError as exc:
-                response = error_response(f"invalid json: {exc.msg}")
+                chunk = self.request.recv(FRAME_SIZE - len(chunks))
+            except OSError as exc:
+                logger.warning("tcp read failed from %s: %s", self.client_address, exc)
+                return None
+            if not chunk:
+                if chunks:
+                    logger.warning(
+                        "partial tcp test frame from %s: %s",
+                        self.client_address,
+                        bytes(chunks).hex(" "),
+                    )
+                return None
+            chunks.extend(chunk)
+        return bytes(chunks)
 
-            writer.write((json.dumps(response) + "\n").encode("utf-8"))
-            await writer.drain()
-    finally:
-        writer.close()
-        await writer.wait_closed()
-        logger.info("client disconnected: %s", peer)
 
-
-async def main() -> None:
-    server = await asyncio.start_server(handle_client, HOST, PORT)
-    sockets = ", ".join(str(sock.getsockname()) for sock in server.sockets or [])
-    logger.info("%s listening on %s", SERVICE_NAME, sockets)
-
-    async with server:
-        await server.serve_forever()
+def main() -> None:
+    with ThreadingTcpServer((HOST, PORT), RequestHandler) as server:
+        logger.info("%s listening on %s", SERVICE_NAME, server.server_address)
+        server.serve_forever()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

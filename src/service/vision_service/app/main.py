@@ -1,7 +1,8 @@
-import asyncio
 import json
 import logging
 import os
+import socketserver
+import threading
 from typing import Any
 
 SERVICE_NAME = os.getenv("VISION_SERVICE_NAME", "vision_service")
@@ -57,59 +58,80 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any]:
     return error_response(f"unsupported message type: {message_type}")
 
 
-async def handle_tcp_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-    peer = writer.get_extra_info("peername")
-    logger.info("tcp client connected: %s", peer)
-
-    try:
-        while line := await reader.readline():
-            try:
-                request = json.loads(line.decode("utf-8"))
-                response = handle_message(request)
-            except json.JSONDecodeError as exc:
-                response = error_response(f"invalid json: {exc.msg}")
-
-            writer.write((json.dumps(response) + "\n").encode("utf-8"))
-            await writer.drain()
-    finally:
-        writer.close()
-        await writer.wait_closed()
-        logger.info("tcp client disconnected: %s", peer)
+class ThreadingTcpServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
 
 
-class VisionDatagramProtocol(asyncio.DatagramProtocol):
-    def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        self.transport = transport
-        logger.info("%s udp listening on %s:%s", SERVICE_NAME, UDP_HOST, UDP_PORT)
+class ThreadingUdpServer(socketserver.ThreadingUDPServer):
+    allow_reuse_address = True
+    daemon_threads = True
 
-    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+
+class TcpRequestHandler(socketserver.StreamRequestHandler):
+    def handle(self) -> None:
+        peer = self.client_address
+        logger.info("tcp client connected: %s", peer)
+
+        try:
+            for raw_line in self.rfile:
+                line = raw_line.decode("utf-8")
+                try:
+                    request = json.loads(line)
+                    response = handle_message(request)
+                except json.JSONDecodeError as exc:
+                    response = error_response(f"invalid json: {exc.msg}")
+
+                self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+                self.wfile.flush()
+        finally:
+            logger.info("tcp client disconnected: %s", peer)
+
+
+class UdpRequestHandler(socketserver.DatagramRequestHandler):
+    def handle(self) -> None:
+        data = self.rfile.read()
         try:
             request = json.loads(data.decode("utf-8"))
             response = handle_message(request)
         except json.JSONDecodeError as exc:
             response = error_response(f"invalid json: {exc.msg}")
 
-        logger.info("udp message from %s: %s", addr, data.decode("utf-8", errors="replace"))
-        self.transport.sendto(json.dumps(response).encode("utf-8"), addr)
+        logger.info("udp message from %s: %s", self.client_address, data.decode("utf-8", errors="replace"))
+        self.wfile.write(json.dumps(response).encode("utf-8"))
 
 
-async def main() -> None:
-    tcp_server = await asyncio.start_server(handle_tcp_client, TCP_HOST, TCP_PORT)
-    loop = asyncio.get_running_loop()
-    udp_transport, _ = await loop.create_datagram_endpoint(
-        VisionDatagramProtocol,
-        local_addr=(UDP_HOST, UDP_PORT),
+def serve(server: socketserver.BaseServer, label: str) -> None:
+    logger.info("%s %s listening on %s", SERVICE_NAME, label, server.server_address)
+    server.serve_forever()
+
+
+def main() -> None:
+    tcp_server = ThreadingTcpServer((TCP_HOST, TCP_PORT), TcpRequestHandler)
+    udp_server = ThreadingUdpServer((UDP_HOST, UDP_PORT), UdpRequestHandler)
+    tcp_thread = threading.Thread(
+        target=serve,
+        args=(tcp_server, "tcp"),
+        name="vision-service-tcp-server",
+        daemon=True,
+    )
+    udp_thread = threading.Thread(
+        target=serve,
+        args=(udp_server, "udp"),
+        name="vision-service-udp-server",
+        daemon=True,
     )
 
-    sockets = ", ".join(str(sock.getsockname()) for sock in tcp_server.sockets or [])
-    logger.info("%s tcp listening on %s", SERVICE_NAME, sockets)
-
     try:
-        async with tcp_server:
-            await tcp_server.serve_forever()
+        tcp_thread.start()
+        udp_thread.start()
+        tcp_thread.join()
     finally:
-        udp_transport.close()
+        tcp_server.shutdown()
+        udp_server.shutdown()
+        tcp_server.server_close()
+        udp_server.server_close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

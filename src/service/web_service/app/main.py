@@ -1,7 +1,8 @@
-import asyncio
 import json
 import logging
 import os
+import socketserver
+import threading
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
@@ -77,47 +78,68 @@ def handle_tcp_message(message: dict[str, Any]) -> dict[str, Any]:
     return error_response(f"unsupported message type: {message_type}")
 
 
-async def handle_tcp_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-    peer = writer.get_extra_info("peername")
-    logger.info("tcp client connected: %s", peer)
-
-    try:
-        while line := await reader.readline():
-            try:
-                request = json.loads(line.decode("utf-8"))
-                response = handle_tcp_message(request)
-            except json.JSONDecodeError as exc:
-                response = error_response(f"invalid json: {exc.msg}")
-
-            writer.write((json.dumps(response) + "\n").encode("utf-8"))
-            await writer.drain()
-    finally:
-        writer.close()
-        await writer.wait_closed()
-        logger.info("tcp client disconnected: %s", peer)
+class ThreadingTcpServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
 
 
-async def run_tcp_server(stop_event: asyncio.Event) -> None:
-    server = await asyncio.start_server(handle_tcp_client, TCP_HOST, TCP_PORT)
-    sockets = ", ".join(str(sock.getsockname()) for sock in server.sockets or [])
-    logger.info("%s tcp listening on %s", SERVICE_NAME, sockets)
+class TcpRequestHandler(socketserver.StreamRequestHandler):
+    def handle(self) -> None:
+        peer = self.client_address
+        logger.info("tcp client connected: %s", peer)
 
-    async with server:
-        await stop_event.wait()
-        server.close()
-        await server.wait_closed()
+        try:
+            for raw_line in self.rfile:
+                line = raw_line.decode("utf-8")
+                try:
+                    request = json.loads(line)
+                    response = handle_tcp_message(request)
+                except json.JSONDecodeError as exc:
+                    response = error_response(f"invalid json: {exc.msg}")
+
+                self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+                self.wfile.flush()
+        finally:
+            logger.info("tcp client disconnected: %s", peer)
+
+
+class TcpServerThread:
+    def __init__(self) -> None:
+        self._server: ThreadingTcpServer | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._server = ThreadingTcpServer((TCP_HOST, TCP_PORT), TcpRequestHandler)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever,
+            name="web-service-tcp-server",
+            daemon=True,
+        )
+        self._thread.start()
+        logger.info("%s tcp listening on %s", SERVICE_NAME, self._server.server_address)
+
+    def stop(self) -> None:
+        if self._server is None:
+            return
+
+        self._server.shutdown()
+        self._server.server_close()
+        self._server = None
+
+        if self._thread is not None:
+            self._thread.join(timeout=3.0)
+            self._thread = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    stop_event = asyncio.Event()
-    tcp_task = asyncio.create_task(run_tcp_server(stop_event))
+    tcp_server = TcpServerThread()
+    tcp_server.start()
 
     try:
         yield
     finally:
-        stop_event.set()
-        await tcp_task
+        tcp_server.stop()
 
 
 app = FastAPI(title="Web Service", lifespan=lifespan)
@@ -137,6 +159,7 @@ app.include_router(pages_router.router)
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
+    logger.info("received HTTP /health request")
     return {
         "status": "ok",
         "service": SERVICE_NAME,
