@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SERVICE_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = SERVICE_DIR.parents[1]
+REPO_ROOT = SERVICE_DIR.parents[0]
 PROJECT_ROOT = REPO_ROOT if (REPO_ROOT / "ui").exists() else SERVICE_DIR
 UI_ROOT = PROJECT_ROOT / "ui"
 ORDER_VUI_DIR = UI_ROOT / "order_vui"

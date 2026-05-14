@@ -1,12 +1,11 @@
-import json
 import logging
 import socketserver
 import threading
 from collections.abc import Callable
-from typing import Any
 
-MessageHandler = Callable[[dict[str, Any]], dict[str, Any]]
-ErrorHandler = Callable[[str], dict[str, Any]]
+from app.protocol.tcp_frame import FRAME_SIZE, parse_frame
+
+FrameHandler = Callable[[int, int, tuple[str, int]], None]
 
 
 class ThreadingTcpServer(socketserver.ThreadingTCPServer):
@@ -15,28 +14,48 @@ class ThreadingTcpServer(socketserver.ThreadingTCPServer):
 
 
 def create_request_handler(
-    handle_message: MessageHandler,
-    error_response: ErrorHandler,
+    handle_frame: FrameHandler,
     logger: logging.Logger,
-) -> type[socketserver.StreamRequestHandler]:
-    class TcpRequestHandler(socketserver.StreamRequestHandler):
+) -> type[socketserver.BaseRequestHandler]:
+    class TcpRequestHandler(socketserver.BaseRequestHandler):
         def handle(self) -> None:
             peer = self.client_address
             logger.info("tcp client connected: %s", peer)
 
             try:
-                for raw_line in self.rfile:
-                    line = raw_line.decode("utf-8")
-                    try:
-                        request = json.loads(line)
-                        response = handle_message(request)
-                    except json.JSONDecodeError as exc:
-                        response = error_response(f"invalid json: {exc.msg}")
+                while True:
+                    frame = self._read_exact()
+                    if frame is None:
+                        return
 
-                    self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
-                    self.wfile.flush()
+                    try:
+                        cmd, seq = parse_frame(frame)
+                    except ValueError as exc:
+                        logger.warning("invalid tcp frame from %s: %s", peer, exc)
+                        continue
+
+                    handle_frame(cmd, seq, peer)
             finally:
                 logger.info("tcp client disconnected: %s", peer)
+
+        def _read_exact(self) -> bytes | None:
+            chunks = bytearray()
+            while len(chunks) < FRAME_SIZE:
+                try:
+                    chunk = self.request.recv(FRAME_SIZE - len(chunks))
+                except OSError as exc:
+                    logger.warning("tcp read failed from %s: %s", self.client_address, exc)
+                    return None
+                if not chunk:
+                    if chunks:
+                        logger.warning(
+                            "partial tcp frame from %s: %s",
+                            self.client_address,
+                            bytes(chunks).hex(" "),
+                        )
+                    return None
+                chunks.extend(chunk)
+            return bytes(chunks)
 
     return TcpRequestHandler
 
@@ -46,14 +65,12 @@ class TcpServerThread:
         self,
         host: str,
         port: int,
-        handle_message: MessageHandler,
-        error_response: ErrorHandler,
+        handle_frame: FrameHandler,
         logger: logging.Logger,
     ) -> None:
         self.host = host
         self.port = port
-        self.handle_message = handle_message
-        self.error_response = error_response
+        self.handle_frame = handle_frame
         self.logger = logger
         self._server: ThreadingTcpServer | None = None
         self._thread: threading.Thread | None = None
@@ -61,7 +78,7 @@ class TcpServerThread:
     def start(self) -> None:
         self._server = ThreadingTcpServer(
             (self.host, self.port),
-            create_request_handler(self.handle_message, self.error_response, self.logger),
+            create_request_handler(self.handle_frame, self.logger),
         )
         self._thread = threading.Thread(
             target=self._server.serve_forever,

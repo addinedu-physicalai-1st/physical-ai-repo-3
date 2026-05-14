@@ -8,6 +8,8 @@ class ControlServiceConfig:
     service_name: str
     host: str
     port: int
+    admin_gui_host: str
+    admin_gui_port: int
     business_service_host: str
     business_service_port: int
     vision_service_host: str
@@ -20,6 +22,8 @@ def load_config() -> ControlServiceConfig:
         service_name=os.getenv("CONTROL_SERVICE_NAME", "control_service"),
         host=os.getenv("CONTROL_SERVICE_HOST", "0.0.0.0"),
         port=int(os.getenv("CONTROL_SERVICE_PORT", "9002")),
+        admin_gui_host=os.getenv("CONTROL_SERVICE_ADMIN_GUI_HOST", "127.0.0.1"),
+        admin_gui_port=int(os.getenv("CONTROL_SERVICE_ADMIN_GUI_PORT", "9000")),
         business_service_host=os.getenv("CONTROL_SERVICE_BUSINESS_SERVICE_HOST", "business_service"),
         business_service_port=int(os.getenv("CONTROL_SERVICE_BUSINESS_SERVICE_PORT", "9001")),
         vision_service_host=os.getenv("CONTROL_SERVICE_VISION_SERVICE_HOST", "vision_service"),

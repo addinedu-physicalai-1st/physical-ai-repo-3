@@ -9,10 +9,14 @@ services:
       BUSINESS_SERVICE_PORT: "9001"
       BUSINESS_SERVICE_DB_HOST: business_db
       BUSINESS_SERVICE_DB_PORT: "3306"
+      BUSINESS_SERVICE_ADMIN_GUI_HOST: ${ADMIN_GUI_HOST:-host.docker.internal}
+      BUSINESS_SERVICE_ADMIN_GUI_PORT: ${ADMIN_GUI_PORT:-9000}
       BUSINESS_SERVICE_CONTROL_SERVICE_HOST: control_service
       BUSINESS_SERVICE_CONTROL_SERVICE_PORT: "9002"
       BUSINESS_SERVICE_WEB_SERVICE_HOST: web_service
       BUSINESS_SERVICE_WEB_SERVICE_TCP_PORT: "9004"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       business_db:
         condition: service_healthy
@@ -25,11 +29,15 @@ services:
       - "9002:9002"
     environment:
       CONTROL_SERVICE_PORT: "9002"
+      CONTROL_SERVICE_ADMIN_GUI_HOST: ${ADMIN_GUI_HOST:-host.docker.internal}
+      CONTROL_SERVICE_ADMIN_GUI_PORT: ${ADMIN_GUI_PORT:-9000}
       CONTROL_SERVICE_BUSINESS_SERVICE_HOST: business_service
       CONTROL_SERVICE_BUSINESS_SERVICE_PORT: "9001"
       CONTROL_SERVICE_VISION_SERVICE_HOST: ${VISION_SERVICE_HOST:-ai-server.local}
       CONTROL_SERVICE_VISION_SERVICE_TCP_PORT: ${VISION_SERVICE_TCP_PORT:-9003}
       CONTROL_SERVICE_ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   web_service:
     build:
@@ -43,6 +51,9 @@ services:
       WEB_SERVICE_TCP_PORT: "9004"
       WEB_SERVICE_BUSINESS_SERVICE_HOST: business_service
       WEB_SERVICE_BUSINESS_SERVICE_PORT: "9001"
+    volumes:
+      - ../app/order_vui:/app/ui/order_vui:ro
+      - ../app/table_gui:/app/ui/table_gui:ro
 
   business_db:
     image: mysql:8.4

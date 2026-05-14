@@ -1,26 +1,14 @@
+import logging
 from typing import Any
 
 from app.config import WebServiceConfig
+from app.protocol.tcp_frame import HEALTH_CMD, STATUS_CMD
 
 
 class StatusService:
-    def __init__(self, config: WebServiceConfig):
+    def __init__(self, config: WebServiceConfig, logger: logging.Logger | None = None):
         self.config = config
-
-    def success_response(self, message_type: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
-        return {
-            "ok": True,
-            "type": message_type,
-            "service": self.config.service_name,
-            "data": data or {},
-        }
-
-    def error_response(self, message: str) -> dict[str, Any]:
-        return {
-            "ok": False,
-            "service": self.config.service_name,
-            "error": message,
-        }
+        self.logger = logger or logging.getLogger(config.service_name)
 
     def status_data(self) -> dict[str, Any]:
         return {
@@ -47,13 +35,10 @@ class StatusService:
             ],
         }
 
-    def handle_tcp_message(self, message: dict[str, Any]) -> dict[str, Any]:
-        message_type = message.get("type")
+    def handle_tcp_frame(self, cmd: int, seq: int, peer: tuple[str, int]) -> None:
+        if cmd == HEALTH_CMD:
+            self.logger.info("health frame accepted seq=%s status=ok", seq)
+            return
 
-        if message_type == "health":
-            return self.success_response("health", {"status": "ok"})
-
-        if message_type == "status":
-            return self.success_response("status", self.status_data())
-
-        return self.error_response(f"unsupported message type: {message_type}")
+        if cmd == STATUS_CMD:
+            self.logger.info("received STATUS probe from %s seq=%s", peer, seq)

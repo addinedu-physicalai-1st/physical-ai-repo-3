@@ -14,7 +14,7 @@ from app.services.status_service import StatusService
 
 config = load_config()
 logger = configure_logging(config.service_name)
-status_service = StatusService(config)
+status_service = StatusService(config, logger)
 
 
 @asynccontextmanager
@@ -22,8 +22,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tcp_server = TcpServerThread(
         config.tcp_host,
         config.tcp_port,
-        status_service.handle_tcp_message,
-        status_service.error_response,
+        status_service.handle_tcp_frame,
         logger,
     )
     tcp_server.start()

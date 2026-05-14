@@ -14,6 +14,8 @@ HEALTH_CMD = 0x01
 ETX = 0x03
 
 DEFAULT_ADMIN_GUI_URL = "tcp://127.0.0.1:9000"
+DEFAULT_BUSINESS_SERVICE_URL = "tcp://127.0.0.1:9001"
+DEFAULT_CONTROL_SERVICE_URL = "tcp://127.0.0.1:9002"
 DEFAULT_WEB_SERVICE_HEALTH_URL = "http://127.0.0.1:8000/health"
 
 
@@ -44,16 +46,19 @@ def parse_tcp_url(name: str, url: str) -> ComponentEndpoint:
     return ComponentEndpoint(name=name, url=url, host=parsed.hostname, port=parsed.port)
 
 
-def send_health(endpoint: ComponentEndpoint, seq: int, timeout_sec: float) -> None:
-    frame = build_health_frame(seq)
+def send_tcp_frame(endpoint: ComponentEndpoint, frame: bytes, timeout_sec: float, label: str) -> None:
     try:
         with socket.create_connection((endpoint.host, endpoint.port), timeout=timeout_sec) as sock:
             sock.settimeout(timeout_sec)
             sock.sendall(frame)
     except OSError as exc:
         raise TcpHealthCheckError(
-            f"{endpoint.name}: failed to send HEALTH to {endpoint.url}: {exc}"
+            f"{endpoint.name}: failed to send {label} to {endpoint.url}: {exc}"
         ) from exc
+
+
+def send_health(endpoint: ComponentEndpoint, seq: int, timeout_sec: float) -> None:
+    send_tcp_frame(endpoint, build_health_frame(seq), timeout_sec, "HEALTH")
 
 
 def send_http_health(name: str, url: str, timeout_sec: float) -> int:
@@ -71,7 +76,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Send HEALTH checks.")
     parser.add_argument(
         "--component",
-        choices=["all", "admin_gui", "order_gui", "table_gui"],
+        choices=[
+            "all",
+            "admin_gui",
+            "order_gui",
+            "table_gui",
+            "business_service",
+            "control_service",
+        ],
         default="all",
         help="Component health check to run. Default: all.",
     )
@@ -99,6 +111,36 @@ def check_admin_gui(admin_gui_url: str, timeout_sec: float) -> bool:
     return True
 
 
+def check_business_service(business_service_url: str, timeout_sec: float) -> bool:
+    endpoint = parse_tcp_url("business_service", business_service_url)
+    try:
+        send_health(endpoint, 0, timeout_sec)
+    except TcpHealthCheckError as exc:
+        print(f"[tcp-health-check] {exc}", flush=True)
+        return False
+
+    print(
+        f"[tcp-health-check] business_service: sent HEALTH seq=0 to {endpoint.url}",
+        flush=True,
+    )
+    return True
+
+
+def check_control_service(control_service_url: str, timeout_sec: float) -> bool:
+    endpoint = parse_tcp_url("control_service", control_service_url)
+    try:
+        send_health(endpoint, 0, timeout_sec)
+    except TcpHealthCheckError as exc:
+        print(f"[tcp-health-check] {exc}", flush=True)
+        return False
+
+    print(
+        f"[tcp-health-check] control_service: sent HEALTH seq=0 to {endpoint.url}",
+        flush=True,
+    )
+    return True
+
+
 def check_gui_http(component: str, web_service_url: str, timeout_sec: float) -> bool:
     try:
         status = send_http_health(component, web_service_url, timeout_sec)
@@ -120,10 +162,21 @@ def main() -> int:
         "admin_gui": lambda: check_admin_gui(DEFAULT_ADMIN_GUI_URL, args.timeout),
         "order_gui": lambda: check_gui_http("order_gui", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
         "table_gui": lambda: check_gui_http("table_gui", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
+        "business_service": lambda: check_business_service(DEFAULT_BUSINESS_SERVICE_URL, args.timeout),
+        "control_service": lambda: check_control_service(DEFAULT_CONTROL_SERVICE_URL, args.timeout),
     }
 
     if args.component == "all":
-        results = [checks[name]() for name in ("admin_gui", "order_gui", "table_gui")]
+        results = [
+            checks[name]()
+            for name in (
+                "admin_gui",
+                "order_gui",
+                "table_gui",
+                "business_service",
+                "control_service",
+            )
+        ]
         return 0 if all(results) else 1
 
     return 0 if checks[args.component]() else 1

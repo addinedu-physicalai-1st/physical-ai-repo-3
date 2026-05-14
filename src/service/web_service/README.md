@@ -43,9 +43,11 @@ pytest
 
 ## TCP API
 
-JSON lines 형식으로 요청/응답합니다.
+4바이트 고정 프레임 형식으로 수신합니다.
 
-| type | 설명 |
-|---|---|
-| `health` | 서비스 health 응답 |
-| `status` | HTTP/TCP listener와 dependency 상태 응답 |
+| Byte | 값 | 설명 |
+|---|---|---|
+| 0 | `0x02` | STX |
+| 1 | `0x01` 또는 `0x10` | CMD (`0x01`: health, `0x10`: status) |
+| 2 | `0x00`-`0xFF` | sequence |
+| 3 | `0x03` | ETX |

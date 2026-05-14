@@ -19,6 +19,48 @@ class TcpApiError(RuntimeError):
     """Raised when a TCP API request cannot complete successfully."""
 
 
+def _resolve_host_addresses(host: str) -> set[str]:
+    try:
+        return {
+            result[4][0]
+            for result in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        }
+    except OSError:
+        return set()
+
+
+class TcpPeerNameResolver:
+    def __init__(self, config: AdminGuiConfig):
+        self.peer_names = self._build_peer_names(config)
+
+    def format_peer(self, peer: tuple[str, int]) -> str:
+        host, port = peer
+        name = self.peer_names.get(host)
+        if name:
+            return f'{name}:{port}'
+        return f'{host}:{port}'
+
+    def _build_peer_names(self, config: AdminGuiConfig) -> dict[str, str]:
+        candidates = [
+            ('business_service', config.business_service_host),
+            ('control_service', config.control_service_host),
+        ]
+
+        names_by_address: dict[str, list[str]] = {}
+        for name, host in candidates:
+            addresses = _resolve_host_addresses(host)
+            if not addresses:
+                addresses = {host}
+            for address in addresses:
+                names_by_address.setdefault(address, []).append(name)
+
+        return {
+            address: names[0]
+            for address, names in names_by_address.items()
+            if len(names) == 1
+        }
+
+
 def build_frame(cmd: int, seq: int) -> bytes:
     return bytes([STX, cmd & 0xFF, seq & 0xFF, ETX])
 
@@ -55,7 +97,7 @@ class TcpStatusClient:
             self.config.business_service_host,
             self.config.business_service_port,
             seq,
-            'BusinessService',
+            'business_service',
         )
 
     def send_status_to_control(self, seq: int) -> None:
@@ -63,7 +105,7 @@ class TcpStatusClient:
             self.config.control_service_host,
             self.config.control_service_port,
             seq,
-            'ControlService',
+            'control_service',
         )
 
     def send_status(self, host: str, port: int, seq: int, target_name: str) -> None:
@@ -76,7 +118,7 @@ class TcpStatusClient:
                 sock.settimeout(self.config.tcp_timeout_sec)
                 sock.sendall(frame)
         except OSError as exc:
-            raise TcpApiError(f'tcp status test failed: {target_name} {host}:{port}: {exc}') from exc
+            raise TcpApiError(f'tcp status test failed: {target_name}:{port}: {exc}') from exc
 
         logger.info('sent STATUS to %s seq=%s', target_name, seq)
 
@@ -90,7 +132,7 @@ class _HealthRequestHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         server: _ThreadingTcpServer = self.server
         config: AdminGuiConfig = server.config
-        peer = self.client_address
+        peer = server.peer_name_resolver.format_peer(self.client_address)
 
         while True:
             frame = self._read_exact()
@@ -106,8 +148,8 @@ class _HealthRequestHandler(socketserver.BaseRequestHandler):
             if cmd == HEALTH_CMD:
                 logger.info('received HEALTH trigger from %s seq=%s', peer, seq)
                 client = TcpStatusClient(config)
-                self._send_status(client.send_status_to_business, 'BusinessService', seq)
-                self._send_status(client.send_status_to_control, 'ControlService', seq)
+                self._send_status(client.send_status_to_business, 'business_service', seq)
+                self._send_status(client.send_status_to_control, 'control_service', seq)
             elif cmd == STATUS_CMD:
                 logger.info('received STATUS probe from %s seq=%s', peer, seq)
 
@@ -119,12 +161,16 @@ class _HealthRequestHandler(socketserver.BaseRequestHandler):
                 if chunks:
                     logger.warning(
                         'partial tcp test frame from %s: %s',
-                        self.client_address,
+                        self._format_peer(),
                         bytes(chunks).hex(' '),
                     )
                 return None
             chunks.extend(chunk)
         return bytes(chunks)
+
+    def _format_peer(self) -> str:
+        server: _ThreadingTcpServer = self.server
+        return server.peer_name_resolver.format_peer(self.client_address)
 
     def _send_status(self, send_fn, target_name: str, seq: int) -> None:
         try:
@@ -145,6 +191,7 @@ class AdminGuiTcpHealthServer:
 
         self._server = _ThreadingTcpServer((self.config.host, self.config.port), _HealthRequestHandler)
         self._server.config = self.config
+        self._server.peer_name_resolver = TcpPeerNameResolver(self.config)
         self._thread = threading.Thread(
             target=self._server.serve_forever,
             name='admin-gui-tcp-health-server',
