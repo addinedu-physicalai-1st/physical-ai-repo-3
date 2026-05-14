@@ -1,0 +1,3 @@
+serving_controller:
+  ros__parameters:
+    controller_name: serving_controller

@@ -9,8 +9,6 @@ class AdminGuiConfig:
     business_service_port: int = 9001
     control_service_host: str = '127.0.0.1'
     control_service_port: int = 9002
-    web_service_host: str = '127.0.0.1'
-    web_service_port: int = 9004
     tcp_timeout_sec: float = 3.0
 
 
@@ -30,7 +28,5 @@ def load_config() -> AdminGuiConfig:
         business_service_port=_get_int('ADMIN_GUI_BUSINESS_SERVICE_PORT', 9001),
         control_service_host=os.getenv('ADMIN_GUI_CONTROL_SERVICE_HOST', '127.0.0.1'),
         control_service_port=_get_int('ADMIN_GUI_CONTROL_SERVICE_PORT', 9002),
-        web_service_host=os.getenv('ADMIN_GUI_WEB_SERVICE_HOST', '127.0.0.1'),
-        web_service_port=_get_int('ADMIN_GUI_WEB_SERVICE_PORT', 9004),
         tcp_timeout_sec=_get_float('ADMIN_GUI_TCP_TIMEOUT_SEC', 3.0),
     )

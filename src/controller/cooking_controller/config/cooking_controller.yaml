@@ -1,0 +1,3 @@
+cooking_controller:
+  ros__parameters:
+    controller_name: cooking_controller

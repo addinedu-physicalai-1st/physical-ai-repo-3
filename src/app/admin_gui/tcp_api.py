@@ -50,10 +50,6 @@ class TcpApiClient:
                 self.config.control_service_host,
                 self.config.control_service_port,
             ),
-            'web': (
-                self.config.web_service_host,
-                self.config.web_service_port,
-            ),
         }
         try:
             return endpoints[service]

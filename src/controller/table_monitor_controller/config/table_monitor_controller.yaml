@@ -1,0 +1,3 @@
+table_monitor_controller:
+  ros__parameters:
+    controller_name: table_monitor_controller
