@@ -16,13 +16,31 @@ def main() -> None:
         port=config.business_service_port,
         name="BusinessService",
     )
+    cooking_controller_bridge = TcpEndpoint(
+        host=config.cooking_controller_bridge_host,
+        port=config.cooking_controller_bridge_port,
+        name="CookingControllerBridge",
+    )
+    serving_controller_bridge = TcpEndpoint(
+        host=config.serving_controller_bridge_host,
+        port=config.serving_controller_bridge_port,
+        name="ServingControllerBridge",
+    )
     status_notifiers = [
         TcpStatusNotifier(admin_gui, logger),
         TcpStatusNotifier(business_service, logger),
+        TcpStatusNotifier(cooking_controller_bridge, logger),
+        TcpStatusNotifier(serving_controller_bridge, logger),
     ]
     service = ControlService(status_notifiers, logger)
 
-    with create_health_server(config.host, config.port, service.run_health_test, logger) as server:
+    with create_health_server(
+        config.host,
+        config.port,
+        service.run_health_test,
+        service.handle_controller_status,
+        logger,
+    ) as server:
         logger.info("%s listening on %s", config.service_name, server.server_address)
         server.serve_forever()
 

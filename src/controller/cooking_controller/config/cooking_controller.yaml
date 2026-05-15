@@ -1,3 +1,9 @@
 cooking_controller:
   ros__parameters:
     controller_name: cooking_controller
+    control_service_host: 127.0.0.1
+    control_service_port: 9002
+    tcp_timeout_sec: 3.0
+    service_listener_host: 0.0.0.0
+    service_listener_port: 9005
+    control_status_topic: /control_service/status

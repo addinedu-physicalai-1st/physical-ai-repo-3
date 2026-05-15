@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<launch>
+  <include file="$(find-pkg-share vic_pinky_controller)/launch/vic_pinky_controller.launch.py"/>
+</launch>

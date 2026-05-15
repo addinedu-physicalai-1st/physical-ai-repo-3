@@ -4,6 +4,7 @@ import argparse
 import os
 import socket
 import sys
+import time
 from dataclasses import dataclass
 import urllib.error
 import urllib.request
@@ -17,6 +18,11 @@ DEFAULT_ADMIN_GUI_URL = "tcp://127.0.0.1:9000"
 DEFAULT_BUSINESS_SERVICE_URL = "tcp://127.0.0.1:9001"
 DEFAULT_CONTROL_SERVICE_URL = "tcp://127.0.0.1:9002"
 DEFAULT_WEB_SERVICE_HEALTH_URL = "http://127.0.0.1:8000/health"
+
+CONTROLLER_HEALTH_SERVICES = {
+    "cooking_controller": "/cooking_controller/health_check",
+    "serving_controller": "/serving_controller/health_check",
+}
 
 
 class TcpHealthCheckError(RuntimeError):
@@ -83,6 +89,9 @@ def parse_args() -> argparse.Namespace:
             "table_gui",
             "business_service",
             "control_service",
+            "cooking_controller",
+            "serving_controller",
+            "controllers",
         ],
         default="all",
         help="Component health check to run. Default: all.",
@@ -155,6 +164,73 @@ def check_gui_http(component: str, web_service_url: str, timeout_sec: float) -> 
     return True
 
 
+def check_controller_health(component: str, timeout_sec: float) -> bool:
+    try:
+        import rclpy
+        from std_srvs.srv import Trigger
+    except ImportError as exc:
+        print(
+            f"[tcp-health-check] {component}: failed to import ROS2 health dependencies: {exc}",
+            flush=True,
+        )
+        return False
+
+    service_name = CONTROLLER_HEALTH_SERVICES[component]
+    rclpy.init(args=None)
+    node = rclpy.create_node("tcp_health_check_client")
+    try:
+        client = node.create_client(Trigger, service_name)
+        if not client.wait_for_service(timeout_sec=timeout_sec):
+            print(
+                f"[tcp-health-check] {component}: service unavailable {service_name}",
+                flush=True,
+            )
+            return False
+
+        future = client.call_async(Trigger.Request())
+        deadline = time.monotonic() + timeout_sec
+        while rclpy.ok() and not future.done() and time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+        if not future.done():
+            print(
+                f"[tcp-health-check] {component}: timed out waiting for {service_name}",
+                flush=True,
+            )
+            return False
+
+        response = future.result()
+        if response is None:
+            print(
+                f"[tcp-health-check] {component}: service call failed {service_name}",
+                flush=True,
+            )
+            return False
+
+        if not response.success:
+            print(
+                f"[tcp-health-check] {component}: health check failed: {response.message}",
+                flush=True,
+            )
+            return False
+
+        print(
+            f"[tcp-health-check] {component}: {service_name} success: {response.message}",
+            flush=True,
+        )
+        return True
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def check_controllers(timeout_sec: float) -> bool:
+    return all(
+        check_controller_health(component, timeout_sec)
+        for component in ("cooking_controller", "serving_controller")
+    )
+
+
 def main() -> int:
     args = parse_args()
 
@@ -164,6 +240,9 @@ def main() -> int:
         "table_gui": lambda: check_gui_http("table_gui", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
         "business_service": lambda: check_business_service(DEFAULT_BUSINESS_SERVICE_URL, args.timeout),
         "control_service": lambda: check_control_service(DEFAULT_CONTROL_SERVICE_URL, args.timeout),
+        "cooking_controller": lambda: check_controller_health("cooking_controller", args.timeout),
+        "serving_controller": lambda: check_controller_health("serving_controller", args.timeout),
+        "controllers": lambda: check_controllers(args.timeout),
     }
 
     if args.component == "all":

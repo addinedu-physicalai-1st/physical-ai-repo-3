@@ -1,0 +1,8 @@
+service_controller_bridge:
+  ros__parameters:
+    status_topics:
+      - /cooking_controller/status
+      - /serving_controller/status
+    control_service_host: 127.0.0.1
+    control_service_port: 9002
+    tcp_timeout_sec: 3.0

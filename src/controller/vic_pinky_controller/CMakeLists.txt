@@ -7,9 +7,10 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_executable(vic_pinky_controller_node src/vic_pinky_controller_node.cpp)
-ament_target_dependencies(vic_pinky_controller_node rclcpp)
+ament_target_dependencies(vic_pinky_controller_node rclcpp std_msgs)
 
 install(TARGETS
   vic_pinky_controller_node

@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>interaction_controller</name>
+  <name>service_controller_bridge</name>
   <version>0.0.0</version>
-  <description>ROS2 Python package scaffold for the interaction controller.</description>
+  <description>ROS2 bridge between controller topics and operation service TCP status frames.</description>
   <maintainer email="robo@example.com">robo</maintainer>
   <license>TODO: License declaration</license>
 

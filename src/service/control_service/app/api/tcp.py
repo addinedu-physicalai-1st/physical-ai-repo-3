@@ -14,6 +14,7 @@ from app.protocol.tcp_frame import (
 )
 
 HealthHandler = Callable[[int], None]
+StatusHandler = Callable[[int, tuple[str, int]], None]
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ class ThreadingTcpServer(socketserver.ThreadingTCPServer):
 
 def create_health_request_handler(
     on_health: HealthHandler,
+    on_status: StatusHandler,
     logger: logging.Logger,
 ) -> type[socketserver.BaseRequestHandler]:
     class RequestHandler(socketserver.BaseRequestHandler):
@@ -87,7 +89,8 @@ def create_health_request_handler(
                         logger.info("received HEALTH trigger from %s seq=%s", peer, seq)
                         on_health(seq)
                     elif cmd == STATUS_CMD:
-                        logger.info("received STATUS probe from %s seq=%s", peer, seq)
+                        logger.info("received STATUS frame from %s seq=%s", peer, seq)
+                        on_status(seq, peer)
             finally:
                 logger.info("client disconnected: %s", peer)
 
@@ -117,6 +120,10 @@ def create_health_server(
     host: str,
     port: int,
     on_health: HealthHandler,
+    on_status: StatusHandler,
     logger: logging.Logger,
 ) -> ThreadingTcpServer:
-    return ThreadingTcpServer((host, port), create_health_request_handler(on_health, logger))
+    return ThreadingTcpServer(
+        (host, port),
+        create_health_request_handler(on_health, on_status, logger),
+    )
