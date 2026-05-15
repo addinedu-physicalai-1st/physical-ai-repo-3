@@ -1,11 +1,14 @@
-from app.api.tcp import TcpEndpoint, TcpStatusNotifier, create_health_server
 from app.config import configure_logging, load_config
 from app.service import BusinessService
+from app.tcp import TcpEndpoint, TcpStatusNotifier, TcpServer
 
 
 def main() -> None:
+    # config 설정 로드 및 로깅 세팅
     config = load_config()
     logger = configure_logging(config.service_name)
+
+    # TCP 통신 엔드포인트 정의
     admin_gui = TcpEndpoint(
         host=config.admin_gui_host,
         port=config.admin_gui_port,
@@ -26,9 +29,12 @@ def main() -> None:
         TcpStatusNotifier(control_service, logger),
         TcpStatusNotifier(web_service, logger),
     ]
+
+    # 비지니스 로직 서비스 객체 생성
     service = BusinessService(status_notifiers, logger)
 
-    with create_health_server(config.host, config.port, service.run_health_test, logger) as server:
+    # TCP 서버 생성
+    with TcpServer(config.server_host, config.server_port, service, logger) as server:
         logger.info("%s listening on %s", config.service_name, server.server_address)
         server.serve_forever()
 

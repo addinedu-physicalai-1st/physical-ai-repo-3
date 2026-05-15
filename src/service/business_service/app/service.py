@@ -1,6 +1,6 @@
 import logging
 
-from app.interface import StatusNotifier
+from app.tcp import StatusNotifier
 
 
 class BusinessService:
