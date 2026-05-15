@@ -85,7 +85,7 @@ def parse_args() -> argparse.Namespace:
         choices=[
             "all",
             "admin_gui",
-            "order_gui",
+            "order_vui",
             "table_gui",
             "business_service",
             "control_service",
@@ -236,7 +236,7 @@ def main() -> int:
 
     checks = {
         "admin_gui": lambda: check_admin_gui(DEFAULT_ADMIN_GUI_URL, args.timeout),
-        "order_gui": lambda: check_gui_http("order_gui", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
+        "order_vui": lambda: check_gui_http("order_vui", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
         "table_gui": lambda: check_gui_http("table_gui", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
         "business_service": lambda: check_business_service(DEFAULT_BUSINESS_SERVICE_URL, args.timeout),
         "control_service": lambda: check_control_service(DEFAULT_CONTROL_SERVICE_URL, args.timeout),
@@ -250,7 +250,7 @@ def main() -> int:
             checks[name]()
             for name in (
                 "admin_gui",
-                "order_gui",
+                "order_vui",
                 "table_gui",
                 "business_service",
                 "control_service",

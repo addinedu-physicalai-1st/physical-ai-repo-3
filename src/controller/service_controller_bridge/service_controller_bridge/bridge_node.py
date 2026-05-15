@@ -1,10 +1,9 @@
-import json
 import socket
 from functools import partial
 
+from controller_status_msgs.msg import Status
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
 
 from service_controller_bridge.tcp_frame import build_status_frame
 
@@ -26,7 +25,7 @@ class ServiceControllerBridgeNode(Node):
         self._timeout = float(self.get_parameter('tcp_timeout_sec').value)
         self._subscriptions = [
             self.create_subscription(
-                String,
+                Status,
                 topic,
                 partial(self._handle_status, topic),
                 10,
@@ -39,8 +38,8 @@ class ServiceControllerBridgeNode(Node):
             f'{self._host}:{self._port}: {list(status_topics)}'
         )
 
-    def _handle_status(self, topic: str, message: String) -> None:
-        seq = self._extract_seq(topic, message.data)
+    def _handle_status(self, topic: str, message: Status) -> None:
+        seq = int(message.request_id)
         try:
             with socket.create_connection(
                 (self._host, self._port),
@@ -55,20 +54,6 @@ class ServiceControllerBridgeNode(Node):
             return
 
         self.get_logger().info(f'sent STATUS seq={seq} from {topic} to control_service')
-
-    def _extract_seq(self, topic: str, payload: str) -> int:
-        try:
-            data = json.loads(payload)
-        except json.JSONDecodeError:
-            self.get_logger().warning(f'{topic} status payload is not JSON; using seq=0')
-            return 0
-
-        try:
-            return int(data.get('request_id', 0))
-        except (TypeError, ValueError):
-            self.get_logger().warning(f'{topic} request_id is invalid; using seq=0')
-            return 0
-
 
 def main(args=None):
     rclpy.init(args=args)

@@ -3,6 +3,7 @@ import socket
 import socketserver
 import threading
 
+from controller_status_msgs.msg import Status
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -42,7 +43,7 @@ def create_service_status_handler(node: 'ServingControllerNode'):
     class RequestHandler(socketserver.BaseRequestHandler):
         def handle(self):
             peer = self.client_address
-            node.get_logger().info(f'control_service tcp client connected: {peer}')
+            node.get_logger().debug(f'control_service tcp client connected: {peer}')
             try:
                 while True:
                     frame = self._read_exact()
@@ -59,7 +60,7 @@ def create_service_status_handler(node: 'ServingControllerNode'):
 
                     node.publish_control_service_status(seq)
             finally:
-                node.get_logger().info(f'control_service tcp client disconnected: {peer}')
+                node.get_logger().debug(f'control_service tcp client disconnected: {peer}')
 
         def _read_exact(self):
             chunks = bytearray()
@@ -107,7 +108,7 @@ class ServingControllerNode(Node):
             'control_service',
         ]
         self._status_publisher = self.create_publisher(
-            String,
+            Status,
             '/serving_controller/status',
             10,
         )
@@ -156,8 +157,8 @@ class ServingControllerNode(Node):
         self.get_logger().info(
             f'received health check request_id={self._request_id}'
         )
-        message = String()
-        message.data = json.dumps(payload, separators=(',', ':'))
+        message = Status()
+        message.request_id = payload['request_id']
         self._status_publisher.publish(message)
         self._send_status_to_control_service(self._request_id)
         self.get_logger().info(

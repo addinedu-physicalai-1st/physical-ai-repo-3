@@ -20,7 +20,7 @@ def create_request_handler(
     class TcpRequestHandler(socketserver.BaseRequestHandler):
         def handle(self) -> None:
             peer = self.client_address
-            logger.info("tcp client connected: %s", peer)
+            logger.debug("tcp client connected: %s", peer)
 
             try:
                 while True:
@@ -36,7 +36,7 @@ def create_request_handler(
 
                     handle_frame(cmd, seq, peer)
             finally:
-                logger.info("tcp client disconnected: %s", peer)
+                logger.debug("tcp client disconnected: %s", peer)
 
         def _read_exact(self) -> bytes | None:
             chunks = bytearray()

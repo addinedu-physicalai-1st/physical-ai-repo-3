@@ -21,7 +21,7 @@ def create_request_handler(
     class TcpRequestHandler(socketserver.StreamRequestHandler):
         def handle(self) -> None:
             peer = self.client_address
-            logger.info("tcp client connected: %s", peer)
+            logger.debug("tcp client connected: %s", peer)
 
             try:
                 for raw_line in self.rfile:
@@ -35,7 +35,7 @@ def create_request_handler(
                     self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
                     self.wfile.flush()
             finally:
-                logger.info("tcp client disconnected: %s", peer)
+                logger.debug("tcp client disconnected: %s", peer)
 
     return TcpRequestHandler
 

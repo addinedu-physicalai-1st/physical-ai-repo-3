@@ -13,6 +13,7 @@
 #include <sstream>
 #include <string>
 
+#include "controller_status_msgs/msg/status.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -34,7 +35,7 @@ public:
     service_listener_port_ = this->declare_parameter<int>("service_listener_port", 9005);
     control_status_topic_ = this->declare_parameter<std::string>(
       "control_status_topic", "/control_service/status");
-    status_publisher_ = this->create_publisher<std_msgs::msg::String>(
+    status_publisher_ = this->create_publisher<controller_status_msgs::msg::Status>(
       "/cooking_controller/status", 10);
     control_service_status_publisher_ = this->create_publisher<std_msgs::msg::String>(
       control_status_topic_, 10);
@@ -86,14 +87,8 @@ private:
 
     RCLCPP_INFO(this->get_logger(), "received health check request_id=%u", request_id);
 
-    std_msgs::msg::String message;
-    std::ostringstream payload;
-    payload << "{\"source\":\"cooking_controller\","
-            << "\"event\":\"health_status\","
-            << "\"status\":\"ok\","
-            << "\"request_id\":" << request_id << ","
-            << "\"targets\":[\"dual_arm_controller\",\"control_service\"]}";
-    message.data = payload.str();
+    controller_status_msgs::msg::Status message;
+    message.request_id = request_id;
     status_publisher_->publish(message);
     send_status_to_control_service(request_id);
 
@@ -306,7 +301,7 @@ private:
       control_status_topic_.c_str());
   }
 
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_publisher_;
+  rclcpp::Publisher<controller_status_msgs::msg::Status>::SharedPtr status_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr control_service_status_publisher_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr health_service_;
   std::string control_service_host_;

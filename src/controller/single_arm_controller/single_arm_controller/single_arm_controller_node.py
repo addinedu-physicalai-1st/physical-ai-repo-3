@@ -1,6 +1,6 @@
+from controller_status_msgs.msg import Status
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
 
 
 class SingleArmControllerNode(Node):
@@ -9,7 +9,7 @@ class SingleArmControllerNode(Node):
         self.declare_parameter('controller_name', 'single_arm_controller')
         controller_name = self.get_parameter('controller_name').value
         self._serving_status_subscription = self.create_subscription(
-            String,
+            Status,
             '/serving_controller/status',
             self._handle_serving_status,
             10,
@@ -18,7 +18,8 @@ class SingleArmControllerNode(Node):
 
     def _handle_serving_status(self, message):
         self.get_logger().info(
-            f'single_arm_controller received /serving_controller/status: {message.data}'
+            'single_arm_controller received /serving_controller/status: '
+            f'request_id={message.request_id}'
         )
 
 

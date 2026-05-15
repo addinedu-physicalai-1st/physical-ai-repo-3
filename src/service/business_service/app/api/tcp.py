@@ -69,7 +69,7 @@ def create_health_request_handler(
     class RequestHandler(socketserver.BaseRequestHandler):
         def handle(self) -> None:
             peer = self.client_address
-            logger.info("client connected: %s", peer)
+            logger.debug("client connected: %s", peer)
 
             try:
                 while True:
@@ -89,7 +89,7 @@ def create_health_request_handler(
                     elif cmd == STATUS_CMD:
                         logger.info("received STATUS probe from %s seq=%s", peer, seq)
             finally:
-                logger.info("client disconnected: %s", peer)
+                logger.debug("client disconnected: %s", peer)
 
         def _read_exact(self) -> bytes | None:
             chunks = bytearray()

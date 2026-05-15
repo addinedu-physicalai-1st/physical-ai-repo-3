@@ -1,8 +1,8 @@
 #include <memory>
 #include <string>
 
+#include "controller_status_msgs/msg/status.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/string.hpp"
 
 class DualArmControllerNode : public rclcpp::Node
 {
@@ -12,20 +12,20 @@ public:
   {
     const auto controller_name = this->declare_parameter<std::string>(
       "controller_name", "dual_arm_controller");
-    cooking_status_subscription_ = this->create_subscription<std_msgs::msg::String>(
+    cooking_status_subscription_ = this->create_subscription<controller_status_msgs::msg::Status>(
       "/cooking_controller/status",
       10,
-      [this](const std_msgs::msg::String::SharedPtr message) {
+      [this](const controller_status_msgs::msg::Status::SharedPtr message) {
         RCLCPP_INFO(
           this->get_logger(),
-          "dual_arm_controller received /cooking_controller/status: %s",
-          message->data.c_str());
+          "dual_arm_controller received /cooking_controller/status: request_id=%u",
+          message->request_id);
       });
     RCLCPP_INFO(this->get_logger(), "%s started", controller_name.c_str());
   }
 
 private:
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cooking_status_subscription_;
+  rclcpp::Subscription<controller_status_msgs::msg::Status>::SharedPtr cooking_status_subscription_;
 };
 
 int main(int argc, char ** argv)
