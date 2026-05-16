@@ -1,38 +1,22 @@
 services:
-  business_service:
+  moca_service:
     build:
-      context: ./business_service
-    container_name: business_service
+      context: ./moca_service
+    container_name: moca_service
     ports:
       - "9001:9001"
+      - "9002:9001"
     environment:
-      BUSINESS_SERVICE_PORT: "9001"
-      BUSINESS_SERVICE_DB_HOST: business_db
+      MOCA_SERVICE_NAME: moca_service
+      MOCA_SERVICE_PORT: "9001"
+      BUSINESS_SERVICE_DB_HOST: moca_db
       BUSINESS_SERVICE_DB_PORT: "3306"
       BUSINESS_SERVICE_ADMIN_GUI_HOST: ${ADMIN_GUI_HOST:-host.docker.internal}
       BUSINESS_SERVICE_ADMIN_GUI_PORT: ${ADMIN_GUI_PORT:-9000}
-      BUSINESS_SERVICE_CONTROL_SERVICE_HOST: control_service
-      BUSINESS_SERVICE_CONTROL_SERVICE_PORT: "9002"
       BUSINESS_SERVICE_WEB_SERVICE_HOST: web_service
       BUSINESS_SERVICE_WEB_SERVICE_TCP_PORT: "9004"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      business_db:
-        condition: service_healthy
-
-  control_service:
-    build:
-      context: ./control_service
-    container_name: control_service
-    ports:
-      - "9002:9002"
-    environment:
-      CONTROL_SERVICE_PORT: "9002"
       CONTROL_SERVICE_ADMIN_GUI_HOST: ${ADMIN_GUI_HOST:-host.docker.internal}
       CONTROL_SERVICE_ADMIN_GUI_PORT: ${ADMIN_GUI_PORT:-9000}
-      CONTROL_SERVICE_BUSINESS_SERVICE_HOST: business_service
-      CONTROL_SERVICE_BUSINESS_SERVICE_PORT: "9001"
       CONTROL_SERVICE_COOKING_CONTROLLER_BRIDGE_HOST: ${COOKING_CONTROLLER_BRIDGE_HOST:-host.docker.internal}
       CONTROL_SERVICE_COOKING_CONTROLLER_BRIDGE_PORT: ${COOKING_CONTROLLER_BRIDGE_PORT:-9005}
       CONTROL_SERVICE_SERVING_CONTROLLER_BRIDGE_HOST: ${SERVING_CONTROLLER_BRIDGE_HOST:-host.docker.internal}
@@ -42,6 +26,9 @@ services:
       CONTROL_SERVICE_ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      moca_db:
+        condition: service_healthy
 
   web_service:
     build:
@@ -53,15 +40,15 @@ services:
     environment:
       WEB_SERVICE_HTTP_PORT: "8000"
       WEB_SERVICE_TCP_PORT: "9004"
-      WEB_SERVICE_BUSINESS_SERVICE_HOST: business_service
+      WEB_SERVICE_BUSINESS_SERVICE_HOST: moca_service
       WEB_SERVICE_BUSINESS_SERVICE_PORT: "9001"
     volumes:
       - ../app/order_vui:/app/ui/order_vui:ro
       - ../app/table_gui:/app/ui/table_gui:ro
 
-  business_db:
+  moca_db:
     image: mysql:8.4
-    container_name: business_db
+    container_name: moca_db
     ports:
       - "3307:3306"
     environment:
@@ -70,8 +57,8 @@ services:
       MYSQL_USER: business_user
       MYSQL_PASSWORD: business_password
     volumes:
-      - business_db_data:/var/lib/mysql
-      - ./business_db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - moca_db_data:/var/lib/mysql
+      - ./moca_db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
       interval: 5s
@@ -79,4 +66,4 @@ services:
       retries: 20
 
 volumes:
-  business_db_data:
+  moca_db_data:

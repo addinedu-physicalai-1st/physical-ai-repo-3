@@ -3,10 +3,7 @@ import socket
 import socketserver
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from app.service import BusinessService
+from typing import Protocol
 
 # TCP contract
 # Frame: [STX=0x02][CMD][SEQ][ETX=0x03]
@@ -20,6 +17,7 @@ ETX = 0x03
 FRAME_SIZE = 4
 
 HealthHandler = Callable[[int], None]
+StatusHandler = Callable[[int, tuple[str, int]], None]
 
 
 class StatusNotifier(Protocol):
@@ -96,44 +94,61 @@ class TcpServer(socketserver.ThreadingTCPServer):
         self,
         host: str,
         port: int,
-        service: "BusinessService",
+        on_health: HealthHandler,
+        on_status: StatusHandler,
         logger: logging.Logger,
+        name: str,
     ):
         super().__init__((host, port), TcpRequestHandler)
         self.logger = logger
-
-        # Business Logic
-        self.on_health = service.run_health_test
+        self.name = name
+        self.on_health = on_health
+        self.on_status = on_status
 
 
 class TcpRequestHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         server: TcpServer = self.server
         peer = self.client_address
-        server.logger.info("TCP received from %s", peer)
+        server.logger.info("%s TCP client connected: %s", server.name, peer)
 
         try:
-            frame = self.request.recv(FRAME_SIZE)
-        except OSError as exc:
-            server.logger.warning("tcp read failed: %s", exc)
-            return
+            while True:
+                frame = self._read_exact()
+                if frame is None:
+                    return
 
-        if not frame:
-            server.logger.warning("tcp frame is empty: %s", frame.hex(" "))
-            return
-        if len(frame) != FRAME_SIZE:
-            server.logger.warning("tcp frame size invalid: %s", frame.hex(" "))
-            return
+                try:
+                    cmd, seq = parse_frame(frame)
+                except ValueError as exc:
+                    server.logger.warning("invalid tcp frame from %s: %s", peer, exc)
+                    continue
 
-        try:
-            cmd, seq = parse_frame(frame)
-        except ValueError as exc:
-            server.logger.warning("failed to parse tcp frame", exc)
-            return
+                if cmd == HEALTH_CMD:
+                    server.logger.info("received HEALTH trigger from %s seq=%s", peer, seq)
+                    server.on_health(seq)
+                elif cmd == STATUS_CMD:
+                    server.logger.info("received STATUS frame from %s seq=%s", peer, seq)
+                    server.on_status(seq, peer)
+        finally:
+            server.logger.info("%s TCP client disconnected: %s", server.name, peer)
 
-        # CMD에 따라 서비스 실행
-        if cmd == HEALTH_CMD:
-            server.logger.info("received HEALTH trigger from %s seq=%s", peer, seq)
-            server.on_health(seq)
-        elif cmd == STATUS_CMD:
-            server.logger.info("received STATUS probe from %s seq=%s", peer, seq)
+    def _read_exact(self) -> bytes | None:
+        server: TcpServer = self.server
+        chunks = bytearray()
+        while len(chunks) < FRAME_SIZE:
+            try:
+                chunk = self.request.recv(FRAME_SIZE - len(chunks))
+            except OSError as exc:
+                server.logger.warning("tcp read failed from %s: %s", self.client_address, exc)
+                return None
+            if not chunk:
+                if chunks:
+                    server.logger.warning(
+                        "partial tcp frame from %s: %s",
+                        self.client_address,
+                        bytes(chunks).hex(" "),
+                    )
+                return None
+            chunks.extend(chunk)
+        return bytes(chunks)
