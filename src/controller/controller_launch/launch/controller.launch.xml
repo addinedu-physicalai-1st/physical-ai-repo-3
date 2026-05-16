@@ -1,10 +1,8 @@
 <?xml version="1.0"?>
 <launch>
-  <include file="$(find-pkg-share cooking_controller)/launch/cooking_controller.launch.py"/>
+  <include file="$(find-pkg-share tubi_controller)/launch/tubi_controller.launch.py"/>
   <include file="$(find-pkg-share dual_arm_controller)/launch/dual_arm_controller.launch.py"/>
-  <include file="$(find-pkg-share interaction_controller)/launch/interaction_controller.launch.py"/>
-  <include file="$(find-pkg-share serving_controller)/launch/serving_controller.launch.py"/>
+  <include file="$(find-pkg-share dobi_controller)/launch/dobi_controller.launch.py"/>
   <include file="$(find-pkg-share single_arm_controller)/launch/single_arm_controller.launch.py"/>
-  <include file="$(find-pkg-share table_monitor_controller)/launch/table_monitor_controller.launch.py"/>
-  <include file="$(find-pkg-share vic_pinky_controller)/launch/vic_pinky_controller.launch.py"/>
+  <include file="$(find-pkg-share mobility_controller)/launch/mobility_controller.launch.py"/>
 </launch>

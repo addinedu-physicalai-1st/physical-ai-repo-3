@@ -1,3 +1,0 @@
-interaction_controller:
-  ros__parameters:
-    controller_name: interaction_controller

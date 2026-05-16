@@ -1,3 +1,0 @@
-vic_pinky_controller:
-  ros__parameters:
-    controller_name: vic_pinky_controller

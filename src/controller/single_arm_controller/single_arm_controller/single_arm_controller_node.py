@@ -10,7 +10,7 @@ class SingleArmControllerNode(Node):
         controller_name = self.get_parameter('controller_name').value
         self._serving_status_subscription = self.create_subscription(
             Status,
-            '/serving_controller/status',
+            '/dobi_controller/status',
             self._handle_serving_status,
             10,
         )
@@ -18,7 +18,7 @@ class SingleArmControllerNode(Node):
 
     def _handle_serving_status(self, message):
         self.get_logger().info(
-            'single_arm_controller received /serving_controller/status: '
+            'single_arm_controller received /dobi_controller/status: '
             f'request_id={message.request_id}'
         )
 

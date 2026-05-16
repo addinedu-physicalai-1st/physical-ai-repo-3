@@ -1,4 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-  <include file="$(find-pkg-share interaction_controller)/launch/interaction_controller.launch.py"/>
-</launch>

@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<launch>
+  <include file="$(find-pkg-share dobi_controller)/launch/dobi_controller.launch.py"/>
+</launch>
