@@ -88,7 +88,7 @@ class DobiControllerNode(Node):
         super().__init__('dobi_controller')
         self.declare_parameter('controller_name', 'dobi_controller')
         self.declare_parameter('control_service_host', '127.0.0.1')
-        self.declare_parameter('control_service_port', 9002)
+        self.declare_parameter('control_service_port', 9001)
         self.declare_parameter('tcp_timeout_sec', 3.0)
         self.declare_parameter('service_listener_host', '0.0.0.0')
         self.declare_parameter('service_listener_port', 9006)

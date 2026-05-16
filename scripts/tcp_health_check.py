@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send HEALTH checks to test-entry components."""
+"""Send health-check frames to MOCA architecture components."""
 import argparse
 import os
 import socket
@@ -12,16 +12,41 @@ from urllib.parse import urlparse
 
 STX = 0x02
 HEALTH_CMD = 0x01
+STATUS_CMD = 0x10
 ETX = 0x03
 
-DEFAULT_ADMIN_GUI_URL = "tcp://127.0.0.1:9000"
-DEFAULT_BUSINESS_SERVICE_URL = "tcp://127.0.0.1:9001"
-DEFAULT_CONTROL_SERVICE_URL = "tcp://127.0.0.1:9002"
-DEFAULT_WEB_SERVICE_HEALTH_URL = "http://127.0.0.1:8000/health"
+DEFAULT_ADMIN_GUI_URL = os.getenv("ADMIN_GUI_HEALTH_URL", "tcp://127.0.0.1:9000")
+DEFAULT_MOCA_SERVICE_URL = os.getenv("MOCA_SERVICE_HEALTH_URL", "tcp://127.0.0.1:9001")
+DEFAULT_MOCA_SERVICE_ROBOT_URL = os.getenv(
+    "MOCA_SERVICE_ROBOT_HEALTH_URL",
+    "tcp://127.0.0.1:9002",
+)
+DEFAULT_WEB_SERVICE_HEALTH_URL = os.getenv(
+    "WEB_SERVICE_HEALTH_URL",
+    "http://127.0.0.1:8000/health",
+)
+DEFAULT_WEB_SERVICE_TCP_URL = os.getenv("WEB_SERVICE_TCP_HEALTH_URL", "tcp://127.0.0.1:9004")
+DEFAULT_VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_HEALTH_URL", "tcp://127.0.0.1:9003")
+DEFAULT_TUBI_CONTROLLER_BRIDGE_URL = os.getenv(
+    "TUBI_CONTROLLER_BRIDGE_HEALTH_URL",
+    "tcp://127.0.0.1:9005",
+)
+DEFAULT_DOBI_CONTROLLER_BRIDGE_URL = os.getenv(
+    "DOBI_CONTROLLER_BRIDGE_HEALTH_URL",
+    "tcp://127.0.0.1:9006",
+)
 
 CONTROLLER_HEALTH_SERVICES = {
-    "cooking_controller": "/cooking_controller/health_check",
-    "serving_controller": "/serving_controller/health_check",
+    "tubi_controller": "/tubi_controller/health_check",
+    "dobi_controller": "/dobi_controller/health_check",
+}
+
+LEGACY_COMPONENT_ALIASES = {
+    "business_service": "moca_service",
+    "control_service": "moca_service_robot_port",
+    "cooking_controller": "tubi_controller",
+    "serving_controller": "dobi_controller",
+    "table_gui": "web_service_http",
 }
 
 
@@ -39,6 +64,10 @@ class ComponentEndpoint:
 
 def build_health_frame(seq: int) -> bytes:
     return bytes([STX, HEALTH_CMD, seq & 0xFF, ETX])
+
+
+def build_status_frame(seq: int) -> bytes:
+    return bytes([STX, STATUS_CMD, seq & 0xFF, ETX])
 
 
 def parse_tcp_url(name: str, url: str) -> ComponentEndpoint:
@@ -67,6 +96,10 @@ def send_health(endpoint: ComponentEndpoint, seq: int, timeout_sec: float) -> No
     send_tcp_frame(endpoint, build_health_frame(seq), timeout_sec, "HEALTH")
 
 
+def send_status(endpoint: ComponentEndpoint, seq: int, timeout_sec: float) -> None:
+    send_tcp_frame(endpoint, build_status_frame(seq), timeout_sec, "STATUS")
+
+
 def send_http_health(name: str, url: str, timeout_sec: float) -> int:
     try:
         with urllib.request.urlopen(url, timeout=timeout_sec) as response:
@@ -79,19 +112,30 @@ def send_http_health(name: str, url: str, timeout_sec: float) -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Send HEALTH checks.")
+    parser = argparse.ArgumentParser(description="Send MOCA architecture health checks.")
     parser.add_argument(
         "--component",
         choices=[
             "all",
             "admin_gui",
             "order_vui",
-            "table_gui",
+            "web_service",
+            "web_service_http",
+            "web_service_tcp",
+            "moca_service",
+            "moca_service_robot_port",
+            "voice_service",
+            "tubi_controller",
+            "dobi_controller",
+            "tubi_controller_bridge",
+            "dobi_controller_bridge",
+            "controller_bridges",
+            "controllers",
             "business_service",
             "control_service",
             "cooking_controller",
             "serving_controller",
-            "controllers",
+            "table_gui",
         ],
         default="all",
         help="Component health check to run. Default: all.",
@@ -100,13 +144,13 @@ def parse_args() -> argparse.Namespace:
         "--timeout",
         type=float,
         default=float(os.getenv("TCP_HEALTH_CHECK_TIMEOUT_SEC", "3.0")),
-        help="TCP connect/send timeout seconds. Default: 3.0",
+        help="TCP/HTTP/ROS timeout seconds. Default: 3.0",
     )
     return parser.parse_args()
 
 
-def check_admin_gui(admin_gui_url: str, timeout_sec: float) -> bool:
-    endpoint = parse_tcp_url("admin_gui", admin_gui_url)
+def check_tcp_health(component: str, url: str, timeout_sec: float) -> bool:
+    endpoint = parse_tcp_url(component, url)
     try:
         send_health(endpoint, 0, timeout_sec)
     except TcpHealthCheckError as exc:
@@ -114,43 +158,28 @@ def check_admin_gui(admin_gui_url: str, timeout_sec: float) -> bool:
         return False
 
     print(
-        f"[tcp-health-check] admin_gui: sent HEALTH seq=0 to {endpoint.url}",
+        f"[tcp-health-check] {component}: sent HEALTH seq=0 to {endpoint.url}",
         flush=True,
     )
     return True
 
 
-def check_business_service(business_service_url: str, timeout_sec: float) -> bool:
-    endpoint = parse_tcp_url("business_service", business_service_url)
+def check_tcp_status(component: str, url: str, timeout_sec: float) -> bool:
+    endpoint = parse_tcp_url(component, url)
     try:
-        send_health(endpoint, 0, timeout_sec)
+        send_status(endpoint, 0, timeout_sec)
     except TcpHealthCheckError as exc:
         print(f"[tcp-health-check] {exc}", flush=True)
         return False
 
     print(
-        f"[tcp-health-check] business_service: sent HEALTH seq=0 to {endpoint.url}",
+        f"[tcp-health-check] {component}: sent STATUS seq=0 to {endpoint.url}",
         flush=True,
     )
     return True
 
 
-def check_control_service(control_service_url: str, timeout_sec: float) -> bool:
-    endpoint = parse_tcp_url("control_service", control_service_url)
-    try:
-        send_health(endpoint, 0, timeout_sec)
-    except TcpHealthCheckError as exc:
-        print(f"[tcp-health-check] {exc}", flush=True)
-        return False
-
-    print(
-        f"[tcp-health-check] control_service: sent HEALTH seq=0 to {endpoint.url}",
-        flush=True,
-    )
-    return True
-
-
-def check_gui_http(component: str, web_service_url: str, timeout_sec: float) -> bool:
+def check_http_health(component: str, web_service_url: str, timeout_sec: float) -> bool:
     try:
         status = send_http_health(component, web_service_url, timeout_sec)
     except TcpHealthCheckError as exc:
@@ -227,38 +256,100 @@ def check_controller_health(component: str, timeout_sec: float) -> bool:
 def check_controllers(timeout_sec: float) -> bool:
     return all(
         check_controller_health(component, timeout_sec)
-        for component in ("cooking_controller", "serving_controller")
+        for component in ("tubi_controller", "dobi_controller")
+    )
+
+
+def check_controller_bridges(timeout_sec: float) -> bool:
+    return all(
+        [
+            check_tcp_status(
+                "tubi_controller_bridge",
+                DEFAULT_TUBI_CONTROLLER_BRIDGE_URL,
+                timeout_sec,
+            ),
+            check_tcp_status(
+                "dobi_controller_bridge",
+                DEFAULT_DOBI_CONTROLLER_BRIDGE_URL,
+                timeout_sec,
+            ),
+        ]
     )
 
 
 def main() -> int:
     args = parse_args()
+    component = LEGACY_COMPONENT_ALIASES.get(args.component, args.component)
 
     checks = {
-        "admin_gui": lambda: check_admin_gui(DEFAULT_ADMIN_GUI_URL, args.timeout),
-        "order_vui": lambda: check_gui_http("order_vui", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
-        "table_gui": lambda: check_gui_http("table_gui", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
-        "business_service": lambda: check_business_service(DEFAULT_BUSINESS_SERVICE_URL, args.timeout),
-        "control_service": lambda: check_control_service(DEFAULT_CONTROL_SERVICE_URL, args.timeout),
-        "cooking_controller": lambda: check_controller_health("cooking_controller", args.timeout),
-        "serving_controller": lambda: check_controller_health("serving_controller", args.timeout),
+        "admin_gui": lambda: check_tcp_health("admin_gui", DEFAULT_ADMIN_GUI_URL, args.timeout),
+        "order_vui": lambda: all(
+            [
+                check_http_health("order_vui_http", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
+                check_tcp_health("order_vui_voice_tcp", DEFAULT_VOICE_SERVICE_URL, args.timeout),
+            ]
+        ),
+        "web_service": lambda: all(
+            [
+                check_http_health("web_service_http", DEFAULT_WEB_SERVICE_HEALTH_URL, args.timeout),
+                check_tcp_health("web_service_tcp", DEFAULT_WEB_SERVICE_TCP_URL, args.timeout),
+            ]
+        ),
+        "web_service_http": lambda: check_http_health(
+            "web_service_http",
+            DEFAULT_WEB_SERVICE_HEALTH_URL,
+            args.timeout,
+        ),
+        "web_service_tcp": lambda: check_tcp_health(
+            "web_service_tcp",
+            DEFAULT_WEB_SERVICE_TCP_URL,
+            args.timeout,
+        ),
+        "moca_service": lambda: check_tcp_health(
+            "moca_service",
+            DEFAULT_MOCA_SERVICE_URL,
+            args.timeout,
+        ),
+        "moca_service_robot_port": lambda: check_tcp_health(
+            "moca_service_robot_port",
+            DEFAULT_MOCA_SERVICE_ROBOT_URL,
+            args.timeout,
+        ),
+        "voice_service": lambda: check_tcp_health(
+            "voice_service",
+            DEFAULT_VOICE_SERVICE_URL,
+            args.timeout,
+        ),
+        "tubi_controller": lambda: check_controller_health("tubi_controller", args.timeout),
+        "dobi_controller": lambda: check_controller_health("dobi_controller", args.timeout),
+        "tubi_controller_bridge": lambda: check_tcp_status(
+            "tubi_controller_bridge",
+            DEFAULT_TUBI_CONTROLLER_BRIDGE_URL,
+            args.timeout,
+        ),
+        "dobi_controller_bridge": lambda: check_tcp_status(
+            "dobi_controller_bridge",
+            DEFAULT_DOBI_CONTROLLER_BRIDGE_URL,
+            args.timeout,
+        ),
+        "controller_bridges": lambda: check_controller_bridges(args.timeout),
         "controllers": lambda: check_controllers(args.timeout),
     }
 
-    if args.component == "all":
+    if component == "all":
         results = [
             checks[name]()
             for name in (
                 "admin_gui",
                 "order_vui",
-                "table_gui",
-                "business_service",
-                "control_service",
+                "web_service",
+                "moca_service",
+                "moca_service_robot_port",
             )
         ]
         return 0 if all(results) else 1
 
-    return 0 if checks[args.component]() else 1
+    return 0 if checks[component]() else 1
 
 
 if __name__ == "__main__":

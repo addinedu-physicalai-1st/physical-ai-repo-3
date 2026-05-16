@@ -28,7 +28,7 @@ public:
       "controller_name", "tubi_controller");
     control_service_host_ = this->declare_parameter<std::string>(
       "control_service_host", "127.0.0.1");
-    control_service_port_ = this->declare_parameter<int>("control_service_port", 9002);
+    control_service_port_ = this->declare_parameter<int>("control_service_port", 9001);
     tcp_timeout_sec_ = this->declare_parameter<double>("tcp_timeout_sec", 3.0);
     service_listener_host_ = this->declare_parameter<std::string>(
       "service_listener_host", "0.0.0.0");

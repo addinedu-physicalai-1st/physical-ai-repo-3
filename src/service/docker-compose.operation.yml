@@ -5,7 +5,6 @@ services:
     container_name: moca_service
     ports:
       - "9001:9001"
-      - "9002:9001"
     environment:
       MOCA_SERVICE_NAME: moca_service
       MOCA_SERVICE_PORT: "9001"
