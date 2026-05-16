@@ -7,10 +7,8 @@ from dataclasses import dataclass
 class AdminGuiConfig:
     host: str = '0.0.0.0'
     port: int = 9000
-    business_service_host: str = '127.0.0.1'
-    business_service_port: int = 9001
-    control_service_host: str = '127.0.0.1'
-    control_service_port: int = 9002
+    moca_service_host: str = '127.0.0.1'
+    moca_service_port: int = 9001
     tcp_timeout_sec: float = 3.0
 
 
@@ -28,9 +26,7 @@ def load_config() -> AdminGuiConfig:
     return AdminGuiConfig(
         host=os.getenv('ADMIN_GUI_HOST', '0.0.0.0'),
         port=_get_int('ADMIN_GUI_PORT', 9000),
-        business_service_host=os.getenv('ADMIN_GUI_BUSINESS_SERVICE_HOST', '127.0.0.1'),
-        business_service_port=_get_int('ADMIN_GUI_BUSINESS_SERVICE_PORT', 9001),
-        control_service_host=os.getenv('ADMIN_GUI_CONTROL_SERVICE_HOST', '127.0.0.1'),
-        control_service_port=_get_int('ADMIN_GUI_CONTROL_SERVICE_PORT', 9002),
+        moca_service_host=os.getenv('ADMIN_GUI_MOCA_SERVICE_HOST', '127.0.0.1'),
+        moca_service_port=_get_int('ADMIN_GUI_MOCA_SERVICE_PORT', 9001),
         tcp_timeout_sec=_get_float('ADMIN_GUI_TCP_TIMEOUT_SEC', 3.0),
     )
