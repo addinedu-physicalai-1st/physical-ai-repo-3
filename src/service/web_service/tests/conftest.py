@@ -40,6 +40,17 @@ class FakeCatalogClient:
         return CATALOG
 
 
+class FakeOrderClient:
+    def __init__(self):
+        self.requests = []
+
+    def create_order(self, receive_type, table_id, items):
+        self.requests.append((receive_type, table_id, items))
+
+
+ORDER_CLIENT = FakeOrderClient()
+
+
 @asynccontextmanager
 async def _test_lifespan(app):
     yield
@@ -94,6 +105,8 @@ class SimpleASGIClient:
 @pytest.fixture(autouse=True)
 def reset_state():
     menu_repo.set_catalog_client(FakeCatalogClient())
+    ORDER_CLIENT.requests.clear()
+    order_repo.set_order_client(ORDER_CLIENT)
     table_repo.reset()
     order_repo.reset()
     yield

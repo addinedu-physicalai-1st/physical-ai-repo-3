@@ -36,4 +36,12 @@ def occupy(table_no: int) -> bool:
         return True
 
 
+def release(table_no: int) -> bool:
+    with _lock:
+        if not 1 <= table_no <= len(_status):
+            return False
+        _status[table_no - 1] = "empty"
+        return True
+
+
 reset()

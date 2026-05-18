@@ -3,6 +3,8 @@ from typing import Any
 
 from app.tcp import StatusNotifier
 from app.catalog_repo import CatalogRepository
+from app.order_protocol import OrderRequest
+from app.order_repo import OrderRepository
 
 
 class MocaService:
@@ -10,10 +12,12 @@ class MocaService:
         self,
         status_notifiers: list[StatusNotifier],
         catalog_repository: CatalogRepository,
+        order_repository: OrderRepository,
         logger: logging.Logger,
     ):
         self.status_notifiers = status_notifiers
         self.catalog_repository = catalog_repository
+        self.order_repository = order_repository
         self.logger = logger
 
     def run_health_test(self, seq: int) -> None:
@@ -26,3 +30,12 @@ class MocaService:
 
     def get_catalog(self) -> dict[str, Any]:
         return self.catalog_repository.fetch_catalog()
+
+    def create_order(self, request: OrderRequest) -> None:
+        created = self.order_repository.create_order(request)
+        self.logger.info(
+            "created order order_id=%s total_price=%s item_count=%s",
+            created.order_id,
+            created.total_price,
+            len(request.items),
+        )

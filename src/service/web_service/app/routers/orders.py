@@ -4,6 +4,8 @@ from app.models.order import Order, OrderCreate, OrderCreateResponse
 from app.services import order_repo
 from app.services.order_repo import (
     OrderError,
+    OrderRejected,
+    OrderServiceUnavailable,
     TableRequired,
     TableUnavailable,
     UnknownMenu,
@@ -19,6 +21,10 @@ def create_order(payload: OrderCreate) -> OrderCreateResponse:
         order = order_repo.create(payload)
     except MenuServiceUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except OrderServiceUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except OrderRejected as e:
+        raise HTTPException(status_code=502, detail=str(e))
     except TableUnavailable as e:
         raise HTTPException(status_code=409, detail=str(e))
     except (TableRequired, UnknownMenu) as e:

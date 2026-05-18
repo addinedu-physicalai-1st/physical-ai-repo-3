@@ -69,6 +69,43 @@ CREATE TABLE IF NOT EXISTS product_allergy (
         ON DELETE CASCADE
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS orders (
+    order_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_source ENUM('COUNTER', 'TABLE') NOT NULL,
+    receive_type ENUM('DINE_IN', 'TAKE_OUT') NOT NULL,
+    table_number INT NULL,
+    order_status ENUM('PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED', 'CANCELED') NOT NULL DEFAULT 'PENDING',
+    payment_status ENUM('PENDING', 'PAID', 'FAILED', 'CANCELED', 'REFUNDED') NOT NULL DEFAULT 'PENDING',
+    total_price INT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT chk_orders_table_number
+        CHECK (table_number IS NULL OR table_number > 0),
+    CONSTRAINT chk_orders_total_price
+        CHECK (total_price >= 0)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS order_item (
+    order_item_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    selected_options JSON NOT NULL,
+    quantity INT NOT NULL,
+    unit_price INT NOT NULL,
+    CONSTRAINT fk_order_item_order
+        FOREIGN KEY (order_id) REFERENCES orders(order_id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_order_item_product
+        FOREIGN KEY (product_id) REFERENCES product(product_id)
+        ON DELETE RESTRICT,
+    CONSTRAINT chk_order_item_selected_options_json
+        CHECK (JSON_VALID(selected_options)),
+    CONSTRAINT chk_order_item_quantity
+        CHECK (quantity > 0),
+    CONSTRAINT chk_order_item_unit_price
+        CHECK (unit_price >= 0)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 INSERT INTO product (
     product_id,
     name,

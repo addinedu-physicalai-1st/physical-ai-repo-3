@@ -16,6 +16,15 @@ from app.business_tcp import (
     decode_payload,
     encode_message,
 )
+from app.order_protocol import (
+    ACK,
+    NAK,
+    ORDER_HEADER_SIZE,
+    ORDER_ITEM_SIZE,
+    OrderRequest,
+    parse_order_header,
+    parse_order_request,
+)
 
 # TCP contract
 # Frame: [STX=0x02][CMD][SEQ][ETX=0x03]
@@ -31,6 +40,7 @@ FRAME_SIZE = 4
 HealthHandler = Callable[[int], None]
 StatusHandler = Callable[[int, tuple[str, int]], None]
 CatalogHandler = Callable[[], dict[str, Any]]
+OrderHandler = Callable[[OrderRequest], None]
 
 
 class StatusNotifier(Protocol):
@@ -110,6 +120,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         on_health: HealthHandler,
         on_status: StatusHandler,
         on_catalog: CatalogHandler,
+        on_order: OrderHandler,
         logger: logging.Logger,
         name: str,
     ):
@@ -119,6 +130,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         self.on_health = on_health
         self.on_status = on_status
         self.on_catalog = on_catalog
+        self.on_order = on_order
 
 
 class TcpRequestHandler(socketserver.BaseRequestHandler):
@@ -153,6 +165,10 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
 
                 if first == MAGIC[:1]:
                     self._handle_business_frame(first)
+                    continue
+
+                if first in {bytes([0]), bytes([1])}:
+                    self._handle_order_frame(first)
                     continue
 
                 server.logger.warning("invalid tcp prefix from %s: %s", peer, first.hex(" "))
@@ -190,6 +206,25 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
                     {"error": "catalog_unavailable", "message": str(exc)},
                 )
             )
+
+    def _handle_order_frame(self, first: bytes) -> None:
+        server: TcpServer = self.server
+        header_tail = self._read_exact(ORDER_HEADER_SIZE - 1)
+        if header_tail is None:
+            return
+        header = first + header_tail
+
+        try:
+            _, _, item_count = parse_order_header(header)
+            item_bytes = self._read_exact(item_count * ORDER_ITEM_SIZE)
+            if item_bytes is None:
+                return
+            request = parse_order_request(header, item_bytes)
+            server.on_order(request)
+            self.request.sendall(bytes([ACK]))
+        except Exception as exc:
+            server.logger.warning("order tcp request failed from %s: %s", self.client_address, exc)
+            self.request.sendall(bytes([NAK]))
 
     def _read_exact(self, size: int) -> bytes | None:
         server: TcpServer = self.server

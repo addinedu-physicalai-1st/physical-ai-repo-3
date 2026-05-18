@@ -3,11 +3,21 @@ import uuid
 
 from app.models.order import Order, OrderCreate
 from app.models.menu import MenuItem
+from app.config import load_config
+from app.clients.moca_order_client import (
+    MocaOrderClient,
+    MocaOrderClientError,
+    MocaOrderItem,
+    MocaOrderRejected,
+    OrderClient,
+)
 from app.services import menu_repo, table_repo
 
 _lock = threading.Lock()
 _orders: dict[str, Order] = {}
 _counter = 41  # 키오스크 원본의 첫 표시값(42)에 맞춤
+_config = load_config()
+_order_client: OrderClient = MocaOrderClient(_config.moca_service_host, _config.moca_service_port)
 
 
 class OrderError(Exception):
@@ -24,6 +34,19 @@ class TableRequired(OrderError):
 
 class UnknownMenu(OrderError):
     pass
+
+
+class OrderServiceUnavailable(OrderError):
+    pass
+
+
+class OrderRejected(OrderError):
+    pass
+
+
+def set_order_client(client: OrderClient) -> None:
+    global _order_client
+    _order_client = client
 
 
 def reset() -> None:
@@ -61,6 +84,23 @@ def create(payload: OrderCreate) -> Order:
             raise TableRequired("table_no is required for serving")
         if not table_repo.occupy(payload.table_no):
             raise TableUnavailable(f"table {payload.table_no} is unavailable")
+
+    receive_type = 1 if payload.delivery == "serving" else 0
+    table_id = payload.table_no if payload.delivery == "serving" and payload.table_no is not None else 0
+    try:
+        _order_client.create_order(
+            receive_type,
+            table_id,
+            [MocaOrderItem(product_id=item.menu_id, quantity=item.qty) for item in payload.items],
+        )
+    except MocaOrderRejected as exc:
+        if payload.delivery == "serving":
+            table_repo.release(table_id)
+        raise OrderRejected(str(exc)) from exc
+    except MocaOrderClientError as exc:
+        if payload.delivery == "serving":
+            table_repo.release(table_id)
+        raise OrderServiceUnavailable(str(exc)) from exc
 
     with _lock:
         _counter += 1

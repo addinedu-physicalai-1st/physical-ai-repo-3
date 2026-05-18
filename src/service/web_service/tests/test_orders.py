@@ -1,3 +1,8 @@
+from app.clients.moca_order_client import MocaOrderClientError, MocaOrderRejected
+from app.services import order_repo
+from tests.conftest import ORDER_CLIENT
+
+
 def _pickup_payload():
     return {
         "channel": "kiosk",
@@ -26,6 +31,11 @@ def test_post_pickup_order_returns_order_number_and_total(client):
     assert body["order_number"] >= 42
     # 아메리카노 3500 * 2 = 7000
     assert body["total"] == 7000
+    assert len(ORDER_CLIENT.requests) == 1
+    receive_type, table_id, items = ORDER_CLIENT.requests[0]
+    assert receive_type == 0
+    assert table_id == 0
+    assert [(item.product_id, item.quantity) for item in items] == [(1, 2)]
 
 
 def test_post_serving_order_marks_table_occupied(client):
@@ -35,6 +45,10 @@ def test_post_serving_order_marks_table_occupied(client):
     # 다음 GET /api/tables 에서 1번이 occupied여야 함
     tables = client.get("/api/tables").json()
     assert tables[0]["status"] == "occupied"
+    receive_type, table_id, items = ORDER_CLIENT.requests[0]
+    assert receive_type == 1
+    assert table_id == 1
+    assert [(item.product_id, item.quantity) for item in items] == [(2, 1)]
 
 
 def test_post_serving_to_occupied_table_returns_409(client):
@@ -77,3 +91,41 @@ def test_unknown_menu_returns_400(client):
     payload["items"] = [{"menu_id": 9999, "qty": 1}]
     r = client.post("/api/orders", json=payload)
     assert r.status_code == 400
+
+
+def test_moca_order_rejection_returns_502(client):
+    class RejectingOrderClient:
+        def create_order(self, receive_type, table_id, items):
+            raise MocaOrderRejected("rejected")
+
+    order_repo.set_order_client(RejectingOrderClient())
+
+    r = client.post("/api/orders", json=_pickup_payload())
+
+    assert r.status_code == 502
+
+
+def test_moca_order_unavailable_returns_503(client):
+    class FailingOrderClient:
+        def create_order(self, receive_type, table_id, items):
+            raise MocaOrderClientError("unavailable")
+
+    order_repo.set_order_client(FailingOrderClient())
+
+    r = client.post("/api/orders", json=_pickup_payload())
+
+    assert r.status_code == 503
+
+
+def test_moca_order_failure_releases_reserved_table(client):
+    class FailingOrderClient:
+        def create_order(self, receive_type, table_id, items):
+            raise MocaOrderClientError("unavailable")
+
+    order_repo.set_order_client(FailingOrderClient())
+
+    r = client.post("/api/orders", json=_serving_payload(1))
+
+    assert r.status_code == 503
+    tables = client.get("/api/tables").json()
+    assert tables[0]["status"] == "empty"
