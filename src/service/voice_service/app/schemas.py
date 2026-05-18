@@ -12,6 +12,7 @@ Intent = Literal[
     "checkout",
     "select_payment",
     "allergy_confirm",
+    "allergy_select",
     "cancel_all",
     "unknown",
 ]
@@ -37,11 +38,13 @@ class IntentRequest(BaseModel):
     current_screen: Optional[str] = None
     cart: list = Field(default_factory=list)
     menu: list = Field(default_factory=list)
+    allergies: list = Field(default_factory=list)
 
 
 class IntentResponse(BaseModel):
     intent: Intent = "unknown"
     items: list[IntentItem] = Field(default_factory=list)
+    allergens: list[str] = Field(default_factory=list)
     payment_method: Optional[PaymentMethod] = None
     response_text: str = ""
     latency_ms: float = 0.0

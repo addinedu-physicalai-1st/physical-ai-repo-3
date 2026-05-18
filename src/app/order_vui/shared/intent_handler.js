@@ -20,6 +20,25 @@
     }
   }
 
+  function selectAllergy(allergens) {
+    const name = (allergens || [])[0];
+    if (!name) {
+      console.warn('[intent] allergy_select 인데 allergens 비어있음');
+      return;
+    }
+    if (typeof showAllergyWarning !== 'function' || !Array.isArray(ALLERGY_INFO)) {
+      console.warn('[intent] showAllergyWarning/ALLERGY_INFO 전역에 없음');
+      return;
+    }
+    const match = ALLERGY_INFO.find((a) => a.name === name);
+    if (!match) {
+      console.warn(`[intent] 알러지 매칭 실패: "${name}"`);
+      return;
+    }
+    showAllergyWarning(match.name);
+    console.log(`[intent] allergy_select: ${match.name}`);
+  }
+
   window.handleIntent = function handleIntent(intent) {
     if (!intent || !intent.intent) {
       console.warn('[intent] invalid payload', intent);
@@ -29,6 +48,9 @@
     switch (intent.intent) {
       case 'add_menu':
         addItems(intent.items || []);
+        break;
+      case 'allergy_select':
+        selectAllergy(intent.allergens || []);
         break;
       case 'unknown':
         break;

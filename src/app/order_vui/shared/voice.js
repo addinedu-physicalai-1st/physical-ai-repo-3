@@ -275,14 +275,22 @@
       const asr = await asrRes.json();
       console.log(`[asr] "${asr.text}" (${asr.latency_ms.toFixed(0)}ms)`);
 
+      // kiosk.html 의 전역 변수들은 let 으로 선언돼 window.X 로는 접근 불가
+      // — 같은 글로벌 스크립트 환경이라 식별자로는 참조 가능.
+      const csName = (typeof currentScreen !== 'undefined') ? currentScreen : null;
+      const mnList = (typeof MENU !== 'undefined' && Array.isArray(MENU)) ? MENU : [];
+      const ctList = (typeof cart !== 'undefined' && Array.isArray(cart)) ? cart : [];
+      const alList = (typeof ALLERGY_INFO !== 'undefined' && Array.isArray(ALLERGY_INFO)) ? ALLERGY_INFO : [];
+
       const llmRes = await fetch(`${VOICE_SERVICE_URL}/llm/intent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_text: asr.text,
-          current_screen: window.currentScreen || null,
-          cart: window.cart || [],
-          menu: (window.MENU || []).map((m) => ({ name: m.name })),
+          current_screen: csName,
+          cart: ctList,
+          menu: mnList.map((m) => ({ name: m.name })),
+          allergies: alList.map((a) => a.name),
         }),
       });
       if (!llmRes.ok) throw new Error(`LLM HTTP ${llmRes.status}`);
