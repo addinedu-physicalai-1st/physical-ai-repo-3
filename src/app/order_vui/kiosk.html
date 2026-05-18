@@ -408,11 +408,22 @@
   .voice-ind.thinking  { color: #7ec8e3; border-color: #7ec8e3; }
   .voice-ind.speaking  { color: #5cb85c; border-color: #5cb85c; }
   @keyframes voicePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+
+  .mic-start-btn {
+    position: fixed; top: 14px; right: 60px; z-index: 1000;
+    background: #1f1611; color: var(--muted); border: 1.5px solid var(--border);
+    padding: 6px 14px; border-radius: 18px; font-size: 13px; cursor: pointer;
+    font-family: inherit; transition: all 0.25s;
+  }
+  .mic-start-btn:hover:not(:disabled) { color: var(--text); border-color: var(--text); }
+  .mic-start-btn:disabled { opacity: 0.6; cursor: default; }
+  .mic-start-btn.on { color: #e8a84c; border-color: #e8a84c; }
 </style>
 </head>
 <body>
 
 <div id="voice-indicator" class="voice-ind idle" title="음성 상태">🎤</div>
+<button id="mic-start-btn" class="mic-start-btn" type="button">마이크 시작</button>
 
 <div id="kiosk">
 
@@ -1132,6 +1143,7 @@ loadAllergy().catch(()=>{});
 </script>
 
 <!-- Phase 0: voice mock. 평소엔 인디케이터만 표시, ?mock=1 일 때 5초 루프 동작 -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
 <script src="/order_vui/shared/voice.js"></script>
 </body>
 </html>
