@@ -1,8 +1,6 @@
 import struct
 from dataclasses import dataclass
 
-ACK = 0x06
-NAK = 0x15
 ORDER_HEADER_SIZE = 3
 ORDER_ITEM_SIZE = 3
 

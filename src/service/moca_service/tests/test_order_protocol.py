@@ -1,6 +1,6 @@
 import pytest
 
-from app.order_protocol import parse_order_request
+from app.protocol.order_protocol import parse_order_request
 
 
 def test_parse_order_request_reads_big_endian_product_ids():

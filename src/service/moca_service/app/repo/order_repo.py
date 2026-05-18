@@ -4,8 +4,8 @@ from dataclasses import dataclass
 import pymysql
 from pymysql.cursors import DictCursor
 
-from app.catalog_repo import DbConfig
-from app.order_protocol import OrderRequest
+from app.protocol.order_protocol import OrderRequest
+from app.repo.catalog_repo import DbConfig
 
 
 @dataclass(frozen=True)

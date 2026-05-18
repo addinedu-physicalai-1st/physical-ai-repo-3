@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 from app.config import WebServiceConfig
-from app.protocol.tcp_frame import HEALTH_CMD, STATUS_CMD
+from app.protocol.health_protocol import HEALTH_CMD, STATUS_CMD
 
 
 class StatusService:

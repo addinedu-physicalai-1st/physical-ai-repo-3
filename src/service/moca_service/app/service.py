@@ -2,9 +2,9 @@ import logging
 from typing import Any
 
 from app.tcp import StatusNotifier
-from app.catalog_repo import CatalogRepository
-from app.order_protocol import OrderRequest
-from app.order_repo import OrderRepository
+from app.protocol.order_protocol import OrderRequest
+from app.repo.catalog_repo import CatalogRepository
+from app.repo.order_repo import OrderRepository
 
 
 class MocaService:

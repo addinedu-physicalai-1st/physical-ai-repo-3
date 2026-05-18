@@ -6,19 +6,21 @@ from dataclasses import dataclass
 from typing import Any
 from typing import Protocol
 
-from app.business_tcp import (
-    HEADER_SIZE,
-    MAGIC,
-    TYPE_CATALOG_REQUEST,
-    TYPE_CATALOG_RESPONSE,
-    TYPE_ERROR_RESPONSE,
-    decode_header,
-    decode_payload,
-    encode_message,
+from app.protocol.moca_protocol import (
+    CMD_CATALOG,
+    CMD_ORDER,
+    HEADER_SIZE as MOCA_HEADER_SIZE,
+    METHOD_GET,
+    METHOD_SET,
+    decode_header as decode_moca_header,
+    encode_catalog_payload,
+    encode_error_payload,
+    encode_frame as encode_moca_frame,
+    encode_order_success_payload,
+    ERROR_CATALOG_UNAVAILABLE,
+    ERROR_ORDER_REJECTED,
 )
-from app.order_protocol import (
-    ACK,
-    NAK,
+from app.protocol.order_protocol import (
     ORDER_HEADER_SIZE,
     ORDER_ITEM_SIZE,
     OrderRequest,
@@ -163,68 +165,84 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
                         server.on_status(seq, peer)
                     continue
 
-                if first == MAGIC[:1]:
-                    self._handle_business_frame(first)
-                    continue
-
-                if first in {bytes([0]), bytes([1])}:
-                    self._handle_order_frame(first)
+                if first[0] in {CMD_CATALOG, CMD_ORDER}:
+                    self._handle_moca_frame(first)
                     continue
 
                 server.logger.warning("invalid tcp prefix from %s: %s", peer, first.hex(" "))
         finally:
             server.logger.info("%s TCP client disconnected: %s", server.name, peer)
 
-    def _handle_business_frame(self, first: bytes) -> None:
+    def _handle_moca_frame(self, first: bytes) -> None:
         server: TcpServer = self.server
-        header_tail = self._read_exact(HEADER_SIZE - 1)
+        header_tail = self._read_exact(MOCA_HEADER_SIZE - 1)
         if header_tail is None:
             return
 
         try:
-            message_type, request_id, payload_size = decode_header(first + header_tail)
+            header = decode_moca_header(first + header_tail)
         except ValueError as exc:
-            server.logger.warning("invalid business tcp header from %s: %s", self.client_address, exc)
+            server.logger.warning("invalid moca tcp header from %s: %s", self.client_address, exc)
             return
 
-        payload_bytes = self._read_exact(payload_size)
+        if not (
+            (header.cmd_type == CMD_CATALOG and header.method == METHOD_GET)
+            or (header.cmd_type == CMD_ORDER and header.method == METHOD_SET)
+        ):
+            server.logger.warning(
+                "unsupported moca tcp method for cmd from %s: cmd=0x%02X method=0x%02X",
+                self.client_address,
+                header.cmd_type,
+                header.method,
+            )
+            return
+
+        payload_bytes = self._read_exact(header.payload_size)
         if payload_bytes is None:
             return
 
+        if header.cmd_type == CMD_CATALOG:
+            self._handle_catalog_frame(header.sequence)
+            return
+        if header.cmd_type == CMD_ORDER:
+            self._handle_order_frame(header.sequence, payload_bytes)
+            return
+
+        server.logger.warning("unsupported moca tcp cmd from %s: 0x%02X", self.client_address, header.cmd_type)
+
+    def _handle_catalog_frame(self, sequence: int) -> None:
+        server: TcpServer = self.server
         try:
-            payload = decode_payload(payload_bytes)
-            if message_type != TYPE_CATALOG_REQUEST or payload.get("resource") != "catalog":
-                raise ValueError(f"unsupported business request type={message_type}")
             response = server.on_catalog()
-            self.request.sendall(encode_message(TYPE_CATALOG_RESPONSE, request_id, response))
+            payload = encode_catalog_payload(response)
+            self.request.sendall(encode_moca_frame(CMD_CATALOG, METHOD_GET, sequence, payload))
         except Exception as exc:
-            server.logger.warning("business tcp request failed from %s: %s", self.client_address, exc)
+            server.logger.warning("catalog tcp request failed from %s: %s", self.client_address, exc)
+            payload = encode_error_payload(ERROR_CATALOG_UNAVAILABLE, str(exc))
             self.request.sendall(
-                encode_message(
-                    TYPE_ERROR_RESPONSE,
-                    request_id,
-                    {"error": "catalog_unavailable", "message": str(exc)},
-                )
+                encode_moca_frame(CMD_CATALOG, METHOD_GET, sequence, payload)
             )
 
-    def _handle_order_frame(self, first: bytes) -> None:
+    def _handle_order_frame(self, sequence: int, payload: bytes) -> None:
         server: TcpServer = self.server
-        header_tail = self._read_exact(ORDER_HEADER_SIZE - 1)
-        if header_tail is None:
-            return
-        header = first + header_tail
 
         try:
-            _, _, item_count = parse_order_header(header)
-            item_bytes = self._read_exact(item_count * ORDER_ITEM_SIZE)
-            if item_bytes is None:
-                return
-            request = parse_order_request(header, item_bytes)
+            if len(payload) < ORDER_HEADER_SIZE:
+                raise ValueError(f"invalid order payload length: {len(payload)}")
+            order_header = payload[:ORDER_HEADER_SIZE]
+            _, _, item_count = parse_order_header(order_header)
+            expected_size = ORDER_HEADER_SIZE + item_count * ORDER_ITEM_SIZE
+            if len(payload) != expected_size:
+                raise ValueError(f"invalid order payload length: {len(payload)}")
+            request = parse_order_request(order_header, payload[ORDER_HEADER_SIZE:])
             server.on_order(request)
-            self.request.sendall(bytes([ACK]))
+            self.request.sendall(
+                encode_moca_frame(CMD_ORDER, METHOD_SET, sequence, encode_order_success_payload())
+            )
         except Exception as exc:
             server.logger.warning("order tcp request failed from %s: %s", self.client_address, exc)
-            self.request.sendall(bytes([NAK]))
+            payload = encode_error_payload(ERROR_ORDER_REJECTED, str(exc))
+            self.request.sendall(encode_moca_frame(CMD_ORDER, METHOD_SET, sequence, payload))
 
     def _read_exact(self, size: int) -> bytes | None:
         server: TcpServer = self.server

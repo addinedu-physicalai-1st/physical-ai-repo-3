@@ -1,7 +1,7 @@
 import socket
 from typing import Any
 
-from app.protocol.tcp_frame import HEALTH_CMD, STATUS_CMD, build_frame
+from app.protocol.health_protocol import HEALTH_CMD, STATUS_CMD, build_frame
 
 
 class OperationTcpClientError(RuntimeError):

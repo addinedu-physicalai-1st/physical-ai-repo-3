@@ -1,6 +1,6 @@
 from app.config import configure_logging, load_config
-from app.catalog_repo import CatalogRepository, DbConfig
-from app.order_repo import OrderRepository
+from app.repo.catalog_repo import CatalogRepository, DbConfig
+from app.repo.order_repo import OrderRepository
 from app.service import MocaService
 from app.tcp import TcpEndpoint, TcpStatusNotifier, TcpServer
 
@@ -10,6 +10,7 @@ def main() -> None:
     config = load_config()
     logger = configure_logging(config.service_name)
 
+    # TCP Send EndPoint 정의
     admin_gui = TcpEndpoint(
         host=config.admin_gui_host,
         port=config.admin_gui_port,
@@ -30,7 +31,6 @@ def main() -> None:
         port=config.serving_controller_bridge_port,
         name="ServingControllerBridge",
     )
-
     status_notifiers = [
         TcpStatusNotifier(admin_gui, logger),
         TcpStatusNotifier(web_service, logger),
@@ -38,6 +38,7 @@ def main() -> None:
         TcpStatusNotifier(serving_controller_bridge, logger),
     ]
 
+    # Database Config
     db_config = DbConfig(
         host=config.db_host,
         port=config.db_port,
@@ -45,10 +46,13 @@ def main() -> None:
         password=config.db_password,
         database=config.db_name,
     )
+
+    # create Service, Repo
     catalog_repository = CatalogRepository(db_config)
     order_repository = OrderRepository(db_config)
     service = MocaService(status_notifiers, catalog_repository, order_repository, logger)
 
+    # TCP server
     with TcpServer(
         config.server_host,
         config.server_port,

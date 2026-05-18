@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, status
 
 from app.models.order import Order, OrderCreate, OrderCreateResponse
-from app.services import order_repo
-from app.services.order_repo import (
+from app.services import order_service
+from app.services.order_service import (
     OrderError,
     OrderRejected,
     OrderServiceUnavailable,
@@ -10,7 +10,7 @@ from app.services.order_repo import (
     TableUnavailable,
     UnknownMenu,
 )
-from app.services.menu_repo import MenuServiceUnavailable
+from app.services.menu_service import MenuServiceUnavailable
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/orders", tags=["orders"])
 @router.post("", response_model=OrderCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_order(payload: OrderCreate) -> OrderCreateResponse:
     try:
-        order = order_repo.create(payload)
+        order = order_service.create(payload)
     except MenuServiceUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
     except OrderServiceUnavailable as e:
@@ -40,7 +40,7 @@ def create_order(payload: OrderCreate) -> OrderCreateResponse:
 
 @router.get("/{order_id}", response_model=Order)
 def get_order(order_id: str) -> Order:
-    order = order_repo.get(order_id)
+    order = order_service.get(order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")
     return order

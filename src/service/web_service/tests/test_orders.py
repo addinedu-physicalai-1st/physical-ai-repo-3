@@ -1,5 +1,5 @@
-from app.clients.moca_order_client import MocaOrderClientError, MocaOrderRejected
-from app.services import order_repo
+from app.clients.moca_tcp_client import MocaOrderClientError, MocaOrderRejected
+from app.services import order_service
 from tests.conftest import ORDER_CLIENT
 
 
@@ -98,7 +98,7 @@ def test_moca_order_rejection_returns_502(client):
         def create_order(self, receive_type, table_id, items):
             raise MocaOrderRejected("rejected")
 
-    order_repo.set_order_client(RejectingOrderClient())
+    order_service.set_order_client(RejectingOrderClient())
 
     r = client.post("/api/orders", json=_pickup_payload())
 
@@ -110,7 +110,7 @@ def test_moca_order_unavailable_returns_503(client):
         def create_order(self, receive_type, table_id, items):
             raise MocaOrderClientError("unavailable")
 
-    order_repo.set_order_client(FailingOrderClient())
+    order_service.set_order_client(FailingOrderClient())
 
     r = client.post("/api/orders", json=_pickup_payload())
 
@@ -122,7 +122,7 @@ def test_moca_order_failure_releases_reserved_table(client):
         def create_order(self, receive_type, table_id, items):
             raise MocaOrderClientError("unavailable")
 
-    order_repo.set_order_client(FailingOrderClient())
+    order_service.set_order_client(FailingOrderClient())
 
     r = client.post("/api/orders", json=_serving_payload(1))
 

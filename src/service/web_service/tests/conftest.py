@@ -9,7 +9,7 @@ from app.models.order import OrderCreate
 from app.routers import menu as menu_router
 from app.routers import orders as orders_router
 from app.routers import tables as tables_router
-from app.services import menu_repo, order_repo, table_repo
+from app.services import menu_service, order_service, table_service
 
 
 CATALOG = {
@@ -104,11 +104,11 @@ class SimpleASGIClient:
 
 @pytest.fixture(autouse=True)
 def reset_state():
-    menu_repo.set_catalog_client(FakeCatalogClient())
+    menu_service.set_catalog_client(FakeCatalogClient())
     ORDER_CLIENT.requests.clear()
-    order_repo.set_order_client(ORDER_CLIENT)
-    table_repo.reset()
-    order_repo.reset()
+    order_service.set_order_client(ORDER_CLIENT)
+    table_service.reset()
+    order_service.reset()
     yield
 
 

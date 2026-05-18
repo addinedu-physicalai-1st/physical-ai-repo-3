@@ -1,5 +1,5 @@
-from app.clients.moca_catalog_client import MocaCatalogClientError
-from app.services import menu_repo
+from app.clients.moca_tcp_client import MocaCatalogClientError
+from app.services import menu_service
 
 
 class FailingCatalogClient:
@@ -8,7 +8,7 @@ class FailingCatalogClient:
 
 
 def test_get_menu_returns_503_when_catalog_unavailable(client):
-    menu_repo.set_catalog_client(FailingCatalogClient())
+    menu_service.set_catalog_client(FailingCatalogClient())
 
     r = client.get("/api/menu")
 
@@ -16,7 +16,7 @@ def test_get_menu_returns_503_when_catalog_unavailable(client):
 
 
 def test_get_allergy_returns_503_when_catalog_unavailable(client):
-    menu_repo.set_catalog_client(FailingCatalogClient())
+    menu_service.set_catalog_client(FailingCatalogClient())
 
     r = client.get("/api/allergy")
 
@@ -24,7 +24,7 @@ def test_get_allergy_returns_503_when_catalog_unavailable(client):
 
 
 def test_post_order_returns_503_when_catalog_unavailable(client):
-    menu_repo.set_catalog_client(FailingCatalogClient())
+    menu_service.set_catalog_client(FailingCatalogClient())
 
     r = client.post(
         "/api/orders",

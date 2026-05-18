@@ -3,7 +3,7 @@ import socketserver
 import threading
 from collections.abc import Callable
 
-from app.protocol.tcp_frame import FRAME_SIZE, parse_frame
+from app.protocol.health_protocol import FRAME_SIZE, parse_frame
 
 FrameHandler = Callable[[int, int, tuple[str, int]], None]
 

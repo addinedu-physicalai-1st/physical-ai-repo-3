@@ -1,21 +1,16 @@
-from typing import Any
+from typing import Any, Protocol
 
-from app.clients.moca_catalog_client import CatalogClient, MocaCatalogClient, MocaCatalogClientError
-from app.config import load_config
+from app.clients.moca_shared import get_catalog_client, MocaTcpCatalogClient
+from app.clients.moca_tcp_client import MocaCatalogClientError
 from app.models.menu import AllergyInfo, MenuItem
 
-_config = load_config()
-_catalog_client: CatalogClient = MocaCatalogClient(
-    _config.moca_service_host,
-    _config.moca_service_port,
-)
-
+_catalog_client = get_catalog_client()
 
 class MenuServiceUnavailable(RuntimeError):
     pass
 
 
-def set_catalog_client(client: CatalogClient) -> None:
+def set_catalog_client(client) -> None:
     global _catalog_client
     _catalog_client = client
 

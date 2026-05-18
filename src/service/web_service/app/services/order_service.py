@@ -1,23 +1,22 @@
 import threading
 import uuid
+from typing import Protocol
 
 from app.models.order import Order, OrderCreate
 from app.models.menu import MenuItem
-from app.config import load_config
-from app.clients.moca_order_client import (
-    MocaOrderClient,
+from app.clients.moca_tcp_client import (
     MocaOrderClientError,
     MocaOrderItem,
     MocaOrderRejected,
-    OrderClient,
 )
-from app.services import menu_repo, table_repo
+from app.clients.moca_shared import get_order_client
+from app.services import menu_service, table_service
+
 
 _lock = threading.Lock()
 _orders: dict[str, Order] = {}
 _counter = 41  # 키오스크 원본의 첫 표시값(42)에 맞춤
-_config = load_config()
-_order_client: OrderClient = MocaOrderClient(_config.moca_service_host, _config.moca_service_port)
+_order_client = get_order_client()
 
 
 class OrderError(Exception):
@@ -44,7 +43,7 @@ class OrderRejected(OrderError):
     pass
 
 
-def set_order_client(client: OrderClient) -> None:
+def set_order_client(client) -> None:
     global _order_client
     _order_client = client
 
@@ -58,7 +57,7 @@ def reset() -> None:
 
 def _calc_total(payload: OrderCreate) -> int:
     total = 0
-    catalog = menu_repo.fetch_catalog()
+    catalog = menu_service.fetch_catalog()
     menu = {m.id: m for m in (MenuItem.model_validate(item) for item in catalog.get("menu", []))}
     surcharges = {str(key): int(value) for key, value in catalog.get("surcharges", {}).items()}
     for item in payload.items:
@@ -82,7 +81,7 @@ def create(payload: OrderCreate) -> Order:
     if payload.delivery == "serving":
         if payload.table_no is None:
             raise TableRequired("table_no is required for serving")
-        if not table_repo.occupy(payload.table_no):
+        if not table_service.occupy(payload.table_no):
             raise TableUnavailable(f"table {payload.table_no} is unavailable")
 
     receive_type = 1 if payload.delivery == "serving" else 0
@@ -95,11 +94,11 @@ def create(payload: OrderCreate) -> Order:
         )
     except MocaOrderRejected as exc:
         if payload.delivery == "serving":
-            table_repo.release(table_id)
+            table_service.release(table_id)
         raise OrderRejected(str(exc)) from exc
     except MocaOrderClientError as exc:
         if payload.delivery == "serving":
-            table_repo.release(table_id)
+            table_service.release(table_id)
         raise OrderServiceUnavailable(str(exc)) from exc
 
     with _lock:
