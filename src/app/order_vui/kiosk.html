@@ -1142,8 +1142,14 @@ loadMenu().catch(()=>{});
 loadAllergy().catch(()=>{});
 </script>
 
-<!-- Phase 0: voice mock. 평소엔 인디케이터만 표시, ?mock=1 일 때 5초 루프 동작 -->
+<!-- voice: KWS (onnxruntime-web) + VAD (silero-vad-web) + ASR/LLM (pai-server voice_service) -->
+<script>
+  // pai-server 의 voice_service 위치. 키오스크 PC 와 같은 LAN.
+  window.VOICE_SERVICE_URL = 'http://192.168.0.133:8010';
+</script>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
+<script src="/order_vui/shared/intent_handler.js"></script>
 <script src="/order_vui/shared/voice.js"></script>
 </body>
 </html>

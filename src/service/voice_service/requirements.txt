@@ -1,4 +1,21 @@
+# PoC (poc-moca-voice) 와 동일한 stable wheel 조합.
+# torch 2.12 + cuda 13 wheel 이 자체 cuda 런타임을 가져오므로 nvidia/cuda 베이스 불필요.
+# docker-compose 의 nvidia runtime 으로 GPU device 만 컨테이너에 노출하면 됨.
+
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 pydantic>=2.7
+
+torch>=2.12
+torchaudio
+transformers>=4.51
+accelerate
+sentencepiece
+protobuf
+
+qwen-asr
+
+soundfile
+librosa
+numpy

@@ -21,4 +21,18 @@ services:
     environment:
       VOICE_SERVICE_NAME: voice_service
       VOICE_SERVICE_HTTP_PORT: "8010"
+      HF_HOME: /root/.cache/huggingface
+      HUGGINGFACE_HUB_CACHE: /root/.cache/huggingface
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
+
+volumes:
+  hf_cache: {}

@@ -1,4 +1,5 @@
 // 마이크 PCM → openwakeword streaming KWS ("주문할게요") 감지.
+// wake word 트리거 시 silero-vad-web 으로 발화 끝 감지 → ASR → LLM → handleIntent.
 // 게이팅은 robot_arm_project/kws/kws_v1.py 와 동일, streaming 처리는
 // openwakeword/utils.py _streaming_features 그대로 이식.
 (() => {
@@ -17,6 +18,7 @@
   setState('idle');
 
   const MODELS_BASE = '/order_vui/shared/models';
+  const VOICE_SERVICE_URL = window.VOICE_SERVICE_URL || 'http://192.168.0.133:8010';
 
   const KWS_THRESHOLD = 0.65;
   // 합성 TTS 학습 모델 + 사람 발화는 high 청크가 단발성이라 1 청크만 통과해도 트리거.
@@ -32,6 +34,10 @@
   const MEL_FRAMES_STEP = 8;
   const EMB_BUFFER_LEN = 16;
 
+  // VAD CDN (잘 동작 확인되면 자체 호스팅으로 옮길 것)
+  const VAD_ASSET_BASE = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/';
+  const VAD_ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+
   let audioCtx = null;
   let stream = null;
   let workletNode = null;
@@ -39,6 +45,9 @@
   let melSession = null;
   let embSession = null;
   let kwsSession = null;
+
+  let vadInstance = null;
+  let vadBusy = false;  // VAD active 또는 ASR/LLM 처리 중이면 KWS 게이트 차단
 
   let rawBuf = new Float32Array(0);
   let melBuf = [];
@@ -84,6 +93,37 @@
     kwsSession = await loadSession('kws', `${MODELS_BASE}/kws_v1.onnx`, [
       { path: 'kws_v1.onnx.data', url: `${MODELS_BASE}/kws_v1.onnx.data` },
     ]);
+  }
+
+  async function loadVAD() {
+    if (vadInstance) return;
+    if (!window.vad || !window.vad.MicVAD) {
+      throw new Error('@ricky0123/vad-web 가 로드되지 않음 — kiosk.html 의 vad-web script 확인');
+    }
+    vadInstance = await window.vad.MicVAD.new({
+      baseAssetPath: VAD_ASSET_BASE,
+      onnxWASMBasePath: VAD_ORT_BASE,
+      positiveSpeechThreshold: 0.5,
+      negativeSpeechThreshold: 0.35,
+      minSpeechFrames: 4,         // 너무 짧은 잡음 제외 (~128ms)
+      redemptionFrames: 24,       // 발화 끝 판정 후 ~768ms 여유
+      onSpeechStart: () => {
+        setState('listening');
+        console.log('[vad] speech start');
+      },
+      onSpeechEnd: async (audio) => {
+        console.log(`[vad] speech end, ${audio.length} samples`);
+        try { vadInstance.pause(); } catch (_) {}
+        await processUtterance(audio);
+      },
+      onVADMisfire: () => {
+        console.log('[vad] misfire (너무 짧은 발화)');
+        try { vadInstance.pause(); } catch (_) {}
+        setState('idle');
+        vadBusy = false;
+      },
+    });
+    console.log('[vad] loaded');
   }
 
   async function acquireMic() {
@@ -132,6 +172,7 @@
   async function processChunk(int16Chunk) {
     if (busy) return;
     if (!melSession || !embSession || !kwsSession) return;
+    if (vadBusy) return;  // VAD 또는 ASR/LLM 처리 중이면 KWS 무시
     busy = true;
     try {
       rawBuf = appendFloat(int16ToFloat32(int16Chunk));
@@ -204,10 +245,95 @@
 
   function onWakeWord(score) {
     console.log(`[voice] wake word triggered  score=${score.toFixed(3)}`);
+    vadBusy = true;
     setState('thinking');
     const audio = new Audio('/audio/001.wav');
     audio.play().catch((e) => console.warn('[voice] start tone play failed:', e));
-    setTimeout(() => setState('listening'), 1500);
+    // 시작음과 사용자 발화가 겹치지 않게 약 1.2초 후 VAD 시작
+    setTimeout(async () => {
+      try {
+        if (!vadInstance) await loadVAD();
+        vadInstance.start();
+        setState('listening');
+      } catch (e) {
+        console.error('[voice] VAD start failed:', e);
+        vadBusy = false;
+        setState('idle');
+      }
+    }, 1200);
+  }
+
+  async function processUtterance(audioFloat32) {
+    setState('thinking');
+    try {
+      const wav = encodeWav(audioFloat32, 16000);
+
+      const fd = new FormData();
+      fd.append('file', new Blob([wav], { type: 'audio/wav' }), 'utt.wav');
+      const asrRes = await fetch(`${VOICE_SERVICE_URL}/asr/transcribe`, { method: 'POST', body: fd });
+      if (!asrRes.ok) throw new Error(`ASR HTTP ${asrRes.status}`);
+      const asr = await asrRes.json();
+      console.log(`[asr] "${asr.text}" (${asr.latency_ms.toFixed(0)}ms)`);
+
+      const llmRes = await fetch(`${VOICE_SERVICE_URL}/llm/intent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_text: asr.text,
+          current_screen: window.currentScreen || null,
+          cart: window.cart || [],
+          menu: (window.MENU || []).map((m) => ({ name: m.name })),
+        }),
+      });
+      if (!llmRes.ok) throw new Error(`LLM HTTP ${llmRes.status}`);
+      const intent = await llmRes.json();
+      console.log(`[llm] intent=${intent.intent} (${intent.latency_ms.toFixed(0)}ms)`);
+
+      if (typeof window.handleIntent === 'function') {
+        window.handleIntent(intent);
+      } else {
+        console.warn('[voice] handleIntent 미정의 — intent_handler.js 누락?');
+      }
+    } catch (e) {
+      console.error('[voice] processUtterance error:', e);
+    } finally {
+      setState('idle');
+      vadBusy = false;
+    }
+  }
+
+  // Float32Array @ sampleRate → 16-bit PCM mono WAV (Uint8Array).
+  function encodeWav(samples, sampleRate) {
+    const numSamples = samples.length;
+    const bytesPerSample = 2;
+    const blockAlign = bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = numSamples * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+    const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    let off = 44;
+    for (let i = 0; i < numSamples; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      off += 2;
+    }
+    return new Uint8Array(buffer);
   }
 
   async function start() {
@@ -216,6 +342,9 @@
     startBtn.textContent = '모델 로드 중...';
     try {
       await loadModels();
+      // VAD 도 미리 로드해서 첫 wake 후 추가 지연 없게
+      try { await loadVAD(); } catch (e) { console.warn('[voice] VAD 미리 로드 실패 (첫 wake 때 재시도):', e); }
+
       startBtn.textContent = '마이크 시작 중...';
       stream = await acquireMic();
       try {
@@ -239,6 +368,7 @@
       src.connect(gainNode);
       gainNode.connect(workletNode);
       console.log(`[voice] MIC_GAIN=${MIC_GAIN}`);
+      console.log(`[voice] VOICE_SERVICE_URL=${VOICE_SERVICE_URL}`);
 
       setState('listening');
       startBtn.classList.add('on');
@@ -253,6 +383,9 @@
   }
 
   async function stop() {
+    if (vadInstance) {
+      try { vadInstance.pause(); } catch (_) {}
+    }
     if (workletNode) { try { workletNode.disconnect(); } catch (_) {} workletNode = null; }
     if (audioCtx) { try { await audioCtx.close(); } catch (_) {} audioCtx = null; }
     if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
@@ -261,6 +394,7 @@
     embBuf = [];
     kwsHitBuf = [];
     busy = false;
+    vadBusy = false;
     setState('idle');
     startBtn.disabled = false;
     startBtn.classList.remove('on');
