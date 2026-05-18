@@ -2,8 +2,8 @@ import threading
 import uuid
 
 from app.models.order import Order, OrderCreate
+from app.models.menu import MenuItem
 from app.services import menu_repo, table_repo
-from app.data.seed import LOWFAT_MILK_SURCHARGE, SHOT_SURCHARGE
 
 _lock = threading.Lock()
 _orders: dict[str, Order] = {}
@@ -35,15 +35,18 @@ def reset() -> None:
 
 def _calc_total(payload: OrderCreate) -> int:
     total = 0
+    catalog = menu_repo.fetch_catalog()
+    menu = {m.id: m for m in (MenuItem.model_validate(item) for item in catalog.get("menu", []))}
+    surcharges = {str(key): int(value) for key, value in catalog.get("surcharges", {}).items()}
     for item in payload.items:
-        m = menu_repo.get_menu(item.menu_id)
+        m = menu.get(item.menu_id)
         if m is None:
             raise UnknownMenu(f"unknown menu_id={item.menu_id}")
         line = m.price * item.qty
         if item.options.shot == "추가":
-            line += SHOT_SURCHARGE * item.qty
+            line += surcharges.get("shot:추가", 0) * item.qty
         if item.options.milk == "저지방":
-            line += LOWFAT_MILK_SURCHARGE * item.qty
+            line += surcharges.get("milk:저지방", 0) * item.qty
         total += line
     return total
 

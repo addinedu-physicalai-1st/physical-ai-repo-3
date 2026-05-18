@@ -8,6 +8,7 @@ from app.services.order_repo import (
     TableUnavailable,
     UnknownMenu,
 )
+from app.services.menu_repo import MenuServiceUnavailable
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -16,6 +17,8 @@ router = APIRouter(prefix="/api/orders", tags=["orders"])
 def create_order(payload: OrderCreate) -> OrderCreateResponse:
     try:
         order = order_repo.create(payload)
+    except MenuServiceUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except TableUnavailable as e:
         raise HTTPException(status_code=409, detail=str(e))
     except (TableRequired, UnknownMenu) as e:

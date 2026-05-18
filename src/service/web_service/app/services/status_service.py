@@ -14,9 +14,9 @@ class StatusService:
         return {
             "role": "Accepts HTTP requests from app clients and communicates with OperationService over TCP.",
             "dependencies": {
-                "operation_service": {
-                    "host": self.config.operation_service_host,
-                    "port": self.config.operation_service_port,
+                "moca_service": {
+                    "host": self.config.moca_service_host,
+                    "port": self.config.moca_service_port,
                 },
             },
             "listeners": {

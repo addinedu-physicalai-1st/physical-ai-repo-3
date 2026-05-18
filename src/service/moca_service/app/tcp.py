@@ -3,7 +3,19 @@ import socket
 import socketserver
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from typing import Protocol
+
+from app.business_tcp import (
+    HEADER_SIZE,
+    MAGIC,
+    TYPE_CATALOG_REQUEST,
+    TYPE_CATALOG_RESPONSE,
+    TYPE_ERROR_RESPONSE,
+    decode_header,
+    decode_payload,
+    encode_message,
+)
 
 # TCP contract
 # Frame: [STX=0x02][CMD][SEQ][ETX=0x03]
@@ -18,6 +30,7 @@ FRAME_SIZE = 4
 
 HealthHandler = Callable[[int], None]
 StatusHandler = Callable[[int, tuple[str, int]], None]
+CatalogHandler = Callable[[], dict[str, Any]]
 
 
 class StatusNotifier(Protocol):
@@ -96,6 +109,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         port: int,
         on_health: HealthHandler,
         on_status: StatusHandler,
+        on_catalog: CatalogHandler,
         logger: logging.Logger,
         name: str,
     ):
@@ -104,6 +118,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         self.name = name
         self.on_health = on_health
         self.on_status = on_status
+        self.on_catalog = on_catalog
 
 
 class TcpRequestHandler(socketserver.BaseRequestHandler):
@@ -114,31 +129,74 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
 
         try:
             while True:
-                frame = self._read_exact()
-                if frame is None:
+                first = self._read_exact(1)
+                if first is None:
                     return
 
-                try:
-                    cmd, seq = parse_frame(frame)
-                except ValueError as exc:
-                    server.logger.warning("invalid tcp frame from %s: %s", peer, exc)
+                if first == bytes([STX]):
+                    frame_tail = self._read_exact(FRAME_SIZE - 1)
+                    if frame_tail is None:
+                        return
+                    try:
+                        cmd, seq = parse_frame(first + frame_tail)
+                    except ValueError as exc:
+                        server.logger.warning("invalid tcp frame from %s: %s", peer, exc)
+                        continue
+
+                    if cmd == HEALTH_CMD:
+                        server.logger.info("received HEALTH trigger from %s seq=%s", peer, seq)
+                        server.on_health(seq)
+                    elif cmd == STATUS_CMD:
+                        server.logger.info("received STATUS frame from %s seq=%s", peer, seq)
+                        server.on_status(seq, peer)
                     continue
 
-                if cmd == HEALTH_CMD:
-                    server.logger.info("received HEALTH trigger from %s seq=%s", peer, seq)
-                    server.on_health(seq)
-                elif cmd == STATUS_CMD:
-                    server.logger.info("received STATUS frame from %s seq=%s", peer, seq)
-                    server.on_status(seq, peer)
+                if first == MAGIC[:1]:
+                    self._handle_business_frame(first)
+                    continue
+
+                server.logger.warning("invalid tcp prefix from %s: %s", peer, first.hex(" "))
         finally:
             server.logger.info("%s TCP client disconnected: %s", server.name, peer)
 
-    def _read_exact(self) -> bytes | None:
+    def _handle_business_frame(self, first: bytes) -> None:
+        server: TcpServer = self.server
+        header_tail = self._read_exact(HEADER_SIZE - 1)
+        if header_tail is None:
+            return
+
+        try:
+            message_type, request_id, payload_size = decode_header(first + header_tail)
+        except ValueError as exc:
+            server.logger.warning("invalid business tcp header from %s: %s", self.client_address, exc)
+            return
+
+        payload_bytes = self._read_exact(payload_size)
+        if payload_bytes is None:
+            return
+
+        try:
+            payload = decode_payload(payload_bytes)
+            if message_type != TYPE_CATALOG_REQUEST or payload.get("resource") != "catalog":
+                raise ValueError(f"unsupported business request type={message_type}")
+            response = server.on_catalog()
+            self.request.sendall(encode_message(TYPE_CATALOG_RESPONSE, request_id, response))
+        except Exception as exc:
+            server.logger.warning("business tcp request failed from %s: %s", self.client_address, exc)
+            self.request.sendall(
+                encode_message(
+                    TYPE_ERROR_RESPONSE,
+                    request_id,
+                    {"error": "catalog_unavailable", "message": str(exc)},
+                )
+            )
+
+    def _read_exact(self, size: int) -> bytes | None:
         server: TcpServer = self.server
         chunks = bytearray()
-        while len(chunks) < FRAME_SIZE:
+        while len(chunks) < size:
             try:
-                chunk = self.request.recv(FRAME_SIZE - len(chunks))
+                chunk = self.request.recv(size - len(chunks))
             except OSError as exc:
                 server.logger.warning("tcp read failed from %s: %s", self.client_address, exc)
                 return None

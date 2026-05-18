@@ -16,6 +16,11 @@ class MocaServiceConfig:
     cooking_controller_bridge_port: int
     serving_controller_bridge_host: str
     serving_controller_bridge_port: int
+    db_host: str
+    db_port: int
+    db_user: str
+    db_password: str
+    db_name: str
 
 
 def load_config() -> MocaServiceConfig:
@@ -69,6 +74,11 @@ def load_config() -> MocaServiceConfig:
         serving_controller_bridge_port=int(
             os.getenv("CONTROL_SERVICE_SERVING_CONTROLLER_BRIDGE_PORT", "9006")
         ),
+        db_host=os.getenv("BUSINESS_SERVICE_DB_HOST", "127.0.0.1"),
+        db_port=int(os.getenv("BUSINESS_SERVICE_DB_PORT", "3306")),
+        db_user=os.getenv("BUSINESS_SERVICE_DB_USER", "business_user"),
+        db_password=os.getenv("BUSINESS_SERVICE_DB_PASSWORD", "business_password"),
+        db_name=os.getenv("BUSINESS_SERVICE_DB_NAME", "business"),
     )
 
 

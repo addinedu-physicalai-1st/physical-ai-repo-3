@@ -1,4 +1,5 @@
 from app.config import configure_logging, load_config
+from app.catalog_repo import CatalogRepository, DbConfig
 from app.service import MocaService
 from app.tcp import TcpEndpoint, TcpStatusNotifier, TcpServer
 
@@ -36,13 +37,23 @@ def main() -> None:
         TcpStatusNotifier(serving_controller_bridge, logger),
     ]
 
-    service = MocaService(status_notifiers, logger)
+    catalog_repository = CatalogRepository(
+        DbConfig(
+            host=config.db_host,
+            port=config.db_port,
+            user=config.db_user,
+            password=config.db_password,
+            database=config.db_name,
+        )
+    )
+    service = MocaService(status_notifiers, catalog_repository, logger)
 
     with TcpServer(
         config.server_host,
         config.server_port,
         service.run_health_test,
         service.handle_status,
+        service.get_catalog,
         logger,
         "MocaService",
     ) as server:
