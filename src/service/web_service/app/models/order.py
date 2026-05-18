@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Channel = Literal["kiosk", "table"]
+Channel = Literal["kiosk", "table", "voice"]
 Delivery = Literal["pickup", "serving"]
 Payment = Literal["card", "apple_pay", "samsung_pay"]
 

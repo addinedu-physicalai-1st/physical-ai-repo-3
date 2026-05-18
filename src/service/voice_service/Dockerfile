@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-EXPOSE 9003
-EXPOSE 9103/udp
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8010
 
-CMD ["python", "-m", "app.main"]
+CMD ["python", "-m", "app"]

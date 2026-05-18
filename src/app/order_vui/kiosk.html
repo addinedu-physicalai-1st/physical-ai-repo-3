@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BREW — 카페 키오스크</title>
+<title>MOCA — 카페 키오스크</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -291,6 +291,17 @@
   .allergy-badge .text small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
   .allergy-actions { padding: 16px 20px; display: flex; gap: 12px; flex-shrink: 0; }
 
+  #screen-allergy-warning { align-items: center; justify-content: center; gap: 16px; padding: 40px 24px; }
+  #screen-allergy-warning .warning-icon { font-size: 96px; line-height: 1; }
+  #screen-allergy-warning .warning-menus {
+    font-size: 36px; font-weight: 700; color: var(--accent);
+    font-family: 'Cormorant Garamond', serif; letter-spacing: 1px;
+    text-align: center; line-height: 1.3; padding: 0 16px;
+  }
+  #screen-allergy-warning .warning-subtitle {
+    font-size: 16px; font-weight: 600; color: #ff6b6b;
+  }
+
   #screen-payment .payment-total { text-align: center; padding: 24px 0 20px; }
   #screen-payment .payment-total .total-label { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
   #screen-payment .payment-total .total-amount {
@@ -383,9 +394,25 @@
   .countdown-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 100%; transition: width linear; }
 
   .divider { border: none; border-top: 1px solid var(--border); margin: 12px 20px; }
+
+  .voice-ind {
+    position: fixed; top: 14px; right: 14px; z-index: 1000;
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; background: #1f1611; border: 1.5px solid var(--border);
+    color: var(--muted); transition: all 0.25s;
+    pointer-events: none;
+  }
+  .voice-ind.idle      { color: #555; }
+  .voice-ind.listening { color: #e8a84c; border-color: #e8a84c; box-shadow: 0 0 12px rgba(232,168,76,0.5); animation: voicePulse 1.2s ease-in-out infinite; }
+  .voice-ind.thinking  { color: #7ec8e3; border-color: #7ec8e3; }
+  .voice-ind.speaking  { color: #5cb85c; border-color: #5cb85c; }
+  @keyframes voicePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
 </style>
 </head>
 <body>
+
+<div id="voice-indicator" class="voice-ind idle" title="음성 상태">🎤</div>
 
 <div id="kiosk">
 
@@ -393,17 +420,16 @@
   <div class="screen" id="screen-standby">
     <div class="standby-inner">
       <div class="coffee-deco">☕</div>
-      <div class="standby-logo">BREW</div>
-      <div class="standby-tagline">Premium Coffee Experience</div>
+      <div class="standby-logo">MOCA</div>
       <button class="standby-btn" onclick="goToMenu()">주문 시작</button>
-      <div class="standby-hint">화면을 눌러 주문을 시작하세요</div>
+      <div class="standby-hint">"주문할게요" 라고 말해주세요</div>
     </div>
   </div>
 
   <!-- ── S2: 메뉴 선택 ── -->
   <div class="screen" id="screen-menu">
     <div class="kiosk-header">
-      <div class="logo">BREW</div>
+      <div class="logo">MOCA</div>
       <div class="step">STEP 1 — 메뉴 선택</div>
     </div>
     <div class="robot-voice">
@@ -430,12 +456,12 @@
   <div class="screen" id="screen-confirm">
     <div class="kiosk-header">
       <button class="back-btn" onclick="showScreen('screen-menu')">←</button>
-      <div class="logo">BREW</div>
+      <div class="logo">MOCA</div>
       <div class="step">STEP 2 — 주문 확인</div>
     </div>
     <div class="robot-voice" id="confirm-voice">
       <span class="icon">🤖</span>
-      <p id="confirm-voice-text"></p>
+      <p>화면에 보이는 주문이 맞으세요?<br>수정을 원하신다면 이전 페이지로 안내하겠습니다.</p>
     </div>
     <div class="confirm-list" id="confirm-list"></div>
     <div class="confirm-total">
@@ -453,12 +479,12 @@
   <div class="screen" id="screen-options">
     <div class="kiosk-header">
       <button class="back-btn" onclick="showScreen('screen-confirm')">←</button>
-      <div class="logo">BREW</div>
+      <div class="logo">MOCA</div>
       <div class="step">STEP 3 — 옵션 선택</div>
     </div>
     <div class="robot-voice">
       <span class="icon">🤖</span>
-      <p id="options-voice-text"></p>
+      <p>옵션을 선택해 주세요.</p>
     </div>
     <div class="options-nav" id="options-nav"></div>
     <div class="options-scroll" id="options-scroll"></div>
@@ -476,12 +502,12 @@
   <div class="screen" id="screen-allergy">
     <div class="kiosk-header">
       <button class="back-btn" onclick="showScreen('screen-options')">←</button>
-      <div class="logo">BREW</div>
+      <div class="logo">MOCA</div>
       <div class="step">STEP 4 — 알러지 확인</div>
     </div>
     <div class="robot-voice">
       <span class="icon">🤖</span>
-      <p>주문하신 메뉴의 알러지 정보를 확인해 주세요.<br>알러지가 있으시면 해당 항목을 선택해 주세요.</p>
+      <p>주문하신 메뉴의 알러지 정보를 확인해 주세요.<br>알러지가 있으시면 해당 항목을 선택해주세요.</p>
     </div>
     <div class="allergy-scroll">
       <div class="allergy-grid" id="allergy-grid"></div>
@@ -498,16 +524,28 @@
     </div>
   </div>
 
+  <!-- ── S5-1: 알러지 선택 경고 ── -->
+  <div class="screen" id="screen-allergy-warning">
+    <div class="warning-icon" id="allergy-warning-icon">🥜</div>
+    <div class="warning-menus" id="allergy-warning-menus">카페라떼</div>
+    <div class="warning-subtitle" id="allergy-warning-subtitle">땅콩 알러지 포함</div>
+    <div class="robot-voice" style="width:100%;">
+      <span class="icon">🤖</span>
+      <p>위 메뉴에 선택하신 알러지가 포함되어 있어요.<br>다른 메뉴를 선택해 주세요.</p>
+    </div>
+    <div class="countdown-bar"><div class="countdown-fill" id="bar-allergy-warning"></div></div>
+  </div>
+
   <!-- ── S6: 결제 ── -->
   <div class="screen" id="screen-payment">
     <div class="kiosk-header">
       <button class="back-btn" onclick="showScreen('screen-allergy')">←</button>
-      <div class="logo">BREW</div>
+      <div class="logo">MOCA</div>
       <div class="step">STEP 5 — 결제</div>
     </div>
     <div class="robot-voice">
       <span class="icon">🤖</span>
-      <p>결제 방법을 선택해 주세요.<br>카드 또는 현금으로 결제하실 수 있습니다.</p>
+      <p>결제 방법을 선택해 주세요.</p>
     </div>
     <div class="payment-total">
       <div class="total-label">최종 결제 금액</div>
@@ -538,7 +576,7 @@
   <!-- ── S7: 픽업/서빙 선택 ── -->
   <div class="screen" id="screen-delivery">
     <div class="kiosk-header">
-      <div class="logo">BREW</div>
+      <div class="logo">MOCA</div>
       <div class="step">STEP 6 — 수령 방법</div>
     </div>
     <div class="robot-voice">
@@ -563,12 +601,12 @@
   <div class="screen" id="screen-table">
     <div class="kiosk-header">
       <button class="back-btn" onclick="showScreen('screen-delivery')">←</button>
-      <div class="logo">BREW</div>
+      <div class="logo">MOCA</div>
       <div class="step">테이블 선택</div>
     </div>
     <div class="robot-voice">
       <span class="icon">🤖</span>
-      <p>어느 테이블로 서빙하면 될까요?<br>현재 앉아계신 테이블을 선택해 주세요.</p>
+      <p>어느 테이블로 서빙하면 될까요?</p>
     </div>
     <div class="table-map-wrap">
       <div class="table-legend">
@@ -641,6 +679,22 @@ let selectedPayment = null;
 let selectedTable = null;
 let orderNumber = null;
 
+// ─── VOICE ──────────────────────────────────────────
+const VOICE_MAP = {
+  'screen-menu': '001', 'screen-confirm': '002', 'screen-options': '003',
+  'screen-allergy': '004', 'screen-payment': '005', 'screen-delivery': '006',
+  'screen-table': '007', 'screen-complete': '015', 'screen-complete-serving': '017',
+};
+let currentAudio = null;
+function playVoice(num, onended) {
+  if (currentAudio) { try { currentAudio.pause(); } catch (_) {} currentAudio = null; }
+  if (!num) return;
+  const audio = new Audio(`/audio/${num}.wav`);
+  currentAudio = audio;
+  if (onended) audio.addEventListener('ended', onended);
+  audio.play().catch(() => {});
+}
+
 // ─── API ────────────────────────────────────────────
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -689,6 +743,17 @@ function showScreen(id) {
   currentScreen = id;
   next.classList.add('active');
   setTimeout(()=>next.classList.add('visible'), 10);
+
+  const voiceNum = VOICE_MAP[id];
+  if (!voiceNum) return;
+  if (id === 'screen-table') {
+    playVoice(voiceNum, () => {
+      const idx = TABLE_STATUS.findIndex((s, i) => i < 5 && s !== 'occupied');
+      if (idx >= 0) playVoice(String(8 + idx).padStart(3, '0'));
+    });
+  } else {
+    playVoice(voiceNum);
+  }
 }
 
 // ─── MENU SCREEN ────────────────────────────────────
@@ -779,12 +844,6 @@ async function goToMenu() {
 // ─── CONFIRM SCREEN ─────────────────────────────────
 function goToConfirm() {
   if (cart.length === 0) { alert('메뉴를 선택해 주세요!'); return; }
-  const names = cart.map(ci => {
-    const m = MENU.find(m=>m.id===ci.menuId);
-    return `${m.name} ${ci.qty}잔`;
-  }).join(', ');
-  document.getElementById('confirm-voice-text').textContent =
-    `${names} 맞으세요?\n추가하거나 빼실려면 이전으로 돌아가 수정해 주세요.`;
 
   const list = document.getElementById('confirm-list');
   list.innerHTML = cart.map(ci => {
@@ -816,7 +875,6 @@ function renderOptionScreen() {
   });
   if (items.length === 0) {
     document.getElementById('options-nav').innerHTML = '';
-    document.getElementById('options-voice-text').textContent = '선택할 옵션이 없습니다. 잠시 후 다음 단계로 이동합니다.';
     document.getElementById('options-scroll').innerHTML = `
       <div style="padding: 60px 20px; text-align: center;">
         <div style="font-size: 56px; margin-bottom: 18px;">✨</div>
@@ -837,8 +895,6 @@ function renderOptionScreen() {
 
   const ci = items[currentOptionIndex];
   const m = MENU.find(m=>m.id===ci.menuId);
-
-  document.getElementById('options-voice-text').textContent = `${m.name}의 옵션을 선택해 주세요.`;
 
   let html = `<div class="option-item-header">
     <span class="emoji">${m.emoji}</span>
@@ -919,7 +975,10 @@ async function goToAllergy() {
   const grid = document.getElementById('allergy-grid');
   grid.innerHTML = ALLERGY_INFO.map(a => {
     const hasIt = a.items.some(i => myItems.includes(i));
-    return `<div class="allergy-badge ${hasIt?'has-allergy':''}">
+    const onClick = hasIt
+      ? ` onclick="showAllergyWarning('${a.name}')"`
+      : '';
+    return `<div class="allergy-badge ${hasIt?'has-allergy':''}"${onClick}>
       <span class="icon">${a.icon}</span>
       <div class="text">
         ${a.name}
@@ -931,7 +990,22 @@ async function goToAllergy() {
 }
 
 function allergyIssue() {
+  playVoice('013');
   alert('직원을 호출합니다. 잠시만 기다려 주세요.');
+}
+
+function showAllergyWarning(allergyName) {
+  const allergy = ALLERGY_INFO.find(a => a.name === allergyName);
+  if (!allergy) return;
+  const myItems = cart.map(ci => MENU.find(m => m.id === ci.menuId).name);
+  const matchedMenus = allergy.items.filter(i => myItems.includes(i));
+  document.getElementById('allergy-warning-icon').textContent = allergy.icon;
+  document.getElementById('allergy-warning-menus').textContent = matchedMenus.join(', ');
+  document.getElementById('allergy-warning-subtitle').textContent = `${allergyName} 알러지 포함`;
+  showScreen('screen-allergy-warning');
+  startCountdown('bar-allergy-warning', () => {
+    showScreen('screen-menu');
+  });
 }
 
 // ─── PAYMENT ─────────────────────────────────────────
@@ -1022,6 +1096,7 @@ async function confirmTable() {
     startCountdown('bar-serving', ()=>{ resetSession(); });
   } catch (e) {
     if (e.status === 409) {
+      playVoice('014');
       alert('해당 테이블은 방금 점유되었습니다. 다른 테이블을 선택해 주세요.');
       try { await loadTables(); renderTableMap(); } catch (_) {}
     } else {
@@ -1055,5 +1130,8 @@ setTimeout(()=>initScreen.classList.add('visible'), 50);
 loadMenu().catch(()=>{});
 loadAllergy().catch(()=>{});
 </script>
+
+<!-- Phase 0: voice mock. 평소엔 인디케이터만 표시, ?mock=1 일 때 5초 루프 동작 -->
+<script src="/order_vui/shared/voice.js"></script>
 </body>
 </html>
