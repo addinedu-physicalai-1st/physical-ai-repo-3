@@ -44,8 +44,8 @@ class FakeOrderClient:
     def __init__(self):
         self.requests = []
 
-    def create_order(self, receive_type, table_id, items):
-        self.requests.append((receive_type, table_id, items))
+    def create_order(self, items):
+        self.requests.append(items)
 
 
 ORDER_CLIENT = FakeOrderClient()

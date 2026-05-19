@@ -9,7 +9,7 @@ from app.clients.moca_tcp_client import (
     MocaOrderRejected,
 )
 from app.clients.moca_shared import get_order_client
-from app.services import menu_service, table_service
+from app.services import menu_service
 from app.protocol.order_protocol import MocaOrderItem
 
 
@@ -78,27 +78,13 @@ def create(payload: OrderCreate) -> Order:
 
     total = _calc_total(payload)
 
-    if payload.delivery == "serving":
-        if payload.table_no is None:
-            raise TableRequired("table_no is required for serving")
-        if not table_service.occupy(payload.table_no):
-            raise TableUnavailable(f"table {payload.table_no} is unavailable")
-
-    receive_type = 1 if payload.delivery == "serving" else 0
-    table_id = payload.table_no if payload.delivery == "serving" and payload.table_no is not None else 0
     try:
         _order_client.create_order(
-            receive_type,
-            table_id,
             [MocaOrderItem(product_id=item.menu_id, quantity=item.qty) for item in payload.items],
         )
     except MocaOrderRejected as exc:
-        if payload.delivery == "serving":
-            table_service.release(table_id)
         raise OrderRejected(str(exc)) from exc
     except MocaOrderClientError as exc:
-        if payload.delivery == "serving":
-            table_service.release(table_id)
         raise OrderServiceUnavailable(str(exc)) from exc
 
     with _lock:

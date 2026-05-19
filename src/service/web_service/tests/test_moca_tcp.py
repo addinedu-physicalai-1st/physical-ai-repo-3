@@ -52,7 +52,7 @@ def test_moca_tcp_clients_send_catalog_and_order_requests(monkeypatch):
     order_client = MocaTcpOrderClient("127.0.0.1", 9001, timeout_sec=1.0)
 
     catalog = catalog_client.fetch_catalog()
-    order_client.create_order(1, 7, [MocaOrderItem(product_id=258, quantity=3)])
+    order_client.create_order([MocaOrderItem(product_id=258, quantity=3)])
     catalog_client.close()
     order_client.close()
 
@@ -63,7 +63,7 @@ def test_moca_tcp_clients_send_catalog_and_order_requests(monkeypatch):
     assert [request[0].method for request in requests] == [METHOD_GET, METHOD_SET]
     assert requests[0][0].sequence == 1
     assert requests[1][0].sequence == 1
-    assert requests[1][1] == bytes([1, 7, 1, 1, 2, 3])
+    assert requests[1][1] == bytes([1, 1, 2, 3])
 
 
 def test_moca_tcp_client_maps_order_error_to_rejected(monkeypatch):
@@ -76,7 +76,7 @@ def test_moca_tcp_client_maps_order_error_to_rejected(monkeypatch):
     client = MocaTcpOrderClient("127.0.0.1", 9001, timeout_sec=1.0)
 
     with pytest.raises(MocaOrderRejected):
-        client.create_order(0, 0, [MocaOrderItem(product_id=1, quantity=1)])
+        client.create_order([MocaOrderItem(product_id=1, quantity=1)])
     client.close()
 
 

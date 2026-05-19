@@ -5,8 +5,6 @@ from app.protocol.header_protocol import STATUS_OK, decode_error_payload
 
 MAX_U8 = 0xFF
 MAX_U16 = 0xFFFF
-RECEIVE_PICKUP = 0
-RECEIVE_SERVING = 1
 
 
 @dataclass(frozen=True)
@@ -17,12 +15,12 @@ class MocaOrderItem:
     quantity: int
 
 
-def encode_order_request_payload(receive_type: int, table_id: int, items: list[MocaOrderItem]) -> bytes:
+def encode_order_request_payload(items: list[MocaOrderItem]) -> bytes:
     """Encode order request payload."""
 
-    _validate_order_header(receive_type, table_id, len(items))
+    _validate_order_header(len(items))
 
-    payload = bytearray([receive_type, table_id, len(items)])
+    payload = bytearray([len(items)])
     for item in items:
         _validate_order_item(item)
         payload.extend(struct.pack(">HB", item.product_id, item.quantity))
@@ -44,11 +42,7 @@ def decode_order_response_payload(payload: bytes) -> tuple[bool, str | None]:
     return False, message
 
 
-def _validate_order_header(receive_type: int, table_id: int, item_count: int) -> None:
-    if receive_type not in {RECEIVE_PICKUP, RECEIVE_SERVING}:
-        raise ValueError(f"invalid receive_type={receive_type}")
-    if not 0 <= table_id <= MAX_U8:
-        raise ValueError(f"invalid table_id={table_id}")
+def _validate_order_header(item_count: int) -> None:
     if not 1 <= item_count <= MAX_U8:
         raise ValueError(f"invalid item_count={item_count}")
 

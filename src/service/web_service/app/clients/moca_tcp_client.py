@@ -130,8 +130,8 @@ class MocaTcpCatalogClient(MocaTcpBaseClient):
 class MocaTcpOrderClient(MocaTcpBaseClient):
     """Creates orders in moca_service using the MOCA raw TCP order payload."""
 
-    def create_order(self, receive_type: int, table_id: int, items: list[MocaOrderItem]) -> None:
-        payload = self.encode_order_request(receive_type, table_id, items)
+    def create_order(self, items: list[MocaOrderItem]) -> None:
+        payload = self.encode_order_request(items)
         try:
             _, response_payload = self.request(CMD_ORDER, METHOD_SET, payload)
             self._raise_if_order_rejected(response_payload)
@@ -145,8 +145,8 @@ class MocaTcpOrderClient(MocaTcpBaseClient):
                 f"moca_service order request failed: {self.host}:{self.port}: {exc}"
             ) from exc
 
-    def encode_order_request(self, receive_type: int, table_id: int, items: list[MocaOrderItem]) -> bytes:
-        return encode_order_request_payload(receive_type, table_id, items)
+    def encode_order_request(self, items: list[MocaOrderItem]) -> bytes:
+        return encode_order_request_payload(items)
 
     def _raise_if_order_rejected(self, payload: bytes) -> None:
         ok, message = decode_order_response_payload(payload)

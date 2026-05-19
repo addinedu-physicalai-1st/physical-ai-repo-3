@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from app.protocol.header_protocol import STATUS_OK, decode_error_payload, encode_error_payload
 
-ORDER_HEADER_SIZE = 3
+ORDER_HEADER_SIZE = 1
 ORDER_ITEM_SIZE = 3
 
 
@@ -15,8 +15,6 @@ class OrderItemRequest:
 
 @dataclass(frozen=True)
 class OrderRequest:
-    receive_type: int
-    table_id: int
     items: list[OrderItemRequest]
 
 
@@ -38,19 +36,17 @@ class OrderResponse:
         return self.error_code is not None
 
 
-def parse_order_header(header: bytes) -> tuple[int, int, int]:
+def parse_order_header(header: bytes) -> int:
     if len(header) != ORDER_HEADER_SIZE:
         raise ValueError(f"invalid order header length: {len(header)}")
-    receive_type, table_id, item_count = header
-    if receive_type not in {0, 1}:
-        raise ValueError(f"invalid receive_type={receive_type}")
+    item_count = header[0]
     if item_count <= 0:
         raise ValueError("item_count must be greater than 0")
-    return receive_type, table_id, item_count
+    return item_count
 
 
 def parse_order_request(header: bytes, item_bytes: bytes) -> OrderRequest:
-    receive_type, table_id, item_count = parse_order_header(header)
+    item_count = parse_order_header(header)
     expected_size = item_count * ORDER_ITEM_SIZE
     if len(item_bytes) != expected_size:
         raise ValueError(f"invalid order items length: {len(item_bytes)}")
@@ -64,7 +60,7 @@ def parse_order_request(header: bytes, item_bytes: bytes) -> OrderRequest:
             raise ValueError("quantity must be greater than 0")
         items.append(OrderItemRequest(product_id=product_id, quantity=quantity))
 
-    return OrderRequest(receive_type=receive_type, table_id=table_id, items=items)
+    return OrderRequest(items=items)
 
 
 def parse_order_payload(payload: bytes) -> OrderRequest:
@@ -72,7 +68,7 @@ def parse_order_payload(payload: bytes) -> OrderRequest:
         raise ValueError(f"invalid order payload length: {len(payload)}")
 
     order_header = payload[:ORDER_HEADER_SIZE]
-    _, _, item_count = parse_order_header(order_header)
+    item_count = parse_order_header(order_header)
     expected_size = ORDER_HEADER_SIZE + item_count * ORDER_ITEM_SIZE
     if len(payload) != expected_size:
         raise ValueError(f"invalid order payload length: {len(payload)}")

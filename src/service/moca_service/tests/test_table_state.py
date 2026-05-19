@@ -3,13 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.protocol.order_protocol import OrderItemRequest, OrderRequest
 from app.application.moca_service import MocaService
 from app.domain.table_assignment_runtime import (
     StoreTableDefinition,
     TableAssignmentRuntime,
     TableUnavailable,
 )
+from app.protocol.order_protocol import OrderItemRequest, OrderRequest
 
 
 def test_table_assignment_runtime_tracks_runtime_assignment():
@@ -35,24 +35,7 @@ def test_table_assignment_runtime_tracks_runtime_assignment():
     assert [table.status for table in runtime.list_tables()] == ["empty", "empty"]
 
 
-def test_moca_service_releases_reserved_table_when_order_create_fails():
-    table_assignment_runtime = TableAssignmentRuntime(
-        [StoreTableDefinition(7, 7, Decimal("0.000"), Decimal("0.000"))]
-    )
-    service = MocaService(
-        FakeCatalogRepository(),
-        FailingOrderRepository(),
-        table_assignment_runtime,
-        NullLogger(),
-    )
-
-    with pytest.raises(RuntimeError):
-        service.create_order(OrderRequest(1, 7, [OrderItemRequest(2, 1)]))
-
-    assert table_assignment_runtime.list_tables()[0].status == "empty"
-
-
-def test_moca_service_keeps_reserved_table_after_order_create_succeeds():
+def test_moca_service_create_order_does_not_assign_table():
     table_assignment_runtime = TableAssignmentRuntime(
         [StoreTableDefinition(7, 7, Decimal("0.000"), Decimal("0.000"))]
     )
@@ -63,9 +46,9 @@ def test_moca_service_keeps_reserved_table_after_order_create_succeeds():
         NullLogger(),
     )
 
-    service.create_order(OrderRequest(1, 7, [OrderItemRequest(2, 1)]))
+    service.create_order(OrderRequest([OrderItemRequest(2, 1)]))
 
-    assert table_assignment_runtime.list_tables()[0].status == "occupied"
+    assert table_assignment_runtime.list_tables()[0].status == "empty"
 
 
 class FakeCatalogRepository:

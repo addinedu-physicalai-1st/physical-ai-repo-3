@@ -47,7 +47,7 @@ def test_tcp_server_handles_catalog_request():
 
 def test_tcp_server_handles_order_request():
     server = FakeServer()
-    request = FakeSocket(encode_frame(CMD_ORDER, METHOD_SET, 4, bytes([1, 7, 1, 0, 2, 3])))
+    request = FakeSocket(encode_frame(CMD_ORDER, METHOD_SET, 4, bytes([1, 0, 2, 3])))
 
     TcpRequestHandler(request, ("127.0.0.1", 12345), server)
     response = request.sent
@@ -59,8 +59,6 @@ def test_tcp_server_handles_order_request():
     assert header.sequence == 4
     assert decode_order_response_payload(response[HEADER_SIZE:]) == (True, None)
     assert len(server.orders) == 1
-    assert server.orders[0].receive_type == 1
-    assert server.orders[0].table_id == 7
     assert [(item.product_id, item.quantity) for item in server.orders[0].items] == [(2, 3)]
 
 
@@ -75,7 +73,7 @@ def test_tcp_server_rejects_catalog_set_method():
 
 def test_tcp_server_rejects_order_get_method():
     server = FakeServer()
-    request = FakeSocket(encode_frame(CMD_ORDER, METHOD_GET, 6, bytes([1, 7, 1, 0, 2, 3])))
+    request = FakeSocket(encode_frame(CMD_ORDER, METHOD_GET, 6, bytes([1, 0, 2, 3])))
 
     TcpRequestHandler(request, ("127.0.0.1", 12345), server)
 

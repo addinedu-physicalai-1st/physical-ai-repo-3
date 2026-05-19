@@ -61,9 +61,9 @@ class OrderRepository:
                         ) VALUES (%s, %s, %s, 'PENDING', 'PENDING', %s)
                         """,
                         (
-                            "TABLE" if request.table_id > 0 else "COUNTER",
-                            "DINE_IN" if request.receive_type == 1 else "TAKE_OUT",
-                            request.table_id if request.table_id > 0 else None,
+                            "COUNTER",
+                            "TAKE_OUT",
+                            None,
                             total_price,
                         ),
                     )
