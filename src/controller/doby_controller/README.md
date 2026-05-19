@@ -283,12 +283,6 @@ bash scripts/record_demo.sh
 
 ---
 
-## 협업
-
-- **개발** — 공국진 (Stephen, gjkong / skong097 / kong@pinklab.art)
-- **공동 모듈** — 송민규 / 류재상 / 김진우 / 김덕현 / 안순혁 (PinkLAB)
-- **베이스** — PinkLAB Vic Pinky Pro (pinklab.art, fork: `pinklab-art/vic_pinky`)
-
 ### 작업 규칙 요약 (`CLAUDE.md` §7 발췌)
 
 - 작업 시작 전 매일 1회 PC+RPi 백업 (`~/backup/moca_daily_YYYYMMDD/`)
