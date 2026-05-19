@@ -256,7 +256,7 @@ bash scripts/record_demo.sh
 1. **신규 합류자** → `CLAUDE.md` (프로젝트 컨텍스트 전체, 본 워크스페이스 첫 읽기)
 2. **학술 배경** → `docs/cafe_npc_paper_master.md` (6-Layer + GEVA/GEFA 약어 매핑)
 3. **시스템 아키텍처** → `docs/cafe_npc_system_architecture.md`
-4. **구현 계획** → `docs/cafe_npc_implementation_plan.md` (Phase 0~5, 16주)
+4. **구현 계획** → `docs/cafe_npc_implementation_plan.md` 
 5. **모드별 SoT**:
    - `docs/cafe_npc_engagement_funnel.md` (모객 5-stage funnel — engaging 모드 BT)
    - `docs/cafe_npc_safety_zone.md` (안전 영역 표준 매핑 — ISO 13482 외)
