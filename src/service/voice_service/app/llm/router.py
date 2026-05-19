@@ -43,10 +43,26 @@ def _names(items: list) -> list[str]:
     return names
 
 
+def _menu_items(items: list) -> list[dict]:
+    # 클라이언트 LLM payload 의 menu 객체에서 name + aliases 만 안전하게 추출.
+    out: list[dict] = []
+    for it in items or []:
+        if isinstance(it, dict):
+            name = it.get("name") or it.get("menu_name")
+            if not isinstance(name, str) or not name:
+                continue
+            raw_aliases = it.get("aliases") or []
+            aliases = [a for a in raw_aliases if isinstance(a, str) and a] if isinstance(raw_aliases, list) else []
+            out.append({"name": name, "aliases": aliases})
+        elif isinstance(it, str) and it:
+            out.append({"name": it, "aliases": []})
+    return out
+
+
 @router.post("/intent", response_model=IntentResponse)
 def intent(req: IntentRequest, request: Request) -> IntentResponse:
     model = _get_model(request)
-    system_prompt = build_system_prompt(_names(req.menu), _names(req.allergies))
+    system_prompt = build_system_prompt(_menu_items(req.menu), _names(req.allergies))
     user_msg = build_user_message(req.user_text, req.current_screen)
     raw, latency_ms = model.generate(system_prompt, user_msg)
 

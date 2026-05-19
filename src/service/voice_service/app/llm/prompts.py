@@ -53,6 +53,11 @@ intent 의미:
 - 그 경우 반드시 intent="unknown", items=[], allergens=[], response_text="다시 말씀해 주세요." 로 출력한다.
 - 예외 없음. 화면이 screen-menu, screen-options, screen-confirm, screen-payment 등인 상태에서 알러지 발화가 들어오면 무조건 unknown.
 
+ASR context echo 차단 (반드시 준수):
+- 발화가 콤마/슬래시로 구분된 명사구 나열 형태이거나 "메뉴:", "알러지:", "사이즈:", "옵션:", "자주 쓰는 말:" 같은 라벨로 시작하면, 이는 손님의 자연 발화가 아니라 ASR context 가 그대로 받아쓰기 결과로 echo 된 것이다. 정식 메뉴명이 포함되어 있어도 절대 add_menu 로 분류하지 않는다.
+- 그 경우 반드시 intent="unknown", items=[], allergens=[], response_text="다시 말씀해 주세요." 로 출력한다.
+- 손님의 자연 발화는 "아메리카노 한 잔", "라떼 두 잔 주세요" 처럼 수량/조사/조동사가 포함된 문장 형태이다.
+
 진행/회귀 변별 규칙:
 - screen-options 에서 "다음 / 다음으로 / 결제할게 / 주문할게 / 진행해" 같이 다음 단계로 가려는 발화는 반드시 confirm_order. back 으로 분류 금지.
 - back 은 "뒤로 / 이전 / 다시 고를래 / 돌아갈래 / 메뉴로" 처럼 회귀 의도가 명시적인 발화에만 사용한다.
@@ -242,6 +247,27 @@ _FEW_SHOTS = [
             "response_text": "다시 말씀해 주세요.",
         },
     ),
+    # ASR context echo 패턴 (콤마 명사구 나열) — 정식 메뉴명이 포함돼도 unknown.
+    (
+        "[화면: screen-menu] 카페 키오스크 주문. 메뉴: 아메리카노 (아메, 아아, 따아), 카페라떼 (라떼), 카푸치노 (카푸).",
+        {
+            "intent": "unknown",
+            "items": [],
+            "allergens": [],
+            "payment_method": None,
+            "response_text": "다시 말씀해 주세요.",
+        },
+    ),
+    (
+        "[화면: screen-menu] 아메리카노, 카페라떼, 카푸치노, 바닐라라떼",
+        {
+            "intent": "unknown",
+            "items": [],
+            "allergens": [],
+            "payment_method": None,
+            "response_text": "다시 말씀해 주세요.",
+        },
+    ),
 ]
 
 
@@ -257,11 +283,27 @@ def _format_few_shots() -> str:
 
 
 def build_system_prompt(
-    menu_names: Optional[list[str]] = None,
+    menus: Optional[list] = None,
     allergy_names: Optional[list[str]] = None,
 ) -> str:
-    if menu_names:
-        menu_block = "현재 메뉴 (정식 명칭):\n" + ", ".join(menu_names)
+    # menus 의 각 항목은 {"name": ..., "aliases": [...]} dict 또는 문자열.
+    # 별명이 있으면 "정식명 [별명1, 별명2]" 로 합쳐 LLM 이 한 번에 매핑하도록 한다.
+    menu_lines: list[str] = []
+    for it in menus or []:
+        if isinstance(it, dict):
+            name = it.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            raw_aliases = it.get("aliases") or []
+            aliases = [a for a in raw_aliases if isinstance(a, str) and a]
+            if aliases:
+                menu_lines.append(f"{name} [{', '.join(aliases)}]")
+            else:
+                menu_lines.append(name)
+        elif isinstance(it, str) and it:
+            menu_lines.append(it)
+    if menu_lines:
+        menu_block = "현재 메뉴 (정식 명칭 [별명]):\n" + ", ".join(menu_lines)
     else:
         menu_block = "현재 메뉴: (목록 미주입 — 보편적인 카페 메뉴명을 사용)"
     if allergy_names:
