@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>이벤트 — MOCA</title>
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/reset.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/layout.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260517r">
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <h1>MoCa</h1>
+        <p>Mobile Catering Snack Bar</p>
+      </div>
+      <nav class="sidebar__nav" aria-label="페이지 네비게이션">
+        <a class="sidebar__nav-item" href="/static/pages/dashboard.html"><span>대시보드</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/modes.html"><span>모드 제어</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/tables.html"><span>테이블</span></a>
+        <a class="sidebar__nav-item sidebar__nav-item--active" href="/static/pages/events.html"><span>이벤트</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/analytics.html"><span>통계</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/settings.html"><span>설정</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/debug.html"><span>디버그</span></a>
+      </nav>
+      <div class="sidebar__status">
+        <div class="sidebar__status-line">
+          <span class="sidebar__status-dot" id="footer-dot"></span>
+          <span id="footer-online">Doby…</span>
+        </div>
+        <div class="sidebar__status-line">
+          <span class="label">BATT</span>
+          <span id="footer-battery">—</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Header -->
+    <header class="header" id="header">
+      <mode-badge></mode-badge>
+      <battery-gauge></battery-gauge>
+      <safety-indicator></safety-indicator>
+      <robot-status name="Doby" store-key="online"></robot-status>
+      <robot-status name="DDooby"></robot-status>
+      <div class="header__right">
+        <header-clock></header-clock>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="main events-page">
+
+      <!-- 필터 카드 -->
+      <section class="card">
+        <h3>이벤트 로그</h3>
+        <div class="filter-row">
+          <span class="form-label">카테고리</span>
+          <label class="form-check"><input type="checkbox" data-cat="pickup" checked><span>pickup/order</span></label>
+          <label class="form-check"><input type="checkbox" data-cat="guide" checked><span>guide</span></label>
+          <label class="form-check"><input type="checkbox" data-cat="mode" checked><span>mode_change</span></label>
+          <label class="form-check"><input type="checkbox" data-cat="alarm" checked><span>alarm</span></label>
+          <label class="form-check"><input type="checkbox" data-cat="command" checked><span>command</span></label>
+          <label class="form-check"><input type="checkbox" data-cat="other"><span>기타/debug</span></label>
+        </div>
+        <div class="filter-row">
+          <span class="form-label">레벨</span>
+          <label class="form-check"><input type="checkbox" data-lvl="info" checked><span>info</span></label>
+          <label class="form-check"><input type="checkbox" data-lvl="warn" checked><span>warn</span></label>
+          <label class="form-check"><input type="checkbox" data-lvl="error" checked><span>error</span></label>
+          <span class="form-label" style="margin-left:auto">기간</span>
+          <select class="form-select" id="filter-range">
+            <option value="all">전체 (메모리 누적)</option>
+            <option value="hour">최근 1시간</option>
+            <option value="today">오늘</option>
+          </select>
+        </div>
+        <div class="filter-row">
+          <span class="card__small" id="events-count">표시 중: 0건</span>
+          <span style="flex:1"></span>
+          <button class="btn btn--ghost" id="btn-refresh">새로고침</button>
+          <button class="btn btn--ghost" id="btn-load-more">더 불러오기 (백엔드)</button>
+          <button class="btn btn--primary" id="btn-export-csv">CSV 내보내기</button>
+        </div>
+      </section>
+
+      <!-- 이벤트 목록 -->
+      <section class="card events-list-card">
+        <div class="events-table-wrap">
+          <table class="events-table">
+            <thead>
+              <tr>
+                <th>시각</th>
+                <th>레벨</th>
+                <th>소스</th>
+                <th>카테고리</th>
+                <th>메시지</th>
+              </tr>
+            </thead>
+            <tbody id="events-tbody">
+              <tr><td colspan="5" class="events-empty">이벤트 수신 대기…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- JS -->
+  <script src="/static/js/utils.js?v=20260517r"></script>
+  <script src="/static/js/ws.js?v=20260517r"></script>
+  <script src="/static/js/store.js?v=20260517r"></script>
+  <script src="/static/js/api.js?v=20260517r"></script>
+  <script src="/static/js/toast.js?v=20260517r"></script>
+  <script src="/static/components/mode-badge.js?v=20260517r"></script>
+  <script src="/static/components/battery-gauge.js?v=20260517r"></script>
+  <script src="/static/components/safety-indicator.js?v=20260517r"></script>
+  <script src="/static/components/robot-status.js?v=20260517r"></script>
+  <script src="/static/components/header-clock.js?v=20260517r"></script>
+
+  <script>
+    (function () {
+      // ───── 사이드바 / 헤더 ─────
+      const dot = document.getElementById('footer-dot');
+      const onlineLabel = document.getElementById('footer-online');
+      const batt = document.getElementById('footer-battery');
+      const header = document.getElementById('header');
+      store.on('online', (on) => {
+        if (on) {
+          dot.classList.add('sidebar__status-dot--online');
+          onlineLabel.textContent = 'Doby Online';
+          header.classList.remove('header--offline');
+        } else {
+          dot.classList.remove('sidebar__status-dot--online');
+          onlineLabel.textContent = 'Doby Offline';
+          header.classList.add('header--offline');
+        }
+      });
+      store.on('battery', (b) => {
+        if (b && typeof b.percentage === 'number' && b.percentage >= 0) {
+          batt.textContent = `${Math.round(b.percentage * 100)}%`;
+        } else { batt.textContent = '—'; }
+      });
+
+      // ───── 이벤트 데이터: store.events (WS push) + GET /events (page) 합쳐 표시 ─────
+      // events Map<ts+msg, ev> 키로 dedup
+      const eventsAll = new Map();
+
+      function addEvents(arr) {
+        if (!Array.isArray(arr)) return;
+        arr.forEach(e => {
+          if (!e || !e.ts) return;
+          const key = `${e.ts}|${e.source || ''}|${e.msg || ''}`;
+          eventsAll.set(key, e);
+        });
+      }
+
+      // 카테고리 그룹핑 — backend category (event_type) 를 spec §7 5 그룹으로 매핑
+      function groupCategory(cat) {
+        const c = (cat || '').toLowerCase();
+        if (c.startsWith('pickup') || c.startsWith('order')) return 'pickup';
+        if (c.startsWith('guide')) return 'guide';
+        if (c.includes('mode') || c.includes('manual_mode')) return 'mode';
+        if (c.includes('alarm') || c.includes('emergency') || c.includes('safety')) return 'alarm';
+        if (c.includes('command:')) return 'command';
+        return 'other';
+      }
+
+      function getFilters() {
+        const cats = new Set();
+        document.querySelectorAll('input[data-cat]').forEach(cb => {
+          if (cb.checked) cats.add(cb.getAttribute('data-cat'));
+        });
+        const lvls = new Set();
+        document.querySelectorAll('input[data-lvl]').forEach(cb => {
+          if (cb.checked) lvls.add(cb.getAttribute('data-lvl'));
+        });
+        const range = document.getElementById('filter-range').value;
+        return { cats, lvls, range };
+      }
+
+      function inRange(tsIso, range) {
+        if (range === 'all') return true;
+        const t = Date.parse(tsIso);
+        if (isNaN(t)) return true;
+        const now = Date.now();
+        if (range === 'hour') return (now - t) <= 3600 * 1000;
+        if (range === 'today') {
+          const d = new Date(now);
+          const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+          return t >= start;
+        }
+        return true;
+      }
+
+      function applyFilters() {
+        const f = getFilters();
+        const out = [];
+        eventsAll.forEach(e => {
+          const cg = groupCategory(e.category);
+          if (!f.cats.has(cg)) return;
+          const lv = (e.level || 'info').toLowerCase();
+          if (!f.lvls.has(lv)) return;
+          if (!inRange(e.ts, f.range)) return;
+          out.push(e);
+        });
+        out.sort((a, b) => (a.ts < b.ts) ? 1 : -1);
+        return out;
+      }
+
+      function render() {
+        const list = applyFilters();
+        const tbody = document.getElementById('events-tbody');
+        const countEl = document.getElementById('events-count');
+        countEl.textContent = `표시 중: ${list.length}건 (메모리 누적 ${eventsAll.size}건)`;
+        if (list.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="events-empty">조건 일치 이벤트 없음</td></tr>';
+          return;
+        }
+        tbody.innerHTML = list.map(e => {
+          const lv = (e.level || 'info').toLowerCase();
+          const cg = groupCategory(e.category);
+          const msg = String(e.msg || '').replace(/[<>&]/g,
+            c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+          return `<tr class="ev-${lv}">
+            <td class="ev-time">${utils.formatTime(e.ts)}</td>
+            <td class="ev-level"><span class="ev-tag ev-tag--${lv}">${lv.toUpperCase()}</span></td>
+            <td>${e.source || ''}</td>
+            <td><span class="ev-cat-tag ev-cat-tag--${cg}">${e.category || ''}</span></td>
+            <td class="ev-msg">${msg}</td>
+          </tr>`;
+        }).join('');
+      }
+
+      // ───── 초기 백엔드 fetch (deque 500) ─────
+      function fetchAll(before) {
+        const params = new URLSearchParams({ limit: '500' });
+        if (before) params.set('before', before);
+        return api.get(`/events?${params.toString()}`)
+          .then(r => {
+            const arr = (r && r.data && r.data.events) || [];
+            addEvents(arr);
+            return arr.length;
+          });
+      }
+
+      // ───── WS event_log push ─────
+      store.on('events', (arr) => {
+        addEvents(arr || []);
+        render();
+      });
+
+      // ───── 컨트롤 ─────
+      document.querySelectorAll('input[data-cat], input[data-lvl]').forEach(cb => {
+        cb.addEventListener('change', render);
+      });
+      document.getElementById('filter-range').addEventListener('change', render);
+
+      document.getElementById('btn-refresh').addEventListener('click', () => {
+        fetchAll().then(n => {
+          render();
+          toast(`백엔드에서 ${n}건 fetch`, 'info');
+        }).catch(() => toast('백엔드 fetch 실패', 'error'));
+      });
+
+      document.getElementById('btn-load-more').addEventListener('click', () => {
+        // 가장 오래된 이벤트 ts 보다 이전 fetch
+        let oldest = null;
+        eventsAll.forEach(e => {
+          if (!oldest || e.ts < oldest) oldest = e.ts;
+        });
+        if (!oldest) { fetchAll().then(render); return; }
+        fetchAll(oldest).then(n => {
+          render();
+          toast(n ? `이전 ${n}건 추가` : '더 과거 데이터 없음',
+                n ? 'info' : 'warn');
+        }).catch(() => toast('백엔드 fetch 실패', 'error'));
+      });
+
+      document.getElementById('btn-export-csv').addEventListener('click', () => {
+        const list = applyFilters();
+        if (list.length === 0) { toast('내보낼 이벤트 없음', 'warn'); return; }
+        const header = ['ts', 'level', 'source', 'category', 'msg'];
+        const rows = [header.join(',')].concat(
+          list.map(e => header.map(k => {
+            const v = String(e[k] == null ? '' : e[k]);
+            // CSV escape: " 포함 시 quote, , 또는 \n 포함 시 quote
+            if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+            return v;
+          }).join(',')));
+        const csv = '﻿' + rows.join('\n');   // BOM (한글 Excel)
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        a.href = url;
+        a.download = `moca_events_${stamp}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+        toast(`CSV 내보내기: ${list.length}건`, 'info');
+      });
+
+      // ───── 초기 로드 ─────
+      fetchAll().then(() => render()).catch(() => render());
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# 테이블 점유 현황 조회 — 다른 ROS 노드가 moca_opserver 의 table_registry 캐시 조회
+# 서버: moca_opserver_node
+# 클라이언트: (선택) CLI/스크립트, mode 외부 트리거 노드
+#
+# REST API 의 GET /api/v1/tables 와 동일한 데이터를 ROS 도메인에서도 노출.
+# 웹 대시보드는 WS 또는 REST 를 직접 사용하고, 본 srv 는 ROS 노드용.
+
+string table_id           # 비우면 전체 반환 ("T01"~"T05" 또는 "")
+---
+bool success
+string status_json        # JSON 배열 또는 단일 객체
+                          # 예: [{"id":"T01","occupancy":"occupied","person_count":2,
+                          #       "confidence":0.91,"last_update":"2026-05-16T12:30:01Z",
+                          #       "dishes_detected":false}, ...]

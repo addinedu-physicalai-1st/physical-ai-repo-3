@@ -1,0 +1,186 @@
+/* layout.css — 사이드바 + 헤더 + 페이지 그리드 (spec §3.1, §3.2) */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: 56px 1fr;
+  grid-template-areas:
+    "sidebar header"
+    "sidebar main";
+  min-height: 100vh;
+}
+
+/* ───── Sidebar ───── */
+.sidebar {
+  grid-area: sidebar;
+  background: linear-gradient(180deg, rgba(21, 11, 31, 0.95) 0%, rgba(10, 6, 18, 0.95) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4) 0;
+  box-shadow: inset -1px 0 0 rgba(255, 102, 179, 0.05);
+}
+
+.sidebar__brand {
+  padding: 0 var(--space-4) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-3);
+  text-align: center;   /* MoCa + Mobile Catering Snack Bar 가로 중앙 정렬 */
+}
+.sidebar__brand h1 {
+  font-family: var(--font-serif);
+  font-size: 42px;       /* MoCa — 폭을 sub-text 와 visual 매치 (docs/assets/mocanewdesign.png 정합) */
+  font-weight: 700;
+  margin: 0;
+  /* 3-color PinkLAB 로고 그라데이션 (docs/assets/pinklabcolor.png 참고)
+     핑크 (앞 하트) → 보라 (뒤 하트) → 다크 플럼 (겹친 음영) */
+  background: linear-gradient(135deg,
+              #e565a8 0%,
+              #6e4eb4 55%,
+              #3a2a5e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: 0.14em;   /* 자간 늘림 → sub-text 와 가로폭 매칭 */
+  line-height: 1.0;
+  filter: drop-shadow(0 0 8px rgba(110, 78, 180, 0.45));
+}
+.sidebar__brand p {
+  margin: 2px 0 0;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;      /* 한 줄 유지 */
+}
+
+.sidebar__nav { flex: 1; }
+.sidebar__nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  letter-spacing: 0.02em;
+  transition: background 0.15s, color 0.15s;
+  position: relative;
+}
+.sidebar__nav-item::before {
+  /* 미니멀 마커 — 이모지 대체 */
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.sidebar__nav-item:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+.sidebar__nav-item:hover::before { background: var(--pink-soft); }
+.sidebar__nav-item--active {
+  background: var(--bg-tertiary);
+  color: var(--pink-primary);
+  border-left: 3px solid var(--pink-primary);
+  padding-left: calc(var(--space-4) - 3px);
+  font-weight: 600;
+}
+.sidebar__nav-item--active::before {
+  background: var(--pink-primary);
+  box-shadow: 0 0 8px var(--pink-glow);
+}
+
+.sidebar__status {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.sidebar__status-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+}
+.sidebar__status-line .label {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  min-width: 40px;
+}
+.sidebar__status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--mode-offline);
+  box-shadow: 0 0 6px rgba(168, 90, 74, 0.4);
+}
+.sidebar__status-dot--online {
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(143, 188, 106, 0.4);
+}
+
+/* ───── Header ───── */
+.header {
+  grid-area: header;
+  background: linear-gradient(180deg, rgba(21, 11, 31, 0.9) 0%, rgba(21, 11, 31, 0.7) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: 0 var(--space-5);
+  transition: background 0.2s;
+}
+.header--offline {
+  background: linear-gradient(180deg, rgba(255, 77, 109, 0.22) 0%, rgba(21, 11, 31, 0.7) 100%);
+  border-bottom-color: var(--danger);
+}
+
+.header__right { margin-left: auto; }
+
+.header__clock {
+  font-family: var(--font-mono);
+  font-size: var(--fs-base);
+  color: var(--text-secondary);
+}
+
+/* ───── Main ───── */
+.main {
+  grid-area: main;
+  padding: var(--space-5);
+  overflow-y: auto;
+}
+
+/* ───── 반응형 ─────
+ * 데스크톱 ≥1024px: 220px 사이드바
+ * 태블릿 768~1023px: 60px 아이콘 사이드바 (M2 stretch)
+ * 모바일 <768px: 햄버거 (M2 stretch)
+ */
+@media (max-width: 1023px) {
+  .app-shell {
+    grid-template-columns: 60px 1fr;
+  }
+  .sidebar__brand p,
+  .sidebar__nav-item span:not(.icon),
+  .sidebar__status-line span:not(.icon) {
+    display: none;
+  }
+}
+@media (max-width: 767px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-areas: "header" "main";
+  }
+  .sidebar { display: none; }   /* TODO M2: 햄버거 메뉴 */
+}

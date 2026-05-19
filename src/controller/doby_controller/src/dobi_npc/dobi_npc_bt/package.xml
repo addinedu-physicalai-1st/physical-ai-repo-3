@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dobi_npc_bt</name>
+  <version>0.0.1</version>
+  <description>
+    Behavior Tree nodes for the Dobi Barista cafe NPC system.
+    Implements the 5-stage funnel BT (Isla 2005, Marzinotto 2014).
+    Phase 0-B: build skeleton only. Real BT nodes added in Phase 1.
+  </description>
+  <maintainer email="kong@pinklab.art">Stephen Kong (gjkong)</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>behaviortree_cpp</depend>
+  <depend>dobi_npc_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>ament_index_cpp</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

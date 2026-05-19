@@ -1,0 +1,47 @@
+# moca workspace — Python pip 의존성 (user site)
+#
+# 설치: pip install --user -r requirements.txt
+#
+# 시스템 의존성 (apt — 별도 설치 필요):
+#   sudo apt install ros-jazzy-desktop ros-jazzy-nav2-bringup \
+#       ros-jazzy-nav2-amcl ros-jazzy-behaviortree-cpp \
+#       ros-jazzy-twist-mux ros-jazzy-velocity-smoother \
+#       ros-jazzy-collision-monitor ros-jazzy-cartographer-ros \
+#       ros-jazzy-ros-gz ros-jazzy-ros-gz-bridge \
+#       python3-numpy python3-opencv python3-pil python3-pygame python3-yaml
+#
+# 정책 SoT: CLAUDE.md §7 "외부 의존성 버전 정책"
+# 검증된 환경: Ubuntu 24.04 noble + ROS2 Jazzy
+
+# ============================================================
+# Phase 2 W4 — 감정 분석 (GEVA: 노트북 웹캠 → 얼굴 표정 → V·A)
+# ============================================================
+# EyeCon v3.5 검증 버전. mediapipe 0.10.14 pin 유지 (Phase 1~4 동안 동결).
+mediapipe==0.10.14
+# ⚠ CRITICAL: mediapipe 설치 시 numpy 2.x + opencv-contrib-python 가 같이
+# user site 에 들어와 시스템 ROS (numpy 1.26.4 + cv2 4.6.0) 를 깨뜨림.
+# 설치 직후 반드시 제거:
+#   pip uninstall --yes numpy opencv-contrib-python
+
+# ============================================================
+# Phase 2 W4-③ — TTS (페르소나 voice)
+# ============================================================
+# EyeCon v3.5 검증 버전. Microsoft 클라우드 (인터넷 필요).
+# 다른 팀원이 LLM/TTS 조사 중 — 변경 시 tts_node.py + persona YAML voice 동기화.
+edge-tts==7.2.7
+
+# ============================================================
+# M3 — Web Dashboard (FastAPI port 8800)
+# ============================================================
+# moca_opserver/rest_api.py + web/teleop_server.py
+fastapi
+uvicorn[standard]
+pydantic>=2,<3
+
+# ============================================================
+# M4 — DB 클라이언트 (PostgreSQL async)
+# ============================================================
+# moca_db_schema.md v0.1 의 reporter_node 분리안. 5090 PG 설치 후 활성화.
+# 본격 사용 전엔 주석 처리.
+# asyncpg
+# alembic

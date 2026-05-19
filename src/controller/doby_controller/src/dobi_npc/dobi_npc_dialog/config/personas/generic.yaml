@@ -1,0 +1,99 @@
+# generic.yaml
+# Phase 1 W3 — 베이스 페르소나 (Isla 2005 character hierarchy 루트).
+# 모든 자식 페르소나는 이 파일을 상속하고, 일부 필드만 override.
+
+persona_id: generic
+display_name: "Dobi Barista 기본"
+description: "베이스 페르소나 — 모든 자식이 상속하는 공통 기반"
+
+# === Proxemic (Salichs 2014 + 한국 카페 보정) ===
+approach_distance: 1.5    # 사회적 거리 (Approach 노드의 social_distance)
+abort_threshold: 1.0      # abort 거리 (1.0m 이내 손님 시 정지)
+
+# === Phrase Pool (한국어 + 영어) ===
+# Castro-González 2016 polite phrase pool
+phrases:
+  icebreak:
+    ko:
+      - "안녕하세요!"
+      - "어서 오세요!"
+    en:
+      - "Hello!"
+      - "Welcome!"
+  minigame_invite:
+    ko:
+      - "잠깐 시간 되시면 가위바위보 한 판 하실래요?"
+      - "이기시면 추천 메뉴 알려드릴게요. 게임 한 판?"
+    en:
+      - "Got a moment for a quick rock-paper-scissors?"
+      - "Win once and I'll share today's recommendation. Up for a game?"
+  minigame_invite_speed_counter:
+    ko:
+      - "양손 손가락 합으로 숫자 만드는 빠른 게임이에요. 다섯 번 연속 맞히면 우승!"
+      - "양손으로 숫자를 표현해주세요. 5연속 정답이면 추천 메뉴 알려드려요."
+    en:
+      - "Make numbers with your fingers — both hands. Five in a row to win!"
+      - "Show numbers with both hands. Five correct in a row and I'll share the recommendation."
+  minigame_invite_cafe_ninja:
+    ko:
+      - "검지 손가락으로 떨어지는 메뉴를 베는 게임이에요. 폭탄은 피하시고요!"
+      - "닌자가 되어 메뉴를 베어보세요. 검지로 화면 위에서 떨어지는 음료를 빠르게 슥! 폭탄은 조심!"
+    en:
+      - "Slice the falling menu items with your index finger. Watch out for bombs!"
+      - "Become a ninja — slice the falling drinks with your index finger. Avoid the bombs!"
+  minigame_win:
+    ko:
+      - "와, 잘하시네요!"
+      - "이기셨어요! 축하드려요."
+    en:
+      - "Wow, you're good!"
+      - "You won! Congratulations."
+  minigame_lose:
+    ko:
+      - "아쉽네요. 그래도 음료 한 잔 추천드릴게요."
+      - "다음엔 이기실 거예요. 일단 메뉴 보러 가실까요?"
+    en:
+      - "Oh, that's a shame. Still, let me recommend a drink."
+      - "Next time! Shall we head to the menu?"
+  offer:
+    ko:
+      - "오늘 어떤 음료가 끌리세요?"
+    en:
+      - "What would you like today?"
+  leadin:
+    ko:
+      - "카운터로 안내해드릴게요. 절 따라오세요."
+    en:
+      - "Let me guide you to the counter. Please follow me."
+  leadin_arrived:
+    ko:
+      - "도착했습니다. 바리스타가 주문 도와드릴 거예요."
+    en:
+      - "Here we are. The barista will take your order."
+
+# === Stage별 표정 (pinky_emotion LCD 8어휘 매핑) ===
+# 어휘: basic | hello | happy | fun | interest | bored | sad | angry
+face_expression:
+  icebreak: hello
+  minigame_invite: fun
+  minigame_invite_speed_counter: interest
+  minigame_invite_cafe_ninja: fun
+  minigame_win: happy
+  minigame_lose: sad
+  offer: interest
+  leadin: interest
+  leadin_arrived: happy
+
+# === 기본 언어 ===
+default_language: ko
+
+# === TTS voice (Phase 2 W4-③) ===
+# v1: edge-tts (Microsoft Neural TTS) 형식. 미래 엔진 교체 시 본 섹션만 갱신.
+# 한국어 voice 옵션:
+#   ko-KR-SunHiNeural               (여)
+#   ko-KR-InJoonNeural              (남)
+#   ko-KR-HyunsuMultilingualNeural  (남, 다국어)
+voice:
+  name: ko-KR-SunHiNeural
+  rate: "+0%"      # SSML rate: -100% ~ +100%
+  pitch: "+0Hz"    # SSML pitch: -50Hz ~ +50Hz
