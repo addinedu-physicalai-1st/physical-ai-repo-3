@@ -1,7 +1,7 @@
 import struct
 from dataclasses import dataclass
 
-from app.protocol.moca_protocol import STATUS_OK, decode_error_payload
+from app.protocol.header_protocol import STATUS_OK, decode_error_payload
 
 MAX_U8 = 0xFF
 MAX_U16 = 0xFFFF

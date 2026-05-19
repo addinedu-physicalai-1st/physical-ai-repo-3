@@ -1,7 +1,7 @@
 import struct
 from dataclasses import dataclass
 
-from app.protocol.moca_protocol import STATUS_OK, decode_error_payload, encode_error_payload
+from app.protocol.header_protocol import STATUS_OK, decode_error_payload, encode_error_payload
 
 ORDER_HEADER_SIZE = 3
 ORDER_ITEM_SIZE = 3

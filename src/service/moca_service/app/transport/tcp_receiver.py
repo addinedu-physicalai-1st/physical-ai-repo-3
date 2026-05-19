@@ -9,7 +9,7 @@ from app.protocol.health_status_protocol import (
     STX,
     parse_frame,
 )
-from app.protocol.moca_protocol import (
+from app.protocol.header_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
     HEADER_SIZE as MOCA_HEADER_SIZE,

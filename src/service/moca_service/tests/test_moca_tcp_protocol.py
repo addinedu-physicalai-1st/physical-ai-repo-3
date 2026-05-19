@@ -2,7 +2,7 @@ import pytest
 
 from app.transport.tcp_receiver import TcpRequestHandler
 from app.protocol.catalog_protocol import CatalogResponse, decode_catalog_payload
-from app.protocol.moca_protocol import (
+from app.protocol.header_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
     HEADER_SIZE,

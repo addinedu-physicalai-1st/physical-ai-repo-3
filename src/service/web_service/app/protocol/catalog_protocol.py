@@ -1,7 +1,7 @@
 import struct
 from typing import Any
 
-from app.protocol.moca_protocol import (
+from app.protocol.header_protocol import (
     STATUS_ERROR,
     STATUS_OK,
     decode_error_payload,

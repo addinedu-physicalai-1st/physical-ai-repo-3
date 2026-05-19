@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING
 from typing import Any
 
 from app.protocol.order_protocol import OrderRequest
-from app.business.table_assignment_runtime import TableAssignmentRuntime
+from app.domain.table_assignment_runtime import TableAssignmentRuntime
 
 if TYPE_CHECKING:
-    from app.repo.catalog_repo import CatalogRepository
-    from app.repo.order_repo import OrderRepository
+    from app.repository.catalog_repo import CatalogRepository
+    from app.repository.order_repo import OrderRepository
 
 
 class MocaService:

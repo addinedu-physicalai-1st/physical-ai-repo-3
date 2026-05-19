@@ -3,8 +3,8 @@ from decimal import Decimal
 import pymysql
 from pymysql.cursors import DictCursor
 
-from app.repo.catalog_repo import DbConfig
-from app.business.table_assignment_runtime import StoreTableDefinition
+from app.repository.catalog_repo import DbConfig
+from app.domain.table_assignment_runtime import StoreTableDefinition
 
 
 class TableRepository:

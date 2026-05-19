@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.protocol.order_protocol import OrderItemRequest, OrderRequest
-from app.business.service import MocaService
-from app.business.table_assignment_runtime import (
+from app.application.moca_service import MocaService
+from app.domain.table_assignment_runtime import (
     StoreTableDefinition,
     TableAssignmentRuntime,
     TableUnavailable,

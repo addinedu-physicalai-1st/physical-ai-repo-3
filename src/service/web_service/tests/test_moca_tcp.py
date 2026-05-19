@@ -6,7 +6,7 @@ from app.clients.moca_tcp_client import (
     MocaTcpCatalogClient,
     MocaTcpOrderClient,
 )
-from app.protocol.moca_protocol import (
+from app.protocol.header_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
     HEADER_SIZE,

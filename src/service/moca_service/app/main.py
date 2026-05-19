@@ -1,10 +1,10 @@
 from app.config import configure_logging, load_config
-from app.business.controller import MocaController
-from app.business.service import MocaService
-from app.business.table_assignment_runtime import TableAssignmentRuntime
-from app.repo.catalog_repo import CatalogRepository, DbConfig
-from app.repo.order_repo import OrderRepository
-from app.repo.table_repo import TableRepository
+from app.application.moca_controller import MocaController
+from app.application.moca_service import MocaService
+from app.domain.table_assignment_runtime import TableAssignmentRuntime
+from app.repository.catalog_repo import CatalogRepository, DbConfig
+from app.repository.order_repo import OrderRepository
+from app.repository.table_repo import TableRepository
 from app.transport.tcp_receiver import TcpServer
 from app.transport.tcp_sender import build_moca_tcp_sender
 

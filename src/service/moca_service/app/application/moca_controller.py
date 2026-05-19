@@ -2,12 +2,12 @@ import logging
 
 from app.protocol.health_status_protocol import build_status_frame
 from app.protocol.catalog_protocol import CatalogResponse
-from app.protocol.moca_protocol import (
+from app.protocol.header_protocol import (
     ERROR_CATALOG_UNAVAILABLE,
     ERROR_ORDER_REJECTED,
 )
 from app.protocol.order_protocol import OrderRequest, OrderResponse
-from app.business.service import MocaService
+from app.application.moca_service import MocaService
 from app.transport.tcp_sender import TcpSender
 
 
