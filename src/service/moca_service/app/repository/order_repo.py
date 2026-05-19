@@ -19,6 +19,7 @@ class OrderAssignment:
     order_id: int
     order_source: str
     receive_type: str
+    table_id: int | None
     table_number: int | None
 
 
@@ -62,7 +63,7 @@ class OrderRepository:
                         INSERT INTO orders (
                             order_source,
                             receive_type,
-                            table_number,
+                            table_id,
                             order_status,
                             payment_status,
                             total_price
@@ -116,9 +117,16 @@ class OrderRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT order_id, order_source, receive_type, table_number
-                    FROM orders
-                    WHERE order_id = %s
+                    SELECT
+                        o.order_id,
+                        o.order_source,
+                        o.receive_type,
+                        o.table_id,
+                        st.table_number
+                    FROM orders o
+                    LEFT JOIN store_table st
+                        ON st.table_id = o.table_id
+                    WHERE o.order_id = %s
                     """,
                     (order_id,),
                 )
@@ -129,10 +137,11 @@ class OrderRepository:
                     order_id=int(row["order_id"]),
                     order_source=str(row["order_source"]),
                     receive_type=str(row["receive_type"]),
+                    table_id=int(row["table_id"]) if row["table_id"] is not None else None,
                     table_number=int(row["table_number"]) if row["table_number"] is not None else None,
                 )
 
-    def update_assignment(self, order_id: int, order_source: str, receive_type: str, table_number: int | None) -> bool:
+    def update_assignment(self, order_id: int, order_source: str, receive_type: str, table_id: int | None) -> bool:
         with pymysql.connect(
             host=self.config.host,
             port=self.config.port,
@@ -150,10 +159,10 @@ class OrderRepository:
                         UPDATE orders
                         SET order_source = %s,
                             receive_type = %s,
-                            table_number = %s
+                            table_id = %s
                         WHERE order_id = %s
                         """,
-                        (order_source, receive_type, table_number, order_id),
+                        (order_source, receive_type, table_id, order_id),
                     )
                     updated = cursor.rowcount > 0
                 conn.commit()

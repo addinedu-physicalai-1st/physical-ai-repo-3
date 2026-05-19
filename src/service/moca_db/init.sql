@@ -73,7 +73,11 @@ CREATE TABLE IF NOT EXISTS store_table (
     table_id INT AUTO_INCREMENT PRIMARY KEY,
     table_number INT NOT NULL,
     pos_x DECIMAL(10, 3) NOT NULL,
-    pos_y DECIMAL(10, 3) NOT NULL
+    pos_y DECIMAL(10, 3) NOT NULL,
+    CONSTRAINT uq_store_table_table_number
+        UNIQUE (table_number),
+    CONSTRAINT chk_store_table_table_number
+        CHECK (table_number > 0)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 INSERT INTO store_table (table_id, table_number, pos_x, pos_y) VALUES
@@ -82,6 +86,7 @@ INSERT INTO store_table (table_id, table_number, pos_x, pos_y) VALUES
     (3, 3, 0.000, 0.000),
     (4, 4, 0.000, 0.000)
 ON DUPLICATE KEY UPDATE
+    table_id = VALUES(table_id),
     table_number = VALUES(table_number),
     pos_x = VALUES(pos_x),
     pos_y = VALUES(pos_y);
@@ -90,14 +95,16 @@ CREATE TABLE IF NOT EXISTS orders (
     order_id INT AUTO_INCREMENT PRIMARY KEY,
     order_source ENUM('COUNTER', 'TABLE') NOT NULL,
     receive_type ENUM('DINE_IN', 'TAKE_OUT') NOT NULL,
-    table_number INT NULL,
+    table_id INT NULL,
     order_status ENUM('PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED', 'CANCELED') NOT NULL DEFAULT 'PENDING',
     payment_status ENUM('PENDING', 'PAID', 'FAILED', 'CANCELED', 'REFUNDED') NOT NULL DEFAULT 'PENDING',
     total_price INT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT chk_orders_table_number
-        CHECK (table_number IS NULL OR table_number > 0),
+    CONSTRAINT fk_orders_store_table
+        FOREIGN KEY (table_id) REFERENCES store_table(table_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
     CONSTRAINT chk_orders_total_price
         CHECK (total_price >= 0)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

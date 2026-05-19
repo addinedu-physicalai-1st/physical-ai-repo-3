@@ -54,9 +54,9 @@ def test_moca_service_create_order_does_not_assign_table():
 
 def test_moca_service_assigns_dine_in_order_to_table():
     table_assignment_runtime = TableAssignmentRuntime(
-        [StoreTableDefinition(7, 7, Decimal("0.000"), Decimal("0.000"))]
+        [StoreTableDefinition(3, 7, Decimal("0.000"), Decimal("0.000"))]
     )
-    repository = AssignableOrderRepository()
+    repository = AssignableOrderRepository(table_numbers_by_id={3: 7})
     service = MocaService(
         FakeCatalogRepository(),
         repository,
@@ -67,6 +67,7 @@ def test_moca_service_assigns_dine_in_order_to_table():
     service.assign_table(TableAssignmentRequest(1, "dine_in", 7))
 
     assert repository.assignment.receive_type == "DINE_IN"
+    assert repository.assignment.table_id == 3
     assert repository.assignment.table_number == 7
     assert table_assignment_runtime.list_tables()[0].status == "occupied"
 
@@ -83,7 +84,7 @@ def test_moca_service_assigns_take_out_without_occupying_table():
         NullLogger(),
     )
 
-    service.assign_table(TableAssignmentRequest(1, "take_out", 7))
+    service.assign_table(TableAssignmentRequest(1, "take_out", 0))
 
     assert repository.assignment.receive_type == "TAKE_OUT"
     assert repository.assignment.table_number is None
@@ -94,7 +95,7 @@ def test_moca_service_rejects_occupied_table_assignment_without_db_update():
     table_assignment_runtime = TableAssignmentRuntime(
         [StoreTableDefinition(7, 7, Decimal("0.000"), Decimal("0.000"))]
     )
-    table_assignment_runtime.occupy_by_table_number(7)
+    table_assignment_runtime.occupy(7)
     repository = AssignableOrderRepository()
     service = MocaService(
         FakeCatalogRepository(),
@@ -121,11 +122,13 @@ class SuccessfulOrderRepository:
 
 
 class AssignableOrderRepository(SuccessfulOrderRepository):
-    def __init__(self):
+    def __init__(self, table_numbers_by_id=None):
+        self.table_numbers_by_id = table_numbers_by_id or {}
         self.assignment = SimpleNamespace(
             order_id=1,
             order_source="COUNTER",
             receive_type="TAKE_OUT",
+            table_id=None,
             table_number=None,
         )
 
@@ -134,14 +137,15 @@ class AssignableOrderRepository(SuccessfulOrderRepository):
             return None
         return self.assignment
 
-    def update_assignment(self, order_id, order_source, receive_type, table_number):
+    def update_assignment(self, order_id, order_source, receive_type, table_id):
         if order_id != self.assignment.order_id:
             return False
         self.assignment = SimpleNamespace(
             order_id=order_id,
             order_source=order_source,
             receive_type=receive_type,
-            table_number=table_number,
+            table_id=table_id,
+            table_number=self.table_numbers_by_id.get(table_id) if table_id is not None else None,
         )
         return True
 

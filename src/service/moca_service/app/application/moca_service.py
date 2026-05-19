@@ -64,14 +64,13 @@ class MocaService:
         ):
             return
 
-        if assignment.receive_type != "TAKE_OUT" or assignment.table_number is not None:
+        if assignment.receive_type != "TAKE_OUT" or assignment.table_id is not None:
             raise TableAssignmentRejected(f"order {request.order_id} is already assigned")
 
-        occupied_table_number: int | None = None
+        occupied_table_id: int | None = None
         if request.receive_type == "dine_in":
             try:
-                self.table_assignment_runtime.occupy_by_table_number(request.table_number)
-                occupied_table_number = request.table_number
+                occupied_table_id = self.table_assignment_runtime.occupy_by_table_number(request.table_number)
             except TableUnavailable as exc:
                 raise TableAssignmentRejected(str(exc)) from exc
 
@@ -80,16 +79,16 @@ class MocaService:
                 request.order_id,
                 order_source,
                 receive_type,
-                table_number,
+                occupied_table_id,
             )
         except Exception:
-            if occupied_table_number is not None:
-                self.table_assignment_runtime.release_by_table_number(occupied_table_number)
+            if occupied_table_id is not None:
+                self.table_assignment_runtime.release(occupied_table_id)
             raise
 
         if not updated:
-            if occupied_table_number is not None:
-                self.table_assignment_runtime.release_by_table_number(occupied_table_number)
+            if occupied_table_id is not None:
+                self.table_assignment_runtime.release(occupied_table_id)
             raise OrderNotFound(f"order {request.order_id} not found")
 
     def _target_assignment(self, request: TableAssignmentRequest) -> tuple[str, str, int | None]:
