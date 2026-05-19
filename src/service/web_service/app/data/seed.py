@@ -1,14 +1,14 @@
 from app.models.menu import AllergyInfo, MenuItem
 
 MENU: list[MenuItem] = [
-    MenuItem(id=1, name="아메리카노",     emoji="☕", price=3500, hot=True,  shot=True,  ice=True,  milk=False),
-    MenuItem(id=2, name="카페라떼",       emoji="☕", price=4500, hot=True,  shot=True,  ice=True,  milk=True),
-    MenuItem(id=3, name="카푸치노",       emoji="🫧", price=4500, hot=True,  shot=True,  ice=False, milk=True),
-    MenuItem(id=4, name="바닐라라떼",     emoji="🌼", price=5000, hot=True,  shot=True,  ice=True,  milk=True),
-    MenuItem(id=5, name="카라멜마키아토", emoji="🍮", price=5500, hot=True,  shot=True,  ice=True,  milk=True),
-    MenuItem(id=6, name="말차라떼",       emoji="🍵", price=5500, hot=True,  shot=False, ice=True,  milk=True),
-    MenuItem(id=7, name="딸기스무디",     emoji="🍓", price=6000, hot=False, shot=False, ice=True,  milk=False),
-    MenuItem(id=8, name="치즈케이크",     emoji="🍰", price=7000, hot=False, shot=False, ice=False, milk=False),
+    MenuItem(id=1, name="아메리카노",     aliases=["아메", "아아", "따아"],   emoji="☕", price=3500, hot=True,  shot=True,  ice=True,  milk=False),
+    MenuItem(id=2, name="카페라떼",       aliases=["라떼"],                    emoji="☕", price=4500, hot=True,  shot=True,  ice=True,  milk=True),
+    MenuItem(id=3, name="카푸치노",       aliases=["카푸"],                    emoji="🫧", price=4500, hot=True,  shot=True,  ice=False, milk=True),
+    MenuItem(id=4, name="바닐라라떼",     aliases=["바닐라"],                  emoji="🌼", price=5000, hot=True,  shot=True,  ice=True,  milk=True),
+    MenuItem(id=5, name="카라멜마키아토", aliases=["카라멜", "마키아또"],      emoji="🍮", price=5500, hot=True,  shot=True,  ice=True,  milk=True),
+    MenuItem(id=6, name="말차라떼",       aliases=["말차"],                    emoji="🍵", price=5500, hot=True,  shot=False, ice=True,  milk=True),
+    MenuItem(id=7, name="딸기스무디",     aliases=["딸기"],                    emoji="🍓", price=6000, hot=False, shot=False, ice=True,  milk=False),
+    MenuItem(id=8, name="치즈케이크",     aliases=["치즈"],                    emoji="🍰", price=7000, hot=False, shot=False, ice=False, milk=False),
 ]
 
 ALLERGY: list[AllergyInfo] = [

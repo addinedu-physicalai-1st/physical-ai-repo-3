@@ -34,6 +34,21 @@
   const MEL_FRAMES_STEP = 8;
   const EMB_BUFFER_LEN = 16;
 
+  // ASR context hint — 메뉴/알러지 외에 키오스크에서 자주 나오는 발화 어휘.
+  // 메뉴/알러지명은 호출 시점에 동적으로 합쳐 보낸다.
+  const ASR_KEYWORDS = [
+    '주문할게요', '한 잔', '두 잔', '세 잔',
+    '따뜻하게', '차갑게', '뜨겁게',
+    '샷 추가', '얼음 빼', '얼음 없이',
+    '다음으로', '결제할게', '주문 확인할게',
+    '뒤로', '다시 고를래',
+    '알러지 없어요', '확인했어',
+  ];
+
+  // unknown intent 자동 재시도. wake 한 번에 최대 N 회까지, 매 회 무발화 timeout.
+  const UNKNOWN_RETRY_MAX = 2;
+  const UNKNOWN_RETRY_TIMEOUT_MS = 10000;
+
   // VAD CDN (잘 동작 확인되면 자체 호스팅으로 옮길 것)
   const VAD_ASSET_BASE = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/';
   const VAD_ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
@@ -48,6 +63,8 @@
 
   let vadInstance = null;
   let vadBusy = false;  // VAD active 또는 ASR/LLM 처리 중이면 KWS 게이트 차단
+  let retryCount = 0;   // unknown 자동 재시도 카운터 (wake 마다 0 으로 리셋)
+  let retryTimer = null;
 
   let rawBuf = new Float32Array(0);
   let melBuf = [];
@@ -110,6 +127,7 @@
       onSpeechStart: () => {
         setState('listening');
         console.log('[vad] speech start');
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
       },
       onSpeechEnd: async (audio) => {
         console.log(`[vad] speech end, ${audio.length} samples`);
@@ -246,6 +264,8 @@
   function onWakeWord(score) {
     console.log(`[voice] wake word triggered  score=${score.toFixed(3)}`);
     vadBusy = true;
+    retryCount = 0;
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     setState('thinking');
     const audio = new Audio('/audio/001.wav');
     audio.play().catch((e) => console.warn('[voice] start tone play failed:', e));
@@ -265,15 +285,9 @@
 
   async function processUtterance(audioFloat32) {
     setState('thinking');
+    let intent = null;
     try {
       const wav = encodeWav(audioFloat32, 16000);
-
-      const fd = new FormData();
-      fd.append('file', new Blob([wav], { type: 'audio/wav' }), 'utt.wav');
-      const asrRes = await fetch(`${VOICE_SERVICE_URL}/asr/transcribe`, { method: 'POST', body: fd });
-      if (!asrRes.ok) throw new Error(`ASR HTTP ${asrRes.status}`);
-      const asr = await asrRes.json();
-      console.log(`[asr] "${asr.text}" (${asr.latency_ms.toFixed(0)}ms)`);
 
       // kiosk.html 의 전역 변수들은 let 으로 선언돼 window.X 로는 접근 불가
       // — 같은 글로벌 스크립트 환경이라 식별자로는 참조 가능.
@@ -281,6 +295,27 @@
       const mnList = (typeof MENU !== 'undefined' && Array.isArray(MENU)) ? MENU : [];
       const ctList = (typeof cart !== 'undefined' && Array.isArray(cart)) ? cart : [];
       const alList = (typeof ALLERGY_INFO !== 'undefined' && Array.isArray(ALLERGY_INFO)) ? ALLERGY_INFO : [];
+
+      // ASR context 구성: 도메인 톤 + 현재 메뉴 (별칭 포함) + 알러지 + 키오스크 어휘
+      const ctxParts = ['카페 키오스크 음성 주문.'];
+      if (mnList.length) {
+        const menuStrs = mnList.map((m) => {
+          const ali = Array.isArray(m.aliases) && m.aliases.length ? ` (${m.aliases.join(', ')})` : '';
+          return m.name + ali;
+        });
+        ctxParts.push('메뉴: ' + menuStrs.join(', ') + '.');
+      }
+      if (alList.length) ctxParts.push('알러지: ' + alList.map((a) => a.name).join(', ') + '.');
+      ctxParts.push('자주 쓰는 말: ' + ASR_KEYWORDS.join(', ') + '.');
+      const asrContext = ctxParts.join(' ');
+
+      const fd = new FormData();
+      fd.append('file', new Blob([wav], { type: 'audio/wav' }), 'utt.wav');
+      fd.append('context', asrContext);
+      const asrRes = await fetch(`${VOICE_SERVICE_URL}/asr/transcribe`, { method: 'POST', body: fd });
+      if (!asrRes.ok) throw new Error(`ASR HTTP ${asrRes.status}`);
+      const asr = await asrRes.json();
+      console.log(`[asr] "${asr.text}" (${asr.latency_ms.toFixed(0)}ms)`);
 
       const llmRes = await fetch(`${VOICE_SERVICE_URL}/llm/intent`, {
         method: 'POST',
@@ -294,7 +329,7 @@
         }),
       });
       if (!llmRes.ok) throw new Error(`LLM HTTP ${llmRes.status}`);
-      const intent = await llmRes.json();
+      intent = await llmRes.json();
       console.log(`[llm] intent=${intent.intent} (${intent.latency_ms.toFixed(0)}ms)`);
 
       if (typeof window.handleIntent === 'function') {
@@ -305,8 +340,33 @@
     } catch (e) {
       console.error('[voice] processUtterance error:', e);
     } finally {
-      setState('idle');
-      vadBusy = false;
+      const shouldRetry = !!intent && intent.intent === 'unknown' && retryCount < UNKNOWN_RETRY_MAX;
+      if (shouldRetry) {
+        retryCount++;
+        console.log(`[voice] unknown — auto retry ${retryCount}/${UNKNOWN_RETRY_MAX} (timeout ${UNKNOWN_RETRY_TIMEOUT_MS}ms)`);
+        try {
+          vadInstance.start();
+          setState('listening');
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = setTimeout(() => {
+            console.log('[voice] unknown retry timeout — idle');
+            try { vadInstance.pause(); } catch (_) {}
+            setState('idle');
+            vadBusy = false;
+            retryCount = 0;
+            retryTimer = null;
+          }, UNKNOWN_RETRY_TIMEOUT_MS);
+        } catch (e) {
+          console.error('[voice] retry VAD start failed:', e);
+          setState('idle');
+          vadBusy = false;
+          retryCount = 0;
+        }
+      } else {
+        setState('idle');
+        vadBusy = false;
+        retryCount = 0;
+      }
     }
   }
 
