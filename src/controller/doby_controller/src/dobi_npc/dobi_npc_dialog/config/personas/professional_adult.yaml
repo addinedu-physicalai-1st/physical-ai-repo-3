@@ -1,0 +1,89 @@
+# professional_adult.yaml
+# Phase 1 W3 — 직장인/회의 후 손님용 페르소나.
+# 절제된 존댓말, 비즈니스 거리 보장.
+
+parent: generic
+persona_id: professional_adult
+display_name: "Professional Adult"
+description: "직장인 / 회의 후 손님용. 정중하고 절제된 톤."
+
+# 비즈니스 거리 — 사회적 거리보다 약간 더 멀게
+approach_distance: 1.8
+
+phrases:
+  icebreak:
+    ko:
+      - "안녕하십니까. 무엇을 도와드릴까요?"
+      - "잠시 시간 괜찮으신가요?"
+    en:
+      - "Good day. May I assist you?"
+      - "Do you have a moment?"
+  minigame_invite:
+    ko:
+      - "잠시 가위바위보 한 판 어떠십니까? 이기시면 추천 메뉴 안내드리겠습니다."
+      - "짧게 게임 한 판 청해도 괜찮으실까요?"
+    en:
+      - "May I propose a brief rock-paper-scissors? Win and I'll share today's recommendation."
+      - "Would you spare a moment for a quick game?"
+  minigame_invite_speed_counter:
+    ko:
+      - "양손으로 숫자를 표현하는 게임입니다. 다섯 번 연속 정답 시 우승이며, 다소 빠르게 진행됩니다."
+      - "양손 손가락 합산으로 출제 숫자를 만들어 주십시오. 5연속 정답이면 추천 메뉴 안내드리겠습니다."
+    en:
+      - "A game of making numbers with both hands. Five correct in a row wins. It moves rather quickly."
+      - "Please form the requested number using fingers from both hands. Five in a row earns the recommendation."
+  minigame_invite_cafe_ninja:
+    ko:
+      - "검지 손가락으로 떨어지는 메뉴를 베는 게임입니다. 폭탄에는 손이 닿지 않도록 주의해 주십시오."
+      - "검지로 떨어지는 음료를 슬라이스하시면 됩니다. 폭탄은 피하셔야 합니다."
+    en:
+      - "A game of slicing falling menu items with your index finger. Please avoid the bombs."
+      - "Slice the falling drinks with your index finger. Bombs are to be avoided."
+  minigame_win:
+    ko:
+      - "훌륭하십니다."
+      - "이기셨습니다. 축하드립니다."
+    en:
+      - "Splendid."
+      - "You've won. Well done."
+  minigame_lose:
+    ko:
+      - "아쉽게 되었습니다. 그래도 추천 메뉴 안내드리겠습니다."
+      - "다음 기회에 다시 도전하실 수 있습니다. 메뉴 보러 가실까요?"
+    en:
+      - "A close call. Allow me to share the recommendation regardless."
+      - "Another chance next time. Shall we look at the menu?"
+  offer:
+    ko:
+      - "오늘 추천 메뉴는 콜드브루입니다. 시도해보시겠습니까?"
+      - "에스프레소 더블샷도 인기 있습니다."
+    en:
+      - "Today's recommendation is the cold brew. Would you like to try?"
+      - "A double-shot espresso is also popular."
+  leadin:
+    ko:
+      - "주문 도와드리겠습니다. 카운터로 안내드리겠습니다."
+    en:
+      - "I'll assist with your order. Please follow me to the counter."
+  leadin_arrived:
+    ko:
+      - "도착했습니다. 편안히 주문 진행하시기 바랍니다."
+    en:
+      - "We've arrived. Please proceed with your order."
+
+face_expression:
+  icebreak: basic
+  minigame_invite: interest
+  minigame_invite_speed_counter: interest
+  minigame_invite_cafe_ninja: interest
+  minigame_win: happy
+  minigame_lose: basic
+  offer: interest
+  leadin: basic
+  leadin_arrived: basic
+
+# 정중 남성 voice + 약간 차분한 톤
+voice:
+  name: ko-KR-InJoonNeural
+  rate: "-5%"
+  pitch: "-5Hz"

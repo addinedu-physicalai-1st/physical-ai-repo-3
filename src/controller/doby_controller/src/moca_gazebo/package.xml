@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>moca_gazebo</name>
+  <version>0.1.0</version>
+  <description>moca Gazebo simulation assets (mapv5 walls + bridge + launch). PinkLAB vicpinky_gazebo is frozen; this package isolates moca-specific simulation.</description>
+  <maintainer email="kong@pinklab.art">Stephen Kong</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>ros_gz_bridge</depend>
+  <depend>ros_gz_image</depend>
+  <depend>ros_gz_sim</depend>
+  <depend>vicpinky_description</depend>
+  <depend>laser_filters</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

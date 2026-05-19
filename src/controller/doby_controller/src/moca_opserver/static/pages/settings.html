@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>설정 — MOCA</title>
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/reset.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/layout.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260517r">
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <h1>MoCa</h1>
+        <p>Mobile Catering Snack Bar</p>
+      </div>
+      <nav class="sidebar__nav" aria-label="페이지 네비게이션">
+        <a class="sidebar__nav-item" href="/static/pages/dashboard.html"><span>대시보드</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/modes.html"><span>모드 제어</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/tables.html"><span>테이블</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/events.html"><span>이벤트</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/analytics.html"><span>통계</span></a>
+        <a class="sidebar__nav-item sidebar__nav-item--active" href="/static/pages/settings.html"><span>설정</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/debug.html"><span>디버그</span></a>
+      </nav>
+      <div class="sidebar__status">
+        <div class="sidebar__status-line">
+          <span class="sidebar__status-dot" id="footer-dot"></span>
+          <span id="footer-online">Doby…</span>
+        </div>
+        <div class="sidebar__status-line">
+          <span class="label">BATT</span>
+          <span id="footer-battery">—</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Header -->
+    <header class="header" id="header">
+      <mode-badge></mode-badge>
+      <battery-gauge></battery-gauge>
+      <safety-indicator></safety-indicator>
+      <robot-status name="Doby" store-key="online"></robot-status>
+      <robot-status name="DDooby"></robot-status>
+      <div class="header__right">
+        <header-clock></header-clock>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="main settings-page">
+
+      <!-- 운영 설정 -->
+      <section class="card">
+        <h3>운영 설정</h3>
+        <div class="form-row">
+          <label class="form-label" for="biz-start">영업시간</label>
+          <input type="time" class="form-input" id="biz-start">
+          <span style="color:var(--text-muted)">~</span>
+          <input type="time" class="form-input" id="biz-end">
+          <button class="btn btn--ghost" id="btn-biz-save">저장</button>
+        </div>
+        <div class="form-row">
+          <label class="form-check">
+            <input type="checkbox" id="cfg-patrol-enabled">
+            <span>자동 순회 활성</span>
+          </label>
+          <label class="form-label" for="cfg-patrol-interval">주기 (분)</label>
+          <input type="number" class="form-input form-input--narrow"
+                 id="cfg-patrol-interval" min="1" max="60" step="1" value="5">
+          <button class="btn btn--ghost" id="btn-patrol-save">저장</button>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="cfg-battery-min">배터리 임계 (%)</label>
+          <input type="number" class="form-input form-input--narrow"
+                 id="cfg-battery-min" min="5" max="60" step="1" value="20">
+          <span class="card__small" style="color:var(--text-muted)">미만 시 모든 활동 모드 차단</span>
+          <button class="btn btn--ghost" id="btn-battery-save">저장</button>
+        </div>
+      </section>
+
+      <!-- 안전 설정 -->
+      <section class="card">
+        <h3>안전 설정</h3>
+        <div class="form-row">
+          <label class="form-label" for="cfg-alarm-dwell">alarm dwell (초)</label>
+          <input type="number" class="form-input form-input--narrow"
+                 id="cfg-alarm-dwell" min="1" max="60" step="1" value="5" disabled>
+          <span class="card__small" style="color:var(--text-muted)">백엔드 wire-format 확장 후 활성 (M4)</span>
+        </div>
+        <div class="form-row">
+          <label class="form-check" title="영업시간 외 자동 차단됨 — 토글 불필요">
+            <input type="checkbox" id="cfg-night-block" checked disabled>
+            <span>야간 자동 순회 차단</span>
+          </label>
+          <span class="card__small" style="color:var(--text-muted)">영업시간 외 자동 차단 (현 구현)</span>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="cfg-engaging-max">모객 자동 종료 (분)</label>
+          <input type="number" class="form-input form-input--narrow"
+                 id="cfg-engaging-max" min="1" max="30" step="1" value="5" disabled>
+          <span class="card__small" style="color:var(--text-muted)">백엔드 wire-format 확장 후 활성 (M4)</span>
+        </div>
+      </section>
+
+      <!-- 알림 설정 -->
+      <section class="card">
+        <h3>알림 설정</h3>
+        <p class="card__small" style="color:var(--text-muted)">
+          placeholder — 백엔드 wire-format + 텔레그램 봇 통합 후 활성 (M4)
+        </p>
+        <div class="form-row">
+          <label class="form-check">
+            <input type="checkbox" id="cfg-alert-battery" disabled>
+            <span>배터리 &lt; 30% 시 알림</span>
+          </label>
+        </div>
+        <div class="form-row">
+          <label class="form-check">
+            <input type="checkbox" id="cfg-alert-estop" checked disabled>
+            <span>비상정지 발생 시 알림</span>
+          </label>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="cfg-telegram-token">텔레그램 봇 토큰</label>
+          <input type="password" class="form-input form-input--grow"
+                 id="cfg-telegram-token" placeholder="—" disabled>
+          <button class="btn btn--ghost" disabled>테스트 전송</button>
+        </div>
+      </section>
+
+      <!-- 페르소나 / 발화 -->
+      <section class="card">
+        <h3>페르소나 / 발화</h3>
+        <p class="card__small" style="color:var(--text-muted)">
+          placeholder — config/personas/*.yaml 의 기본값 선택 (M4)
+        </p>
+        <div class="form-row">
+          <label class="form-label" for="cfg-default-persona">기본 페르소나</label>
+          <select class="form-select" id="cfg-default-persona" disabled>
+            <option>casual_browser</option>
+            <option>friendly_child</option>
+            <option>professional_adult</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="cfg-default-voice">기본 voice</label>
+          <select class="form-select" id="cfg-default-voice" disabled>
+            <option>ko-KR-SunHiNeural</option>
+            <option>ko-KR-InJoonNeural</option>
+            <option>ko-KR-BongJinNeural</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- 시스템 상태 -->
+      <section class="card">
+        <h3>시스템 상태</h3>
+        <dl class="kv-list" id="sys-kv">
+          <dt>워크스페이스</dt><dd id="sys-ws">OK</dd>
+          <dt>ROS_DOMAIN_ID</dt><dd id="sys-domain">—</dd>
+          <dt>ROS_LOCALHOST_ONLY</dt><dd id="sys-localhost">—</dd>
+          <dt>OpServer host:port</dt><dd id="sys-hostport">—</dd>
+          <dt>OpServer 시작 후</dt><dd id="sys-uptime">—</dd>
+          <dt>로봇 온라인</dt><dd id="sys-robot">—</dd>
+          <dt>WebSocket</dt><dd id="sys-ws-state">—</dd>
+          <dt>현재 모드</dt><dd id="sys-mode">—</dd>
+          <dt>setmode timeout</dt><dd id="sys-setmode-timeout">—</dd>
+          <dt>robot_offline_threshold</dt><dd id="sys-offline-thr">—</dd>
+          <dt>완료 dwell (서빙/순회/안내/모객)</dt><dd id="sys-dwell">—</dd>
+          <dt>NTP 도구</dt><dd id="sys-ntp-tool">—</dd>
+          <dt>NTP 동기화</dt><dd id="sys-ntp-sync">—</dd>
+          <dt>NTP 서버</dt><dd id="sys-ntp-server">—</dd>
+          <dt>NTP offset</dt><dd id="sys-ntp-offset">—</dd>
+          <dt>5090 마스터 (192.168.0.133)</dt><dd id="sys-ntp-5090">—</dd>
+        </dl>
+        <div class="form-row">
+          <button class="btn btn--ghost" id="btn-reload-status">상태 새로고침</button>
+          <button class="btn btn--ghost" disabled title="M4">로그 다운로드</button>
+          <button class="btn btn--ghost" disabled title="M4">설정 백업</button>
+          <button class="btn btn--ghost" disabled title="M4">재기동</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- JS — utils → ws → store → api → toast → 컴포넌트 -->
+  <script src="/static/js/utils.js?v=20260517r"></script>
+  <script src="/static/js/ws.js?v=20260517r"></script>
+  <script src="/static/js/store.js?v=20260517r"></script>
+  <script src="/static/js/api.js?v=20260517r"></script>
+  <script src="/static/js/toast.js?v=20260517r"></script>
+  <script src="/static/components/mode-badge.js?v=20260517r"></script>
+  <script src="/static/components/battery-gauge.js?v=20260517r"></script>
+  <script src="/static/components/safety-indicator.js?v=20260517r"></script>
+  <script src="/static/components/robot-status.js?v=20260517r"></script>
+  <script src="/static/components/header-clock.js?v=20260517r"></script>
+
+  <script>
+    (function () {
+      // ───── 사이드바 / 헤더 ─────
+      const dot = document.getElementById('footer-dot');
+      const onlineLabel = document.getElementById('footer-online');
+      const batt = document.getElementById('footer-battery');
+      const header = document.getElementById('header');
+      store.on('online', (on) => {
+        if (on) {
+          dot.classList.add('sidebar__status-dot--online');
+          onlineLabel.textContent = 'Doby Online';
+          header.classList.remove('header--offline');
+        } else {
+          dot.classList.remove('sidebar__status-dot--online');
+          onlineLabel.textContent = 'Doby Offline';
+          header.classList.add('header--offline');
+        }
+      });
+      store.on('battery', (b) => {
+        if (b && typeof b.percentage === 'number' && b.percentage >= 0) {
+          batt.textContent = `${Math.round(b.percentage * 100)}%`;
+        } else { batt.textContent = '—'; }
+      });
+
+      // ───── 설정 / 상태 로드 ─────
+      function applyConfig(c) {
+        if (typeof c.business_hours === 'string' && c.business_hours.includes('-')) {
+          const [s, e] = c.business_hours.split('-');
+          document.getElementById('biz-start').value = (s || '').trim();
+          document.getElementById('biz-end').value = (e || '').trim();
+        }
+        if (typeof c.patrol_enabled === 'boolean') {
+          document.getElementById('cfg-patrol-enabled').checked = c.patrol_enabled;
+        }
+        if (typeof c.patrol_interval_minutes === 'number') {
+          document.getElementById('cfg-patrol-interval').value = c.patrol_interval_minutes;
+        }
+        if (typeof c.battery_min === 'number') {
+          document.getElementById('cfg-battery-min').value = Math.round(c.battery_min * 100);
+        }
+        if (typeof c.alarm_dwell_sec === 'number') {
+          document.getElementById('cfg-alarm-dwell').value = c.alarm_dwell_sec;
+        }
+      }
+
+      function applySystem(c, status) {
+        const $ = (id) => document.getElementById(id);
+        if (c) {
+          $('sys-hostport').textContent = `${c.host || '—'}:${c.port || '—'}`;
+          $('sys-setmode-timeout').textContent =
+            (typeof c.setmode_timeout_sec === 'number') ? `${c.setmode_timeout_sec}s` : '—';
+          $('sys-offline-thr').textContent =
+            (typeof c.robot_offline_threshold_sec === 'number')
+              ? `${c.robot_offline_threshold_sec}s` : '—';
+          const dwell = [
+            c.completion_dwell_serving, c.completion_dwell_patrol,
+            c.completion_dwell_guiding, c.completion_dwell_engaging,
+          ];
+          if (dwell.every(v => typeof v === 'number')) {
+            $('sys-dwell').textContent = dwell.map(v => `${v}s`).join(' / ');
+          }
+        }
+        if (status) {
+          // 환경 (DOMAIN / LOCALHOST_ONLY) — 색 코딩
+          const env = status.environment || {};
+          const did = env.ros_domain_id || '—';
+          const lho = env.localhost_only || '—';
+          const domainEl = $('sys-domain');
+          domainEl.textContent = did + (env.hint ? ` (${env.hint})` : '');
+          if (did === '99') {
+            domainEl.style.color = 'var(--success)';   // 시뮬 = 초록
+            domainEl.title = '시뮬레이션 환경 (Gazebo) — PC 단독';
+          } else if (did === '22') {
+            domainEl.style.color = 'var(--warning)';   // 실물 = 주황
+            domainEl.title = '실물 로봇 환경 (Vic Pinky) — §0-A 정책 적용 영역';
+          } else if (did === '—' || did === '') {
+            domainEl.style.color = 'var(--danger)';    // 미설정 = 빨강
+            domainEl.title = 'ROS_DOMAIN_ID 미설정 — 기본값 0 위험';
+          } else {
+            domainEl.style.color = 'var(--text-secondary)';
+          }
+          $('sys-localhost').textContent = lho === '1' ? '1 (loopback only)' :
+                                            lho === '0' ? '0 (LAN broadcast)' : lho;
+          $('sys-localhost').style.color = lho === '1'
+            ? 'var(--success)' : 'var(--text-secondary)';
+
+          if (typeof status.uptime_sec === 'number') {
+            const u = status.uptime_sec;
+            const h = Math.floor(u / 3600);
+            const m = Math.floor((u % 3600) / 60);
+            const s = Math.floor(u % 60);
+            $('sys-uptime').textContent = `${h}h ${m}m ${s}s`;
+          } else if (typeof status.started_at === 'string') {
+            $('sys-uptime').textContent = utils.formatRelative(status.started_at) + ' 전 시작';
+          }
+          $('sys-robot').textContent = status.robot_online ? '온라인' : '오프라인';
+          if (status.mode && status.mode.current) {
+            $('sys-mode').textContent = String(status.mode.current).toUpperCase();
+          }
+        }
+        // WS 상태 — 클라이언트 측 추정
+        const wsOpen = window.wsClient && window.wsClient.opened;
+        $('sys-ws-state').textContent = wsOpen ? '열림' : '닫힘';
+      }
+
+      function applyNtp(n) {
+        const $ = (id) => document.getElementById(id);
+        if (!n) {
+          ['sys-ntp-tool','sys-ntp-sync','sys-ntp-server','sys-ntp-offset','sys-ntp-5090']
+            .forEach(id => { $(id).textContent = '—'; });
+          return;
+        }
+        $('sys-ntp-tool').textContent = n.tool || '미감지';
+        const syncOk = n.synchronized;
+        $('sys-ntp-sync').textContent =
+          syncOk === true ? '동기됨' :
+          syncOk === false ? '동기 안 됨' : '—';
+        $('sys-ntp-sync').style.color =
+          syncOk === true ? 'var(--success)' :
+          syncOk === false ? 'var(--danger)' : 'var(--text-muted)';
+        $('sys-ntp-server').textContent =
+          [n.server, n.server_ip].filter(Boolean).join(' / ') || '—';
+        $('sys-ntp-offset').textContent =
+          n.last_offset_sec || n.rms_offset_sec || '—';
+        const m = n.ntp_master_lan_5090 || {};
+        if (m.reachable) {
+          $('sys-ntp-5090').textContent =
+            `OK${m.rtt_ms != null ? ` (${m.rtt_ms} ms)` : ''}`;
+          $('sys-ntp-5090').style.color = 'var(--success)';
+        } else {
+          $('sys-ntp-5090').textContent = `unreachable (${m.host || '?'})`;
+          $('sys-ntp-5090').style.color = 'var(--danger)';
+        }
+        if (Array.isArray(n.warnings)) {
+          n.warnings.forEach(w => console.warn('[NTP]', w));
+        }
+      }
+
+      function loadAll() {
+        Promise.all([
+          api.get('/config').catch(() => null),
+          api.get('/status').catch(() => null),
+          api.get('/ntp').catch(() => null),
+        ]).then(([cfgRes, statusRes, ntpRes]) => {
+          const c = (cfgRes && cfgRes.data) || {};
+          const s = (statusRes && statusRes.data) || {};
+          const n = (ntpRes && ntpRes.data) || null;
+          applyConfig(c);
+          applySystem(s.config || c, s);
+          applyNtp(n);
+        });
+      }
+      loadAll();
+
+      // ───── 저장 ─────
+      function sendConfig(patch, label) {
+        const ok = wsClient.send(Object.assign({ type: 'set_config' }, patch));
+        toast(ok ? `${label} 저장 요청` : 'WS 연결 끊김', ok ? 'info' : 'warn');
+      }
+
+      document.getElementById('btn-biz-save').addEventListener('click', () => {
+        const s = document.getElementById('biz-start').value;
+        const e = document.getElementById('biz-end').value;
+        if (!s || !e) { toast('시작/종료 미입력', 'warn'); return; }
+        sendConfig({ business_hours: `${s}-${e}` }, `영업시간 ${s}-${e}`);
+      });
+
+      document.getElementById('btn-patrol-save').addEventListener('click', () => {
+        const enabled = document.getElementById('cfg-patrol-enabled').checked;
+        const minutes = parseFloat(document.getElementById('cfg-patrol-interval').value);
+        if (isNaN(minutes) || minutes <= 0) {
+          toast('주기 값 오류 (1 이상)', 'warn'); return;
+        }
+        sendConfig(
+          { patrol_enabled: enabled, patrol_interval_minutes: minutes },
+          `자동 순회 ${enabled ? '활성' : '비활성'} / ${minutes}분`);
+      });
+
+      document.getElementById('btn-battery-save').addEventListener('click', () => {
+        const pct = parseFloat(document.getElementById('cfg-battery-min').value);
+        if (isNaN(pct) || pct < 5 || pct > 60) {
+          toast('배터리 임계 5~60 범위', 'warn'); return;
+        }
+        sendConfig({ battery_min: pct / 100 }, `배터리 임계 ${pct}%`);
+      });
+
+      // ───── config_updated broadcast → 폼 갱신 ─────
+      wsClient.on('config_updated', () => {
+        // 다른 페이지에서 변경 → 본 페이지 폼 자동 갱신
+        loadAll();
+      });
+
+      // ───── 상태 새로고침 ─────
+      document.getElementById('btn-reload-status').addEventListener('click', () => {
+        loadAll();
+        toast('상태 새로고침', 'info');
+      });
+    })();
+  </script>
+</body>
+</html>
