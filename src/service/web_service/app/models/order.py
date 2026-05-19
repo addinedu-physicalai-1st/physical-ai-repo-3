@@ -22,7 +22,8 @@ class OrderItem(BaseModel):
 class OrderCreate(BaseModel):
     channel: Channel
     delivery: Delivery
-    payment: Payment
+    # 테이블 음성 주문(channel='table')은 카운터에서 결제하므로 payment 가 비어 있을 수 있음.
+    payment: Payment | None = None
     table_no: int | None = None
     items: list[OrderItem] = Field(min_length=1)
 
@@ -32,7 +33,7 @@ class Order(BaseModel):
     order_number: int
     channel: Channel
     delivery: Delivery
-    payment: Payment
+    payment: Payment | None
     table_no: int | None
     items: list[OrderItem]
     total: int

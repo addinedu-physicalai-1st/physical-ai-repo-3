@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MOCA — 테이블 주문</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0f0a05;
+    --surface:  #1c1208;
+    --card:     #261a0a;
+    --border:   #3a2910;
+    --accent:   #e8a84c;
+    --accent2:  #c47c20;
+    --text:     #f0e8d8;
+    --muted:    #7a6a52;
+    --danger:   #d9534f;
+    --success:  #4caf7d;
+    --robot-bg: #1e2a1a;
+    --robot-border: #4caf7d;
+  }
+
+  html, body {
+    height: 100vh;
+    min-height: 100vh;
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Noto Sans KR', sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  #kiosk {
+    width: min(480px, 100vw);
+    height: min(900px, 100vh);
+    background: var(--bg);
+    position: relative;
+    overflow: hidden;
+    border-radius: 0;
+    box-shadow: 0 0 80px rgba(232,168,76,0.15);
+  }
+  @media (min-width: 540px) and (min-height: 940px) {
+    #kiosk { border-radius: 24px; box-shadow: 0 0 80px rgba(232,168,76,0.15), 0 40px 120px rgba(0,0,0,0.8); }
+  }
+
+  .screen {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    padding-bottom: 130px;  /* PTT 버튼 영역 확보 */
+  }
+  .screen.active { display: flex; }
+  .screen.visible { opacity: 1; }
+
+  .robot-voice {
+    background: var(--robot-bg);
+    border: 1px solid var(--robot-border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin: 16px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    animation: slideDown 0.4s ease;
+  }
+  .robot-voice .icon { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
+  .robot-voice p { color: #b8e6c8; font-size: 13.5px; line-height: 1.6; font-weight: 500; }
+
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .kiosk-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 18px 24px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .kiosk-header .logo {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 4px;
+  }
+  .kiosk-header .step {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .kiosk-header .table-badge {
+    margin-left: auto;
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 2px;
+    font-weight: 700;
+  }
+  .back-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); font-size: 20px; padding: 4px;
+    display: flex; align-items: center;
+    transition: color 0.2s;
+  }
+  .back-btn:hover { color: var(--accent); }
+
+  .btn {
+    border: none; cursor: pointer; border-radius: 10px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-weight: 700; transition: all 0.2s; display: flex;
+    align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-primary { background: var(--accent); color: #1a0f00; font-size: 15px; padding: 14px 24px; }
+  .btn-primary:active { background: #f0b55e; }
+  .btn-outline { background: transparent; color: var(--text); border: 1.5px solid var(--border); font-size: 14px; padding: 12px 20px; }
+  .btn-outline:active { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: var(--danger); color: #fff; font-size: 15px; padding: 14px 24px; }
+  .btn-success { background: var(--success); color: #fff; font-size: 15px; padding: 14px 24px; }
+  .btn-lg { width: 100%; padding: 16px; font-size: 16px; border-radius: 12px; }
+
+  #screen-standby {
+    justify-content: center;
+    align-items: center;
+    background: radial-gradient(ellipse at 40% 30%, #2a1a06 0%, #0f0a05 60%);
+    padding-bottom: 130px;
+  }
+  .standby-inner { text-align: center; }
+  .standby-logo {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 72px; font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 12px; line-height: 1;
+    animation: glow 3s ease-in-out infinite;
+  }
+  .standby-tagline {
+    font-size: 13px; letter-spacing: 5px; color: var(--muted);
+    text-transform: uppercase; margin: 12px 0 36px;
+  }
+  .standby-table-label {
+    color: var(--accent); font-size: 16px; letter-spacing: 4px;
+    font-weight: 700; margin-bottom: 36px;
+  }
+  @keyframes glow {
+    0%, 100% { text-shadow: 0 0 20px rgba(232,168,76,0.3); }
+    50%       { text-shadow: 0 0 50px rgba(232,168,76,0.7); }
+  }
+  .standby-instruction {
+    color: var(--text); font-size: 15px; letter-spacing: 1px;
+    margin-bottom: 16px; line-height: 1.7;
+  }
+  .standby-hint {
+    color: var(--muted); font-size: 12px; letter-spacing: 1px;
+    margin-bottom: 26px;
+  }
+  .standby-gui-btn {
+    background: transparent; color: var(--muted); border: 1.5px solid var(--border);
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px; padding: 12px 28px;
+    border-radius: 50px; cursor: pointer; letter-spacing: 1px;
+  }
+  .standby-gui-btn:active { color: var(--text); border-color: var(--text); }
+  .coffee-deco { font-size: 64px; margin-bottom: 20px; animation: float 4s ease-in-out infinite; }
+  @keyframes float { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-10px);} }
+
+  #screen-menu { flex-direction: column; }
+  .menu-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 12px; padding: 0 16px 12px;
+    overflow-y: auto; flex: 1;
+  }
+  .menu-grid::-webkit-scrollbar { width: 4px; }
+  .menu-grid::-webkit-scrollbar-track { background: var(--surface); }
+  .menu-grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .menu-card {
+    background: var(--card); border: 1.5px solid var(--border);
+    border-radius: 14px; padding: 16px 12px;
+    cursor: pointer; transition: all 0.2s;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; gap: 8px;
+    position: relative; overflow: hidden;
+  }
+  .menu-card:active { border-color: var(--accent); }
+  .menu-card.selected { border-color: var(--accent); background: #2e1c06; }
+  .menu-card .emoji { font-size: 36px; }
+  .menu-card .name { color: var(--text); font-size: 13px; font-weight: 700; }
+  .menu-card .price { color: var(--accent); font-size: 13px; font-weight: 500; }
+  .menu-card .badge {
+    position: absolute; top: 8px; right: 8px;
+    background: var(--accent); color: #1a0f00;
+    font-size: 11px; font-weight: 700;
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .cart-panel {
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 14px 16px; flex-shrink: 0;
+  }
+  .cart-items {
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 90px; overflow-y: auto; margin-bottom: 10px;
+  }
+  .cart-item { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--text); }
+  .cart-item .item-name { flex: 1; }
+  .cart-item .item-qty { display: flex; align-items: center; gap: 8px; }
+  .qty-btn {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text); width: 28px; height: 28px;
+    border-radius: 6px; cursor: pointer; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .qty-btn:active { background: var(--accent); color: #1a0f00; border-color: var(--accent); }
+  .cart-item .item-price { color: var(--accent); font-weight: 700; width: 70px; text-align: right; }
+  .cart-total {
+    display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px solid var(--border); padding-top: 10px;
+  }
+  .cart-total .label { color: var(--muted); font-size: 13px; }
+  .cart-total .amount { color: var(--accent); font-size: 20px; font-weight: 700; }
+  .cart-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 10px 0; }
+  .menu-actions { display: flex; gap: 10px; margin-top: 10px; }
+
+  #screen-confirm .confirm-list {
+    margin: 0 20px;
+    border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  }
+  .confirm-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    color: var(--text); font-size: 14px;
+  }
+  .confirm-row:last-child { border-bottom: none; }
+  .confirm-row .r-name { font-weight: 700; }
+  .confirm-row .r-qty { color: var(--muted); }
+  .confirm-row .r-price { color: var(--accent); font-weight: 700; }
+  .confirm-total {
+    margin: 14px 20px 0; display: flex; justify-content: space-between;
+    color: var(--text); font-size: 15px; font-weight: 700;
+  }
+  .confirm-total span:last-child { color: var(--accent); font-size: 20px; }
+  .confirm-actions { padding: 20px; display: flex; gap: 12px; margin-top: auto; }
+
+  .options-scroll { flex: 1; overflow-y: auto; padding: 0 20px 20px; }
+  .option-item-header {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px;
+    margin-bottom: 16px; display: flex; align-items: center; gap: 12px;
+  }
+  .option-item-header .emoji { font-size: 28px; }
+  .option-item-header .name { color: var(--text); font-weight: 700; font-size: 15px; }
+  .option-section { margin-bottom: 20px; }
+  .option-label { color: var(--muted); font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px; font-weight: 600; }
+  .option-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    background: var(--card); border: 1.5px solid var(--border);
+    color: var(--text); font-size: 13px; font-weight: 500;
+    padding: 10px 18px; border-radius: 50px; cursor: pointer;
+    transition: all 0.2s; font-family: 'Noto Sans KR', sans-serif;
+  }
+  .chip:active { border-color: var(--accent); }
+  .chip.selected { background: var(--accent); border-color: var(--accent); color: #1a0f00; font-weight: 700; }
+  .option-price-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 20px; background: var(--surface);
+    border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+  .option-price-row .label { color: var(--muted); font-size: 13px; }
+  .option-price-row .amount { color: var(--accent); font-size: 22px; font-weight: 700; }
+  .option-actions { padding: 14px 20px; display: flex; gap: 12px; flex-shrink: 0; }
+  .options-nav { display: flex; gap: 6px; padding: 10px 20px 0; flex-shrink: 0; }
+  .options-nav .nav-dot {
+    flex: 1; height: 3px; border-radius: 2px; background: var(--border);
+    transition: background 0.3s;
+  }
+  .options-nav .nav-dot.active { background: var(--accent); }
+
+  .allergy-scroll { flex: 1; overflow-y: auto; padding: 0 20px 20px; }
+  .allergy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .allergy-badge {
+    background: var(--card); border: 1.5px solid var(--border);
+    border-radius: 10px; padding: 14px;
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .allergy-badge.has-allergy { border-color: #d9534f; background: #1a0808; }
+  .allergy-badge .icon { font-size: 20px; }
+  .allergy-badge .text { font-size: 12.5px; color: var(--text); font-weight: 500; }
+  .allergy-badge .text small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+  .allergy-actions { padding: 16px 20px; display: flex; gap: 12px; flex-shrink: 0; }
+
+  #screen-allergy-warning { align-items: center; justify-content: center; gap: 16px; padding: 40px 24px; }
+  #screen-allergy-warning .warning-icon { font-size: 96px; line-height: 1; }
+  #screen-allergy-warning .warning-menus {
+    font-size: 36px; font-weight: 700; color: var(--accent);
+    font-family: 'Cormorant Garamond', serif; letter-spacing: 1px;
+    text-align: center; line-height: 1.3; padding: 0 16px;
+  }
+  #screen-allergy-warning .warning-subtitle {
+    font-size: 16px; font-weight: 600; color: #ff6b6b;
+  }
+
+  #screen-counter {
+    align-items: center; justify-content: center; text-align: center;
+    padding: 40px 30px 130px;
+  }
+  .complete-icon { font-size: 80px; margin-bottom: 24px; animation: popIn 0.5s ease; }
+  @keyframes popIn { 0%{transform:scale(0);} 80%{transform:scale(1.1);} 100%{transform:scale(1);} }
+  .complete-title { font-family: 'Cormorant Garamond', serif; font-size: 36px; color: var(--accent); margin-bottom: 10px; }
+  .order-number-box {
+    background: var(--card); border: 2px solid var(--accent);
+    border-radius: 16px; padding: 24px 48px; margin: 24px 0;
+  }
+  .order-number-box .on-label { color: var(--muted); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+  .order-number-box .on-number { font-family: 'Cormorant Garamond', serif; font-size: 64px; color: var(--accent); font-weight: 700; letter-spacing: 4px; }
+  .complete-desc { color: var(--muted); font-size: 14px; line-height: 1.7; }
+  .countdown-bar {
+    width: 100%; height: 3px; background: var(--border);
+    border-radius: 2px; margin-top: 32px; overflow: hidden;
+  }
+  .countdown-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 100%; transition: width linear; }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 12px 20px; }
+
+  .voice-ind {
+    position: fixed; top: 14px; right: 14px; z-index: 1000;
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; background: #1f1611; border: 1.5px solid var(--border);
+    color: var(--muted); transition: all 0.25s;
+    pointer-events: none;
+  }
+  .voice-ind.idle      { color: #555; }
+  .voice-ind.listening { color: #e8a84c; border-color: #e8a84c; box-shadow: 0 0 12px rgba(232,168,76,0.5); animation: voicePulse 1.2s ease-in-out infinite; }
+  .voice-ind.thinking  { color: #7ec8e3; border-color: #7ec8e3; }
+  .voice-ind.speaking  { color: #5cb85c; border-color: #5cb85c; }
+  @keyframes voicePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+
+  /* PTT 버튼 — 모든 화면에서 fixed bottom-center */
+  .ptt-btn {
+    position: fixed;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #1a0f00;
+    border: 3px solid #f0b55e;
+    box-shadow: 0 0 30px rgba(232,168,76,0.4), 0 8px 24px rgba(0,0,0,0.6);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; cursor: pointer;
+    font-family: inherit;
+    z-index: 999;
+    touch-action: none;  /* pointerleave 가 시작점 위치 이동에 끌려가지 않게 */
+    transition: transform 0.1s ease, box-shadow 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ptt-btn .mic-icon { font-size: 36px; line-height: 1; }
+  .ptt-btn .ptt-label { font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+  .ptt-btn.pressed {
+    background: #d9534f;
+    border-color: #ff7a76;
+    color: #fff;
+    transform: translateX(-50%) scale(1.08);
+    box-shadow: 0 0 50px rgba(217,83,79,0.6), 0 8px 24px rgba(0,0,0,0.6);
+    animation: pttPulse 0.9s ease-in-out infinite;
+  }
+  @keyframes pttPulse {
+    0%, 100% { box-shadow: 0 0 50px rgba(217,83,79,0.6), 0 8px 24px rgba(0,0,0,0.6); }
+    50%       { box-shadow: 0 0 70px rgba(217,83,79,0.85), 0 8px 24px rgba(0,0,0,0.6); }
+  }
+</style>
+</head>
+<body>
+
+<div id="voice-indicator" class="voice-ind idle" title="음성 상태">🎤</div>
+
+<div id="kiosk">
+
+  <!-- ── S1: 대기 화면 ── -->
+  <div class="screen" id="screen-standby">
+    <div class="standby-inner">
+      <div class="coffee-deco">☕</div>
+      <div class="standby-logo">MOCA</div>
+      <div class="standby-tagline">TABLE ORDER</div>
+      <div class="standby-table-label" id="standby-table-label">테이블 정보 없음</div>
+      <div class="standby-instruction">
+        🎤 마이크 버튼을 <b>누르고</b> 메뉴를 말씀해 주세요<br>
+        <span style="color:var(--muted); font-size:12px;">예) "아메리카노 두 잔"</span>
+      </div>
+      <div class="standby-hint">손을 떼면 인식합니다</div>
+      <button class="standby-gui-btn" onclick="goToMenu()">또는 직접 누르고 주문하기</button>
+    </div>
+  </div>
+
+  <!-- ── S2: 메뉴 선택 ── -->
+  <div class="screen" id="screen-menu">
+    <div class="kiosk-header">
+      <div class="logo">MOCA</div>
+      <div class="table-badge" id="hdr-table-label"></div>
+    </div>
+    <div class="robot-voice">
+      <span class="icon">🤖</span>
+      <p>어떤 상품을 주문하시겠습니까?<br>원하시는 메뉴를 선택해 주세요.</p>
+    </div>
+    <div class="menu-grid" id="menu-grid"></div>
+    <div class="cart-panel">
+      <div class="cart-items" id="cart-items">
+        <div class="cart-empty" id="cart-empty">선택된 상품이 없습니다</div>
+      </div>
+      <div class="cart-total">
+        <span class="label">합계</span>
+        <span class="amount" id="cart-total-amount">₩0</span>
+      </div>
+      <div class="menu-actions">
+        <button class="btn btn-outline" style="flex:1" onclick="clearCart()">초기화</button>
+        <button class="btn btn-primary" style="flex:2" onclick="goToConfirm()">주문 확인 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── S3: 주문 확인 ── -->
+  <div class="screen" id="screen-confirm">
+    <div class="kiosk-header">
+      <button class="back-btn" onclick="showScreen('screen-menu')">←</button>
+      <div class="logo">MOCA</div>
+      <div class="step">주문 확인</div>
+    </div>
+    <div class="robot-voice">
+      <span class="icon">🤖</span>
+      <p>화면에 보이는 주문이 맞으세요?</p>
+    </div>
+    <div class="confirm-list" id="confirm-list"></div>
+    <div class="confirm-total">
+      <span>총 금액</span>
+      <span id="confirm-total-amt"></span>
+    </div>
+    <hr class="divider" style="margin-top:16px;">
+    <div class="confirm-actions">
+      <button class="btn btn-outline" style="flex:1" onclick="showScreen('screen-menu')">수정할게요</button>
+      <button class="btn btn-primary" style="flex:2" onclick="goToOptions()">네, 맞아요 →</button>
+    </div>
+  </div>
+
+  <!-- ── S4: 옵션 선택 ── -->
+  <div class="screen" id="screen-options">
+    <div class="kiosk-header">
+      <button class="back-btn" onclick="showScreen('screen-confirm')">←</button>
+      <div class="logo">MOCA</div>
+      <div class="step">옵션 선택</div>
+    </div>
+    <div class="robot-voice">
+      <span class="icon">🤖</span>
+      <p>옵션을 선택해 주세요.</p>
+    </div>
+    <div class="options-nav" id="options-nav"></div>
+    <div class="options-scroll" id="options-scroll"></div>
+    <div class="option-price-row">
+      <span class="label">현재 총 금액</span>
+      <span class="amount" id="options-total">₩0</span>
+    </div>
+    <div class="option-actions">
+      <button class="btn btn-outline" style="flex:1" id="options-prev-btn" onclick="prevOption()">이전</button>
+      <button class="btn btn-primary" style="flex:2" id="options-next-btn" onclick="nextOption()">다음 →</button>
+    </div>
+  </div>
+
+  <!-- ── S5: 알러지 확인 ── -->
+  <div class="screen" id="screen-allergy">
+    <div class="kiosk-header">
+      <button class="back-btn" onclick="showScreen('screen-options')">←</button>
+      <div class="logo">MOCA</div>
+      <div class="step">알러지 확인</div>
+    </div>
+    <div class="robot-voice">
+      <span class="icon">🤖</span>
+      <p>주문하신 메뉴의 알러지 정보를 확인해 주세요.<br>알러지가 있으시면 해당 항목을 선택해주세요.</p>
+    </div>
+    <div class="allergy-scroll">
+      <div class="allergy-grid" id="allergy-grid"></div>
+      <div style="background: var(--card); border-radius:12px; padding:14px; border:1px solid var(--border);">
+        <p style="color:var(--muted); font-size:12px; line-height:1.7;">
+          ⚠️ 알러지 반응이 우려되시는 경우, 직원에게 문의해 주세요.<br>
+          본 메뉴는 동일한 시설에서 견과류를 취급하고 있습니다.
+        </p>
+      </div>
+    </div>
+    <div class="allergy-actions">
+      <button class="btn btn-danger" style="flex:1" onclick="allergyIssue()">알러지 있어요</button>
+      <button class="btn btn-success" style="flex:2" onclick="submitTableOrder()">확인했습니다 →</button>
+    </div>
+  </div>
+
+  <!-- ── S5-1: 알러지 선택 경고 ── -->
+  <div class="screen" id="screen-allergy-warning">
+    <div class="warning-icon" id="allergy-warning-icon">🥜</div>
+    <div class="warning-menus" id="allergy-warning-menus">카페라떼</div>
+    <div class="warning-subtitle" id="allergy-warning-subtitle">땅콩 알러지 포함</div>
+    <div class="robot-voice" style="width:100%;">
+      <span class="icon">🤖</span>
+      <p>위 메뉴에 선택하신 알러지가 포함되어 있어요.<br>다른 메뉴를 선택해 주세요.</p>
+    </div>
+    <div class="countdown-bar"><div class="countdown-fill" id="bar-allergy-warning"></div></div>
+  </div>
+
+  <!-- ── S6: 카운터 안내 (결제 화면 대신) ── -->
+  <div class="screen" id="screen-counter">
+    <div class="complete-icon">📋</div>
+    <div class="complete-title">주문 접수 완료!</div>
+    <div class="robot-voice" style="width:100%;">
+      <span class="icon">🤖</span>
+      <p id="counter-voice-text">카운터에서 결제 후 자리로 가져다 드리겠습니다.</p>
+    </div>
+    <div class="order-number-box">
+      <div class="on-label">주문 번호</div>
+      <div class="on-number" id="order-number-counter">--</div>
+    </div>
+    <div class="complete-desc" id="counter-desc">
+      이 번호를 카운터에 알려 주세요.<br>
+      감사합니다 😊
+    </div>
+    <div class="countdown-bar"><div class="countdown-fill" id="bar-counter"></div></div>
+  </div>
+
+</div><!-- #kiosk -->
+
+<!-- PTT 버튼 — 누름/뗌으로 음성 발화 (voice.js 가 pointer 이벤트 처리) -->
+<button id="ptt-btn" class="ptt-btn" type="button" aria-label="누르고 말씀하세요">
+  <span class="mic-icon">🎤</span>
+  <span class="ptt-label">누르고 말씀</span>
+</button>
+
+<script>
+// table 모드 식별 — voice.js / intent_handler.js 가 이 플래그를 읽어 분기.
+window.VOICE_MODE = 'table';
+window.TABLE_NO = (() => {
+  const v = parseInt(new URLSearchParams(location.search).get('no'), 10);
+  return Number.isFinite(v) && v > 0 ? v : null;
+})();
+// voice_service (pai-server). 키오스크와 동일 LAN.
+window.VOICE_SERVICE_URL = 'http://192.168.0.133:8010';
+</script>
+
+<script>
+// ─── DATA (백엔드에서 fetch) ──────────────────────────
+let MENU = [];
+let ALLERGY_INFO = [];
+
+const SHOT_SURCHARGE = 500;
+const LOWFAT_SURCHARGE = 300;
+
+// ─── STATE ──────────────────────────────────────────
+let cart = [];
+let currentScreen = 'screen-standby';
+let currentOptionIndex = 0;
+let orderNumber = null;
+
+// ─── API ────────────────────────────────────────────
+const API_BASE_URL = location.origin;
+
+async function api(path, opts = {}) {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (_) {}
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function loadMenu()    { MENU = await api('/api/menu'); }
+async function loadAllergy() { ALLERGY_INFO = await api('/api/allergy'); }
+
+function buildOrderPayload() {
+  return {
+    channel: 'table',
+    delivery: 'serving',
+    payment: null,
+    table_no: window.TABLE_NO ?? null,
+    items: cart.map(ci => ({
+      menu_id: ci.menuId,
+      qty: ci.qty,
+      options: ci.options,
+    })),
+  };
+}
+
+// ─── SCREEN CONTROL ─────────────────────────────────
+function showScreen(id) {
+  if (currentScreen === id) return;
+  const prev = document.getElementById(currentScreen);
+  const next = document.getElementById(id);
+  if (prev) { prev.classList.remove('visible'); setTimeout(()=>prev.classList.remove('active'),350); }
+  currentScreen = id;
+  next.classList.add('active');
+  setTimeout(()=>next.classList.add('visible'), 10);
+
+  // 카운터 안내 또는 standby 도달 시 follow-up 종료 (PTT 모드라 자동 idle 이지만 일관성)
+  if (id === 'screen-counter' || id === 'screen-standby') {
+    if (typeof window.voiceIdle === 'function') window.voiceIdle();
+  }
+}
+
+// ─── MENU SCREEN ────────────────────────────────────
+function renderMenuGrid() {
+  const grid = document.getElementById('menu-grid');
+  grid.innerHTML = MENU.map(m => `
+    <div class="menu-card ${cartQty(m.id)>0?'selected':''}" onclick="addToCart(${m.id})" id="mc-${m.id}">
+      <div class="emoji">${m.emoji}</div>
+      <div class="name">${m.name}</div>
+      <div class="price">${m.price.toLocaleString()}원</div>
+      ${cartQty(m.id)>0?`<div class="badge">${cartQty(m.id)}</div>`:''}
+    </div>
+  `).join('');
+}
+
+function cartQty(id) {
+  const item = cart.find(c=>c.menuId===id);
+  return item ? item.qty : 0;
+}
+
+function addToCart(id) {
+  const existing = cart.find(c=>c.menuId===id);
+  if (existing) { existing.qty++; }
+  else { cart.push({ menuId:id, qty:1, options:{shot:'기본',ice:'기본 얼음',milk:'일반'} }); }
+  renderMenuGrid();
+  renderCartPanel();
+}
+
+function changeQty(id, delta) {
+  const item = cart.find(c=>c.menuId===id);
+  if (!item) return;
+  item.qty += delta;
+  if (item.qty <= 0) cart = cart.filter(c=>c.menuId!==id);
+  renderMenuGrid();
+  renderCartPanel();
+}
+
+function clearCart() {
+  cart = [];
+  renderMenuGrid();
+  renderCartPanel();
+}
+
+function cartTotal() {
+  return cart.reduce((sum, ci) => {
+    const m = MENU.find(m=>m.id===ci.menuId);
+    let price = m.price * ci.qty;
+    if (ci.options.shot==='추가') price += SHOT_SURCHARGE * ci.qty;
+    if (ci.options.milk==='저지방') price += LOWFAT_SURCHARGE * ci.qty;
+    return sum + price;
+  }, 0);
+}
+
+function renderCartPanel() {
+  const itemsEl = document.getElementById('cart-items');
+  const totalEl = document.getElementById('cart-total-amount');
+  if (cart.length === 0) {
+    itemsEl.innerHTML = '<div class="cart-empty" id="cart-empty">선택된 상품이 없습니다</div>';
+  } else {
+    itemsEl.innerHTML = cart.map(ci => {
+      const m = MENU.find(m=>m.id===ci.menuId);
+      let price = m.price * ci.qty;
+      if (ci.options.shot==='추가') price += SHOT_SURCHARGE * ci.qty;
+      if (ci.options.milk==='저지방') price += LOWFAT_SURCHARGE * ci.qty;
+      return `<div class="cart-item">
+        <span class="item-name">${m.emoji} ${m.name}</span>
+        <div class="item-qty">
+          <button class="qty-btn" onclick="changeQty(${m.id},-1)">−</button>
+          <span>${ci.qty}</span>
+          <button class="qty-btn" onclick="changeQty(${m.id},1)">+</button>
+        </div>
+        <span class="item-price">${price.toLocaleString()}원</span>
+      </div>`;
+    }).join('');
+  }
+  totalEl.textContent = '₩' + cartTotal().toLocaleString();
+}
+
+async function goToMenu() {
+  if (MENU.length === 0) {
+    try { await loadMenu(); } catch (e) { alert('메뉴를 불러오지 못했습니다: ' + e.message); return; }
+  }
+  renderMenuGrid();
+  renderCartPanel();
+  showScreen('screen-menu');
+}
+
+// ─── CONFIRM SCREEN ─────────────────────────────────
+function goToConfirm() {
+  if (cart.length === 0) { alert('메뉴를 선택해 주세요!'); return; }
+  const list = document.getElementById('confirm-list');
+  list.innerHTML = cart.map(ci => {
+    const m = MENU.find(m=>m.id===ci.menuId);
+    let price = m.price * ci.qty;
+    if (ci.options.shot==='추가') price += SHOT_SURCHARGE * ci.qty;
+    if (ci.options.milk==='저지방') price += LOWFAT_SURCHARGE * ci.qty;
+    return `<div class="confirm-row">
+      <span class="r-name">${m.emoji} ${m.name}</span>
+      <span class="r-qty">×${ci.qty}</span>
+      <span class="r-price">${price.toLocaleString()}원</span>
+    </div>`;
+  }).join('');
+  document.getElementById('confirm-total-amt').textContent = '₩' + cartTotal().toLocaleString();
+  showScreen('screen-confirm');
+}
+
+// ─── OPTIONS SCREEN ──────────────────────────────────
+function goToOptions() {
+  currentOptionIndex = 0;
+  renderOptionScreen();
+  showScreen('screen-options');
+}
+
+function renderOptionScreen() {
+  const items = cart.filter(ci => {
+    const m = MENU.find(m=>m.id===ci.menuId);
+    return m.shot || m.ice || m.milk;
+  });
+  if (items.length === 0) {
+    document.getElementById('options-nav').innerHTML = '';
+    document.getElementById('options-scroll').innerHTML = `
+      <div style="padding: 60px 20px; text-align: center;">
+        <div style="font-size: 56px; margin-bottom: 18px;">✨</div>
+        <div style="color: var(--text); font-size: 16px; font-weight: 700; margin-bottom: 10px;">선택할 옵션이 없습니다</div>
+        <div style="color: var(--muted); font-size: 13px;">3초 후 다음 단계로 이동합니다...</div>
+      </div>`;
+    document.getElementById('options-total').textContent = '₩' + cartTotal().toLocaleString();
+    document.getElementById('options-prev-btn').style.display = 'none';
+    document.getElementById('options-next-btn').style.display = 'none';
+    setTimeout(() => { if (currentScreen === 'screen-options') goToAllergy(); }, 3000);
+    return;
+  }
+
+  const nav = document.getElementById('options-nav');
+  nav.innerHTML = items.map((_,i) =>
+    `<div class="nav-dot ${i===currentOptionIndex?'active':''}"></div>`
+  ).join('');
+
+  const ci = items[currentOptionIndex];
+  const m = MENU.find(m=>m.id===ci.menuId);
+
+  let html = `<div class="option-item-header">
+    <span class="emoji">${m.emoji}</span>
+    <div><div class="name">${m.name}</div></div>
+  </div>`;
+
+  if (m.shot) {
+    html += `<div class="option-section">
+      <div class="option-label">☕ 에스프레소 샷</div>
+      <div class="option-chips">
+        ${['기본','추가 (+500원)'].map(v=>`
+          <div class="chip ${ci.options.shot===(v==='추가 (+500원)'?'추가':'기본')?'selected':''}"
+            onclick="setOption(${ci.menuId},'shot','${v==='추가 (+500원)'?'추가':'기본'}')">${v}</div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+  if (m.ice) {
+    html += `<div class="option-section">
+      <div class="option-label">🧊 얼음</div>
+      <div class="option-chips">
+        ${['기본 얼음','각 얼음','얼음 없음'].map(v=>`
+          <div class="chip ${ci.options.ice===v?'selected':''}"
+            onclick="setOption(${ci.menuId},'ice','${v}')">${v}</div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+  if (m.milk) {
+    html += `<div class="option-section">
+      <div class="option-label">🥛 우유</div>
+      <div class="option-chips">
+        ${['일반','저지방 (+300원)'].map(v=>`
+          <div class="chip ${ci.options.milk===(v==='저지방 (+300원)'?'저지방':'일반')?'selected':''}"
+            onclick="setOption(${ci.menuId},'milk','${v==='저지방 (+300원)'?'저지방':'일반'}')">${v}</div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('options-scroll').innerHTML = html;
+  document.getElementById('options-total').textContent = '₩' + cartTotal().toLocaleString();
+
+  const prevBtn = document.getElementById('options-prev-btn');
+  const nextBtn = document.getElementById('options-next-btn');
+  nextBtn.style.display = 'flex';
+  prevBtn.style.display = currentOptionIndex === 0 ? 'none' : 'flex';
+  nextBtn.textContent = currentOptionIndex === items.length - 1 ? '완료 →' : '다음 →';
+}
+
+function setOption(menuId, key, val) {
+  const ci = cart.find(c=>c.menuId===menuId);
+  if (ci) { ci.options[key] = val; renderOptionScreen(); }
+}
+
+function nextOption() {
+  const items = cart.filter(ci => {
+    const m = MENU.find(m=>m.id===ci.menuId);
+    return m.shot || m.ice || m.milk;
+  });
+  if (currentOptionIndex < items.length - 1) {
+    currentOptionIndex++;
+    renderOptionScreen();
+  } else {
+    goToAllergy();
+  }
+}
+function prevOption() {
+  if (currentOptionIndex > 0) { currentOptionIndex--; renderOptionScreen(); }
+}
+
+// ─── ALLERGY SCREEN ──────────────────────────────────
+async function goToAllergy() {
+  if (ALLERGY_INFO.length === 0) {
+    try { await loadAllergy(); } catch (e) { alert('알러지 정보를 불러오지 못했습니다: ' + e.message); return; }
+  }
+  const myItems = cart.map(ci => MENU.find(m=>m.id===ci.menuId).name);
+  const grid = document.getElementById('allergy-grid');
+  grid.innerHTML = ALLERGY_INFO.map(a => {
+    const hasIt = a.items.some(i => myItems.includes(i));
+    const onClick = hasIt ? ` onclick="showAllergyWarning('${a.name}')"` : '';
+    return `<div class="allergy-badge ${hasIt?'has-allergy':''}"${onClick}>
+      <span class="icon">${a.icon}</span>
+      <div class="text">
+        ${a.name}
+        ${hasIt?'<small>⚠️ 주문 메뉴에 포함</small>':'<small>해당 없음</small>'}
+      </div>
+    </div>`;
+  }).join('');
+  showScreen('screen-allergy');
+}
+
+function allergyIssue() {
+  alert('직원을 호출합니다. 잠시만 기다려 주세요.');
+}
+
+function showAllergyWarning(allergyName) {
+  const allergy = ALLERGY_INFO.find(a => a.name === allergyName);
+  if (!allergy) return;
+  const myItems = cart.map(ci => MENU.find(m => m.id === ci.menuId).name);
+  const matchedMenus = allergy.items.filter(i => myItems.includes(i));
+  document.getElementById('allergy-warning-icon').textContent = allergy.icon;
+  document.getElementById('allergy-warning-menus').textContent = matchedMenus.join(', ');
+  document.getElementById('allergy-warning-subtitle').textContent = `${allergyName} 알러지 포함`;
+  showScreen('screen-allergy-warning');
+  startCountdown('bar-allergy-warning', () => {
+    showScreen('screen-menu');
+  });
+}
+
+// ─── COUNTER (테이블 주문 제출) ───────────────────────
+async function submitTableOrder() {
+  if (cart.length === 0) { alert('주문할 메뉴가 없습니다.'); return; }
+  try {
+    const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload()) });
+    orderNumber = r.order_number;
+    document.getElementById('order-number-counter').textContent = orderNumber;
+    const tableLabel = window.TABLE_NO ? `${window.TABLE_NO}번 테이블로` : '주문하신 자리로';
+    document.getElementById('counter-voice-text').textContent =
+      `카운터에서 결제 후 ${tableLabel} 가져다 드리겠습니다.`;
+    document.getElementById('counter-desc').innerHTML =
+      `이 번호를 카운터에 알려 주세요.<br>감사합니다 😊`;
+    showScreen('screen-counter');
+    startCountdown('bar-counter', () => { resetSession(); }, 8000);
+  } catch (e) {
+    alert('주문 생성 실패: ' + e.message);
+  }
+}
+window.submitTableOrder = submitTableOrder;
+// intent_handler 의 일부 경로가 goToPayment 를 부를 경우에 대비한 안전망 (table 모드에서도 호출되면 카운터로 직행)
+window.goToPayment = submitTableOrder;
+
+// ─── COUNTDOWN ────────────────────────────────────────
+function startCountdown(barId, cb, durationMs) {
+  const dur = durationMs || 3000;
+  const bar = document.getElementById(barId);
+  if (!bar) { setTimeout(cb, dur + 200); return; }
+  bar.style.transition = 'none'; bar.style.width = '100%';
+  setTimeout(()=>{ bar.style.transition = `width ${dur/1000}s linear`; bar.style.width = '0%'; }, 50);
+  setTimeout(cb, dur + 200);
+}
+
+function resetSession() {
+  cart = [];
+  orderNumber = null;
+  showScreen('screen-standby');
+}
+
+// ─── INIT ─────────────────────────────────────────────
+const initScreen = document.getElementById('screen-standby');
+initScreen.classList.add('active');
+setTimeout(()=>initScreen.classList.add('visible'), 50);
+
+// 테이블 번호 표시
+(() => {
+  const label = window.TABLE_NO ? `TABLE ${window.TABLE_NO}` : '테이블 정보 없음';
+  const stdLabel = document.getElementById('standby-table-label');
+  const hdrLabel = document.getElementById('hdr-table-label');
+  if (stdLabel) stdLabel.textContent = label;
+  if (hdrLabel) hdrLabel.textContent = label;
+})();
+
+// 백그라운드 prefetch
+loadMenu().catch(()=>{});
+loadAllergy().catch(()=>{});
+</script>
+
+<!-- voice: 같은 origin 의 shared 자산을 그대로 재사용 (kiosk.html 와 동일 경로) -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
+<script src="/order_vui/shared/checkout_rules.js"></script>
+<script src="/order_vui/shared/intent_handler.js"></script>
+<script src="/order_vui/shared/voice.js"></script>
+</body>
+</html>

@@ -5,8 +5,15 @@
 (() => {
   const indicator = document.getElementById('voice-indicator');
   const startBtn = document.getElementById('mic-start-btn');
-  if (!startBtn) {
+  const pttBtn = document.getElementById('ptt-btn');
+  // table 모드: window.VOICE_MODE='table' 면 PTT 버튼 사용, KWS 우회.
+  const IS_TABLE = (window.VOICE_MODE === 'table');
+  if (!IS_TABLE && !startBtn) {
     console.warn('[voice] #mic-start-btn 없음 — kiosk.html 수정 누락');
+    return;
+  }
+  if (IS_TABLE && !pttBtn) {
+    console.warn('[voice] table 모드인데 #ptt-btn 없음 — table.html 수정 누락');
     return;
   }
 
@@ -72,6 +79,10 @@
   let lastTriggerTs = 0;
   let busy = false;
 
+  // PTT (table 모드): pointerdown 사이의 Int16 청크를 누적.
+  let pttRecording = false;
+  let pttChunks = [];   // Int16Array 청크 리스트
+
   // KWS 학습 분포(raw PCM + SNR augmentation)에 맞추기 위해 브라우저 신호 처리 OFF.
   const baseAudioConstraints = {
     channelCount: 1,
@@ -104,6 +115,11 @@
   async function loadModels() {
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.simd = true;
+    if (IS_TABLE) {
+      // PTT 모드는 KWS 불필요 — 모델 다운로드/로드 생략.
+      console.log('[voice] table 모드: KWS 모델 로드 생략 (PTT 흐름)');
+      return;
+    }
     melSession = await loadSession('mel', `${MODELS_BASE}/melspectrogram.onnx`);
     embSession = await loadSession('embedding', `${MODELS_BASE}/embedding_model.onnx`);
     kwsSession = await loadSession('kws', `${MODELS_BASE}/kws_v1.onnx`, [
@@ -192,6 +208,13 @@
   }
 
   async function processChunk(int16Chunk) {
+    if (IS_TABLE) {
+      // PTT: 누른 동안만 누적. 그 외엔 폐기 (KWS 파이프라인 우회).
+      if (pttRecording && !ttsSpeaking) {
+        pttChunks.push(new Int16Array(int16Chunk));
+      }
+      return;
+    }
     if (busy) return;
     if (!melSession || !embSession || !kwsSession) return;
     if (vadBusy) return;  // VAD 또는 ASR/LLM 처리 중이면 KWS 무시
@@ -358,17 +381,24 @@
     } catch (e) {
       console.error('[voice] processUtterance error:', e);
     } finally {
-      // wake 후 모든 발화에 대해 listening 자동 재진입. 종료는 외부(window.voiceIdle) 호출 시.
-      try {
-        vadInstance.start();
-        setState('listening');
-        turnCount++;
-        console.log(`[voice] follow-up listening (turn ${turnCount})`);
-      } catch (e) {
-        console.error('[voice] follow-up VAD start failed:', e);
+      if (IS_TABLE) {
+        // PTT: 한 발화 처리 후 idle 로 복귀. 다음 발화는 사용자가 PTT 버튼을 다시 누르면 시작.
         setState('idle');
         vadBusy = false;
         turnCount = 0;
+      } else {
+        // wake 후 모든 발화에 대해 listening 자동 재진입. 종료는 외부(window.voiceIdle) 호출 시.
+        try {
+          vadInstance.start();
+          setState('listening');
+          turnCount++;
+          console.log(`[voice] follow-up listening (turn ${turnCount})`);
+        } catch (e) {
+          console.error('[voice] follow-up VAD start failed:', e);
+          setState('idle');
+          vadBusy = false;
+          turnCount = 0;
+        }
       }
     }
   }
@@ -444,14 +474,15 @@
 
   async function start() {
     if (audioCtx) return;
-    startBtn.disabled = true;
-    startBtn.textContent = '모델 로드 중...';
+    if (startBtn) { startBtn.disabled = true; startBtn.textContent = '모델 로드 중...'; }
     try {
       await loadModels();
-      // VAD 도 미리 로드해서 첫 wake 후 추가 지연 없게
-      try { await loadVAD(); } catch (e) { console.warn('[voice] VAD 미리 로드 실패 (첫 wake 때 재시도):', e); }
+      if (!IS_TABLE) {
+        // VAD 도 미리 로드해서 첫 wake 후 추가 지연 없게
+        try { await loadVAD(); } catch (e) { console.warn('[voice] VAD 미리 로드 실패 (첫 wake 때 재시도):', e); }
+      }
 
-      startBtn.textContent = '마이크 시작 중...';
+      if (startBtn) startBtn.textContent = '마이크 시작 중...';
       stream = await acquireMic();
       try {
         audioCtx = new AudioContext({ sampleRate: 16000 });
@@ -476,11 +507,19 @@
       console.log(`[voice] MIC_GAIN=${MIC_GAIN}`);
       console.log(`[voice] VOICE_SERVICE_URL=${VOICE_SERVICE_URL}`);
 
-      setState('listening');
-      startBtn.classList.add('on');
-      startBtn.textContent = '마이크 ON (다시 누르면 정지)';
-      startBtn.disabled = false;
-      console.log('[voice] mic + KWS started — say "주문할게요"');
+      if (IS_TABLE) {
+        // PTT 모드: 마이크/AudioContext 만 켜고 대기. 실제 녹음은 pttStart 부터.
+        setState('idle');
+        console.log('[voice] mic started (PTT mode — press 버튼 to talk)');
+      } else {
+        setState('listening');
+        if (startBtn) {
+          startBtn.classList.add('on');
+          startBtn.textContent = '마이크 ON (다시 누르면 정지)';
+          startBtn.disabled = false;
+        }
+        console.log('[voice] mic + KWS started — say "주문할게요"');
+      }
     } catch (e) {
       console.error('[voice] start failed:', e);
       await stop();
@@ -499,16 +538,74 @@
     melBuf = [];
     embBuf = [];
     kwsHitBuf = [];
+    pttChunks = [];
+    pttRecording = false;
     busy = false;
     vadBusy = false;
     setState('idle');
-    startBtn.disabled = false;
-    startBtn.classList.remove('on');
-    startBtn.textContent = '마이크 시작';
+    if (startBtn) {
+      startBtn.disabled = false;
+      startBtn.classList.remove('on');
+      startBtn.textContent = '마이크 시작';
+    }
     console.log('[voice] mic stopped');
   }
 
-  startBtn.addEventListener('click', () => {
-    if (audioCtx) stop(); else start();
-  });
+  // PTT 핸들러 (table 모드 전용)
+  async function pttStart() {
+    if (ttsSpeaking) return;
+    // 첫 누름에 마이크/AudioContext start (iOS Safari 는 사용자 제스처 안에서만 허용)
+    if (!audioCtx) {
+      try { await start(); } catch (e) { console.error('[voice] PTT start mic failed', e); return; }
+    }
+    if (!audioCtx) return;  // 권한 거부 등
+    pttChunks = [];
+    pttRecording = true;
+    vadBusy = true;
+    setState('listening');
+    if (pttBtn) pttBtn.classList.add('pressed');
+  }
+
+  async function pttEnd() {
+    if (!pttRecording) {
+      if (pttBtn) pttBtn.classList.remove('pressed');
+      return;
+    }
+    pttRecording = false;
+    if (pttBtn) pttBtn.classList.remove('pressed');
+
+    let total = 0;
+    for (const c of pttChunks) total += c.length;
+    const audio = new Float32Array(total);
+    let off = 0;
+    for (const c of pttChunks) {
+      for (let i = 0; i < c.length; i++) audio[off + i] = c[i] / 32768;
+      off += c.length;
+    }
+    pttChunks = [];
+
+    if (audio.length < 16000 * 0.3) {
+      console.log(`[voice] PTT 너무 짧음 (${audio.length} samples) — 무시`);
+      setState('idle');
+      vadBusy = false;
+      return;
+    }
+    await processUtterance(audio);
+  }
+  window.pttStart = pttStart;
+  window.pttEnd = pttEnd;
+
+  if (IS_TABLE) {
+    // pointer 이벤트로 mouse/touch 통합 처리. pointerleave/cancel 도 end 로 처리해 누른 채 손가락이 벗어나도 발화 종료.
+    pttBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); pttStart(); });
+    pttBtn.addEventListener('pointerup',     (e) => { e.preventDefault(); pttEnd(); });
+    pttBtn.addEventListener('pointerleave',  () => { if (pttRecording) pttEnd(); });
+    pttBtn.addEventListener('pointercancel', () => { if (pttRecording) pttEnd(); });
+    // iOS Safari 가 contextmenu 띄우는 것 차단
+    pttBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+  } else {
+    startBtn.addEventListener('click', () => {
+      if (audioCtx) stop(); else start();
+    });
+  }
 })();

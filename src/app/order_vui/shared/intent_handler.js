@@ -1,5 +1,7 @@
 // LLM intent 응답을 키오스크 UI 액션으로 매핑.
 (() => {
+  const isTable = () => window.VOICE_MODE === 'table';
+
   // LLM 영문 enum → kiosk.html 옵션 한글 라벨
   const SHOT_MAP = { extra: '추가', less: '기본' };
   const ICE_MAP = { less: '얼음 없음', more: '각 얼음' };
@@ -111,12 +113,20 @@
         break;
       case 'confirm_order': {
         // "주문 확인 / 다음 / 다음으로" 류 발화. 현재 화면 기준 다음 단계로 진행.
-        const NEXT_STEP = {
-          'screen-menu': 'goToConfirm',
-          'screen-confirm': 'goToOptions',
-          'screen-options': 'goToAllergy',
-          'screen-allergy': 'goToPayment',
-        };
+        // table 모드: 결제 화면이 없어 알러지 다음은 카운터 안내 (submitTableOrder).
+        const NEXT_STEP = isTable()
+          ? {
+              'screen-menu': 'goToConfirm',
+              'screen-confirm': 'goToOptions',
+              'screen-options': 'goToAllergy',
+              'screen-allergy': 'submitTableOrder',
+            }
+          : {
+              'screen-menu': 'goToConfirm',
+              'screen-confirm': 'goToOptions',
+              'screen-options': 'goToAllergy',
+              'screen-allergy': 'goToPayment',
+            };
         const fn = (typeof currentScreen !== 'undefined') ? NEXT_STEP[currentScreen] : null;
         if (fn && typeof window[fn] === 'function') {
           window[fn]();
@@ -133,8 +143,14 @@
         selectAllergy(intent.allergens || []);
         break;
       case 'allergy_confirm':
-        if (typeof goToPayment === 'function') goToPayment();
-        else console.warn('[intent] goToPayment 전역에 없음');
+        if (isTable()) {
+          if (typeof window.submitTableOrder === 'function') window.submitTableOrder();
+          else console.warn('[intent] submitTableOrder 전역에 없음 (table 모드)');
+        } else if (typeof goToPayment === 'function') {
+          goToPayment();
+        } else {
+          console.warn('[intent] goToPayment 전역에 없음');
+        }
         break;
       case 'checkout': {
         // 이중 확인 게이트: LLM 이 checkout 으로 분류해도 룰 매처가 동의해야 진행.
@@ -147,7 +163,16 @@
           // LLM 만 결제로 분류, 룰은 차단 → 사용자 재확인. intent.response_text 를 차단 멘트로 덮어써서
           // voice.js processUtterance 가 일관되게 TTS 로 흘리도록 한다.
           console.warn(`[intent] checkout 차단 (rule:${rule.reason}, asr:"${asrText}") — 재확인 멘트 송출`);
-          intent.response_text = '결제를 진행할까요? 카드로 결제할게 라고 말씀해 주세요';
+          intent.response_text = isTable()
+            ? '주문을 카운터로 전달할까요? 주문 확인 이라고 말씀해 주세요'
+            : '결제를 진행할까요? 카드로 결제할게 라고 말씀해 주세요';
+          break;
+        }
+        if (isTable()) {
+          // table 모드: 결제는 카운터에서. 룰 통과 시 그대로 주문 제출.
+          console.log(`[intent] checkout (table): submitTableOrder (rule:${rule.reason})`);
+          if (typeof window.submitTableOrder === 'function') window.submitTableOrder();
+          else console.warn('[intent] submitTableOrder 전역 없음 (table 모드)');
           break;
         }
         const method = intent.payment_method || 'card';
