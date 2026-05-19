@@ -1,6 +1,6 @@
 # moca — Multi-module Cafe Robot Workspace
 
-> **Dobi Barista** 호객·서빙·팔로우 카페 로봇 통합 ROS2 워크스페이스
+> **Doby Barista** 호객·서빙·팔로우 카페 로봇 통합 ROS2 워크스페이스
 >
 > Vic Pinky Pro 모바일 베이스 + 5-stage funnel BT + Russell V-A 감정 모델 + 노트북 풀스크린 얼굴 표현 + Web Dashboard
 
