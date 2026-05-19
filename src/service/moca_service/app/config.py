@@ -12,10 +12,6 @@ class MocaServiceConfig:
     admin_gui_port: int
     web_service_host: str
     web_service_tcp_port: int
-    cooking_controller_bridge_host: str
-    cooking_controller_bridge_port: int
-    serving_controller_bridge_host: str
-    serving_controller_bridge_port: int
     db_host: str
     db_port: int
     db_user: str
@@ -35,20 +31,6 @@ def load_config() -> MocaServiceConfig:
         web_service_host=os.getenv("WEB_SERVICE_HOST", "web_service"),
         web_service_tcp_port=int(os.getenv("WEB_SERVICE_TCP_PORT", "9004")),
 
-        cooking_controller_bridge_host=os.getenv(
-            "COOKING_CONTROLLER_BRIDGE_HOST",
-            "127.0.0.1",
-        ),
-        cooking_controller_bridge_port=int(
-            os.getenv("COOKING_CONTROLLER_BRIDGE_PORT", "9005")
-        ),
-        serving_controller_bridge_host=os.getenv(
-            "SERVING_CONTROLLER_BRIDGE_HOST",
-            "127.0.0.1",
-        ),
-        serving_controller_bridge_port=int(
-            os.getenv("SERVING_CONTROLLER_BRIDGE_PORT", "9006")
-        ),
         db_host=os.getenv("MOCA_DB_HOST", "127.0.0.1"),
         db_port=int(os.getenv("MOCA_DB_PORT", "3306")),
         db_user=os.getenv("MOCA_DB_USER", "business_user"),

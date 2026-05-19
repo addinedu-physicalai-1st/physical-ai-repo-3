@@ -63,10 +63,6 @@ def test_build_moca_tcp_sender_uses_configured_endpoints():
             admin_gui_port=9000,
             web_service_host="web",
             web_service_tcp_port=9004,
-            cooking_controller_bridge_host="cooking",
-            cooking_controller_bridge_port=9005,
-            serving_controller_bridge_host="serving",
-            serving_controller_bridge_port=9006,
         ),
         NullLogger(),
     )
@@ -74,8 +70,6 @@ def test_build_moca_tcp_sender_uses_configured_endpoints():
     assert list(sender.endpoints) == [
         "AdminGUI",
         "WebService",
-        "CookingControllerBridge",
-        "ServingControllerBridge",
     ]
     assert sender.endpoints["WebService"] == TcpEndpoint("web", 9004, "WebService")
     assert sender.default_targets == list(sender.endpoints)

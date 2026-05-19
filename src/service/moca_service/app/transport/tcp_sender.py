@@ -61,15 +61,5 @@ def build_moca_tcp_sender(config, logger: logging.Logger) -> TcpSender:
             port=config.web_service_tcp_port,
             name="WebService",
         ),
-        "CookingControllerBridge": TcpEndpoint(
-            host=config.cooking_controller_bridge_host,
-            port=config.cooking_controller_bridge_port,
-            name="CookingControllerBridge",
-        ),
-        "ServingControllerBridge": TcpEndpoint(
-            host=config.serving_controller_bridge_host,
-            port=config.serving_controller_bridge_port,
-            name="ServingControllerBridge",
-        ),
     }
     return TcpSender(endpoints, logger, default_targets=list(endpoints))
