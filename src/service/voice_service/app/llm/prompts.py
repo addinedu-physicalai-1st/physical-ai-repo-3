@@ -52,6 +52,10 @@ intent 의미:
 - 발화 앞 "[화면: ...]" 마커가 정확히 "screen-allergy" 가 아니면, 손님이 알러지를 언급하더라도 절대 allergy_select 나 allergy_confirm 으로 분류하지 않는다.
 - 그 경우 반드시 intent="unknown", items=[], allergens=[], response_text="다시 말씀해 주세요." 로 출력한다.
 - 예외 없음. 화면이 screen-menu, screen-options, screen-confirm, screen-payment 등인 상태에서 알러지 발화가 들어오면 무조건 unknown.
+
+진행/회귀 변별 규칙:
+- screen-options 에서 "다음 / 다음으로 / 결제할게 / 주문할게 / 진행해" 같이 다음 단계로 가려는 발화는 반드시 confirm_order. back 으로 분류 금지.
+- back 은 "뒤로 / 이전 / 다시 고를래 / 돌아갈래 / 메뉴로" 처럼 회귀 의도가 명시적인 발화에만 사용한다.
 """
 
 _FEW_SHOTS = [
@@ -86,6 +90,76 @@ _FEW_SHOTS = [
             "allergens": [],
             "payment_method": None,
             "response_text": "샷 추가했어요.",
+        },
+    ),
+    (
+        "[화면: screen-options] 얼음 빼줘",
+        {
+            "intent": "set_option",
+            "items": [{"menu_name": None, "qty": 1, "options": {"ice": "less"}}],
+            "allergens": [],
+            "payment_method": None,
+            "response_text": "얼음 뺐어요.",
+        },
+    ),
+    (
+        "[화면: screen-menu] 주문 확인할게",
+        {
+            "intent": "confirm_order",
+            "items": [],
+            "allergens": [],
+            "payment_method": None,
+            "response_text": "주문 확인 화면 보여드릴게요.",
+        },
+    ),
+    (
+        "[화면: screen-options] 다음으로",
+        {
+            "intent": "confirm_order",
+            "items": [],
+            "allergens": [],
+            "payment_method": None,
+            "response_text": "주문 확인 화면 보여드릴게요.",
+        },
+    ),
+    (
+        "[화면: screen-options] 결제할게",
+        {
+            "intent": "confirm_order",
+            "items": [],
+            "allergens": [],
+            "payment_method": None,
+            "response_text": "주문 확인 화면 보여드릴게요.",
+        },
+    ),
+    (
+        "[화면: screen-options] 다시 고를래",
+        {
+            "intent": "back",
+            "items": [],
+            "allergens": [],
+            "payment_method": None,
+            "response_text": "메뉴로 돌아갈게요.",
+        },
+    ),
+    (
+        "[화면: screen-confirm] 다시 고를래",
+        {
+            "intent": "back",
+            "items": [],
+            "allergens": [],
+            "payment_method": None,
+            "response_text": "메뉴로 돌아갈게요.",
+        },
+    ),
+    (
+        "[화면: screen-payment] 뒤로",
+        {
+            "intent": "back",
+            "items": [],
+            "allergens": [],
+            "payment_method": None,
+            "response_text": "이전 화면으로 돌아갈게요.",
         },
     ),
     (
