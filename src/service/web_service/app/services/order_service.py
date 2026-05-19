@@ -6,11 +6,11 @@ from app.models.order import Order, OrderCreate
 from app.models.menu import MenuItem
 from app.clients.moca_tcp_client import (
     MocaOrderClientError,
-    MocaOrderItem,
     MocaOrderRejected,
 )
 from app.clients.moca_shared import get_order_client
 from app.services import menu_service, table_service
+from app.protocol.order_protocol import MocaOrderItem
 
 
 _lock = threading.Lock()

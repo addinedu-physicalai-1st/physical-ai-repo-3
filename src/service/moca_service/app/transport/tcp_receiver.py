@@ -12,18 +12,17 @@ from app.protocol.health_status_protocol import (
 from app.protocol.moca_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
-    CatalogResponse,
     HEADER_SIZE as MOCA_HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
-    OrderResponse,
     decode_header as decode_moca_header,
-    encode_catalog_response_payload,
     encode_frame as encode_moca_frame,
-    encode_order_response_payload,
 )
+from app.protocol.catalog_protocol import CatalogResponse, encode_catalog_response_payload
 from app.protocol.order_protocol import (
     OrderRequest,
+    OrderResponse,
+    encode_order_response_payload,
     parse_order_payload,
 )
 

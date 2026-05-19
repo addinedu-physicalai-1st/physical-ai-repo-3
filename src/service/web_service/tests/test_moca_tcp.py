@@ -12,13 +12,12 @@ from app.protocol.moca_protocol import (
     HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
-    decode_catalog_payload,
     decode_header,
-    encode_catalog_payload,
     encode_error_payload,
     encode_frame,
-    encode_order_success_payload,
 )
+from app.protocol.catalog_protocol import decode_catalog_payload, encode_catalog_payload
+from app.protocol.order_protocol import encode_order_success_payload
 
 
 def test_moca_tcp_header_round_trip():

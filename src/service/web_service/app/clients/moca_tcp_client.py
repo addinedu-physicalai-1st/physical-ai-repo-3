@@ -1,7 +1,5 @@
 import socket
-import struct
 import threading
-from dataclasses import dataclass
 from typing import Any
 
 from app.protocol.moca_protocol import (
@@ -11,25 +9,15 @@ from app.protocol.moca_protocol import (
     METHOD_GET,
     METHOD_SET,
     MocaHeader,
-    decode_catalog_payload,
     decode_header,
-    decode_order_response_payload,
     encode_frame,
 )
-
-
-MAX_U8 = 0xFF
-MAX_U16 = 0xFFFF
-RECEIVE_PICKUP = 0
-RECEIVE_SERVING = 1
-
-
-@dataclass(frozen=True)
-class MocaOrderItem:
-    """One order line in the MOCA binary order payload."""
-
-    product_id: int
-    quantity: int
+from app.protocol.catalog_protocol import decode_catalog_payload
+from app.protocol.order_protocol import (
+    MocaOrderItem,
+    decode_order_response_payload,
+    encode_order_request_payload,
+)
 
 
 class MocaCatalogClientError(RuntimeError):
@@ -158,36 +146,9 @@ class MocaTcpOrderClient(MocaTcpBaseClient):
             ) from exc
 
     def encode_order_request(self, receive_type: int, table_id: int, items: list[MocaOrderItem]) -> bytes:
-        """Encode order request payload.
-
-        Payload layout:
-        [receive_type u8][table_id u8][item_count u8]
-        repeated [product_id u16 big-endian][quantity u8].
-        """
-
-        self._validate_order_header(receive_type, table_id, len(items))
-
-        payload = bytearray([receive_type, table_id, len(items)])
-        for item in items:
-            self._validate_order_item(item)
-            payload.extend(struct.pack(">HB", item.product_id, item.quantity))
-        return bytes(payload)
+        return encode_order_request_payload(receive_type, table_id, items)
 
     def _raise_if_order_rejected(self, payload: bytes) -> None:
         ok, message = decode_order_response_payload(payload)
         if not ok:
             raise MocaOrderRejected(message or "order rejected")
-
-    def _validate_order_header(self, receive_type: int, table_id: int, item_count: int) -> None:
-        if receive_type not in {RECEIVE_PICKUP, RECEIVE_SERVING}:
-            raise ValueError(f"invalid receive_type={receive_type}")
-        if not 0 <= table_id <= MAX_U8:
-            raise ValueError(f"invalid table_id={table_id}")
-        if not 1 <= item_count <= MAX_U8:
-            raise ValueError(f"invalid item_count={item_count}")
-
-    def _validate_order_item(self, item: MocaOrderItem) -> None:
-        if not 1 <= item.product_id <= MAX_U16:
-            raise ValueError(f"invalid product_id={item.product_id}")
-        if not 1 <= item.quantity <= MAX_U8:
-            raise ValueError(f"invalid quantity={item.quantity}")

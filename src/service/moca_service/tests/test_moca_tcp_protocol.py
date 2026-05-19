@@ -1,19 +1,17 @@
 import pytest
 
 from app.transport.tcp_receiver import TcpRequestHandler
+from app.protocol.catalog_protocol import CatalogResponse, decode_catalog_payload
 from app.protocol.moca_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
-    CatalogResponse,
     HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
-    OrderResponse,
-    decode_catalog_payload,
     decode_header,
-    decode_order_response_payload,
     encode_frame,
 )
+from app.protocol.order_protocol import OrderResponse, decode_order_response_payload
 
 
 def test_moca_tcp_header_round_trip():

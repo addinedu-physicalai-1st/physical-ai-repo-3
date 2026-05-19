@@ -1,6 +1,8 @@
 import struct
 from dataclasses import dataclass
 
+from app.protocol.moca_protocol import STATUS_OK, decode_error_payload, encode_error_payload
+
 ORDER_HEADER_SIZE = 3
 ORDER_ITEM_SIZE = 3
 
@@ -16,6 +18,24 @@ class OrderRequest:
     receive_type: int
     table_id: int
     items: list[OrderItemRequest]
+
+
+@dataclass(frozen=True)
+class OrderResponse:
+    error_code: int | None = None
+    message: str = ""
+
+    @classmethod
+    def ok(cls) -> "OrderResponse":
+        return cls()
+
+    @classmethod
+    def error(cls, error_code: int, message: str) -> "OrderResponse":
+        return cls(error_code=error_code, message=message)
+
+    @property
+    def is_error(self) -> bool:
+        return self.error_code is not None
 
 
 def parse_order_header(header: bytes) -> tuple[int, int, int]:
@@ -58,3 +78,28 @@ def parse_order_payload(payload: bytes) -> OrderRequest:
         raise ValueError(f"invalid order payload length: {len(payload)}")
 
     return parse_order_request(order_header, payload[ORDER_HEADER_SIZE:])
+
+
+def encode_order_success_payload() -> bytes:
+    """Encode a successful order response payload."""
+
+    return bytes([STATUS_OK])
+
+
+def encode_order_response_payload(response: OrderResponse) -> bytes:
+    """Encode an order response payload."""
+
+    if response.is_error:
+        if response.error_code is None:
+            raise ValueError("order response missing error code")
+        return encode_error_payload(response.error_code, response.message)
+    return encode_order_success_payload()
+
+
+def decode_order_response_payload(payload: bytes) -> tuple[bool, str | None]:
+    """Decode an order response into success flag and optional rejection message."""
+
+    if payload == bytes([STATUS_OK]):
+        return True, None
+    _, message = decode_error_payload(payload)
+    return False, message
