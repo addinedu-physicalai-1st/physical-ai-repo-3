@@ -96,7 +96,7 @@
     console.log(`[intent] allergy_select: ${match.name}`);
   }
 
-  window.handleIntent = function handleIntent(intent, asrText) {
+  window.handleIntent = async function handleIntent(intent, asrText) {
     if (!intent || !intent.intent) {
       console.warn('[intent] invalid payload', intent);
       return;
@@ -144,8 +144,10 @@
         }
         const rule = window.isCheckout(asrText);
         if (!rule.matched) {
-          // LLM 만 결제로 분류, 룰은 차단 → 사용자 재확인. TTS 는 phase 5, 일단 콘솔 안내.
-          console.warn(`[intent] checkout 차단 (rule:${rule.reason}, asr:"${asrText}") — 재확인 필요. "카드로 결제할게" 라고 말씀해 주세요`);
+          // LLM 만 결제로 분류, 룰은 차단 → 사용자 재확인. intent.response_text 를 차단 멘트로 덮어써서
+          // voice.js processUtterance 가 일관되게 TTS 로 흘리도록 한다.
+          console.warn(`[intent] checkout 차단 (rule:${rule.reason}, asr:"${asrText}") — 재확인 멘트 송출`);
+          intent.response_text = '결제를 진행할까요? 카드로 결제할게 라고 말씀해 주세요';
           break;
         }
         const method = intent.payment_method || 'card';

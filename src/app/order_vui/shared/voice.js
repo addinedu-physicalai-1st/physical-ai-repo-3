@@ -62,6 +62,7 @@
 
   let vadInstance = null;
   let vadBusy = false;  // VAD active 또는 ASR/LLM 처리 중이면 KWS 게이트 차단
+  let ttsSpeaking = false;  // TTS 재생 중 — KWS/VAD 모두 차단해 echo 방지
   let turnCount = 0;    // wake 후 처리한 발화 수 (정보 로그용, 매 wake 마다 0)
 
   let rawBuf = new Float32Array(0);
@@ -194,6 +195,7 @@
     if (busy) return;
     if (!melSession || !embSession || !kwsSession) return;
     if (vadBusy) return;  // VAD 또는 ASR/LLM 처리 중이면 KWS 무시
+    if (ttsSpeaking) return;  // TTS 재생 중 자기 음성 echo 차단
     busy = true;
     try {
       rawBuf = appendFloat(int16ToFloat32(int16Chunk));
@@ -339,9 +341,19 @@
       console.log(`[llm] intent=${intent.intent} (${intent.latency_ms.toFixed(0)}ms)`);
 
       if (typeof window.handleIntent === 'function') {
-        window.handleIntent(intent, asr.text);
+        await window.handleIntent(intent, asr.text);
       } else {
         console.warn('[voice] handleIntent 미정의 — intent_handler.js 누락?');
+      }
+
+      // TTS 동적 응답 재생 (response_text 가 있을 때만). VAD 는 이 시점에 pause 상태.
+      const ttsText = (intent && typeof intent.response_text === 'string') ? intent.response_text.trim() : '';
+      if (ttsText) {
+        try {
+          await speak(ttsText);
+        } catch (e) {
+          console.warn('[voice] TTS 재생 실패:', e);
+        }
       }
     } catch (e) {
       console.error('[voice] processUtterance error:', e);
@@ -360,6 +372,32 @@
       }
     }
   }
+
+  // intent.response_text → voice_service /tts/speak → <audio> 재생.
+  // 재생 동안 ttsSpeaking=true 로 KWS/VAD 차단. window.speak 로 외부 호출도 허용 (예: intent_handler 의 차단 멘트).
+  async function speak(text) {
+    const cleaned = (text || '').trim();
+    if (!cleaned) return;
+    setState('speaking');
+    ttsSpeaking = true;
+    try {
+      const fd = new FormData();
+      fd.append('text', cleaned);
+      const res = await fetch(`${VOICE_SERVICE_URL}/tts/speak`, { method: 'POST', body: fd });
+      if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      await new Promise((resolve) => {
+        audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+        audio.onerror = (e) => { URL.revokeObjectURL(url); console.warn('[voice] audio error', e); resolve(); };
+        audio.play().catch((e) => { console.warn('[voice] audio.play 실패', e); resolve(); });
+      });
+    } finally {
+      ttsSpeaking = false;
+    }
+  }
+  window.speak = speak;
 
   // 외부(kiosk.html showScreen 등)에서 호출하면 마이크를 멈추고 KWS 대기 상태로 돌린다.
   window.voiceIdle = function voiceIdle() {
