@@ -1,11 +1,7 @@
 import threading
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING
 from typing import Literal
-
-if TYPE_CHECKING:
-    from app.repo.catalog_repo import DbConfig
 
 TableStatus = Literal["empty", "occupied"]
 
@@ -31,44 +27,11 @@ class StoreTableDefinition:
     pos_y: Decimal
 
 
-class TableStateStore:
+class TableAssignmentRuntime:
     def __init__(self, tables: list[StoreTableDefinition]):
         self._lock = threading.RLock()
         self._tables = {table.table_id: table for table in tables}
         self._status: dict[int, TableStatus] = {table.table_id: "empty" for table in tables}
-
-    @classmethod
-    def from_database(cls, config: "DbConfig") -> "TableStateStore":
-        import pymysql
-        from pymysql.cursors import DictCursor
-
-        with pymysql.connect(
-            host=config.host,
-            port=config.port,
-            user=config.user,
-            password=config.password,
-            database=config.database,
-            charset="utf8mb4",
-            cursorclass=DictCursor,
-        ) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT table_id, table_number, pos_x, pos_y
-                    FROM store_table
-                    ORDER BY table_id
-                    """
-                )
-                tables = [
-                    StoreTableDefinition(
-                        table_id=int(row["table_id"]),
-                        table_number=int(row["table_number"]),
-                        pos_x=Decimal(row["pos_x"]),
-                        pos_y=Decimal(row["pos_y"]),
-                    )
-                    for row in cursor.fetchall()
-                ]
-        return cls(tables)
 
     def list_tables(self) -> list[StoreTable]:
         with self._lock:

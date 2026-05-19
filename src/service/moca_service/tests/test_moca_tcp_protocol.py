@@ -1,12 +1,14 @@
 import pytest
 
-from app.tcp import TcpRequestHandler
+from app.transport.tcp_receiver import TcpRequestHandler
 from app.protocol.moca_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
+    CatalogResponse,
     HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
+    OrderResponse,
     decode_catalog_payload,
     decode_header,
     decode_order_response_payload,
@@ -98,8 +100,12 @@ class FakeServer:
         self.logger = NullLogger()
         self.on_health = lambda seq: None
         self.on_status = lambda seq, peer: None
-        self.on_catalog = lambda: {"menu": [], "allergy": [], "surcharges": {}}
-        self.on_order = self.orders.append
+        self.on_catalog = lambda: CatalogResponse.ok({"menu": [], "allergy": [], "surcharges": {}})
+        self.on_order = self._handle_order
+
+    def _handle_order(self, request):
+        self.orders.append(request)
+        return OrderResponse.ok()
 
 
 class FakeSocket:

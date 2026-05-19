@@ -46,6 +46,43 @@ class MocaHeader:
     payload_size: int
 
 
+@dataclass(frozen=True)
+class CatalogResponse:
+    catalog: dict[str, Any] | None = None
+    error_code: int | None = None
+    message: str = ""
+
+    @classmethod
+    def ok(cls, catalog: dict[str, Any]) -> "CatalogResponse":
+        return cls(catalog=catalog)
+
+    @classmethod
+    def error(cls, error_code: int, message: str) -> "CatalogResponse":
+        return cls(error_code=error_code, message=message)
+
+    @property
+    def is_error(self) -> bool:
+        return self.error_code is not None
+
+
+@dataclass(frozen=True)
+class OrderResponse:
+    error_code: int | None = None
+    message: str = ""
+
+    @classmethod
+    def ok(cls) -> "OrderResponse":
+        return cls()
+
+    @classmethod
+    def error(cls, error_code: int, message: str) -> "OrderResponse":
+        return cls(error_code=error_code, message=message)
+
+    @property
+    def is_error(self) -> bool:
+        return self.error_code is not None
+
+
 def encode_header(cmd_type: int, method: int, sequence: int, payload_size: int) -> bytes:
     """Validate header fields and encode the fixed-size MOCA frame header."""
 
@@ -109,6 +146,16 @@ def encode_order_success_payload() -> bytes:
     return bytes([STATUS_OK])
 
 
+def encode_order_response_payload(response: OrderResponse) -> bytes:
+    """Encode an order response payload."""
+
+    if response.is_error:
+        if response.error_code is None:
+            raise ValueError("order response missing error code")
+        return encode_error_payload(response.error_code, response.message)
+    return encode_order_success_payload()
+
+
 def decode_order_response_payload(payload: bytes) -> tuple[bool, str | None]:
     """Decode an order response into success flag and optional rejection message."""
 
@@ -169,6 +216,18 @@ def encode_catalog_payload(catalog: dict[str, Any]) -> bytes:
         frame.extend(struct.pack(">I", _bounded_int(value, "surcharge.price", MAX_U32)))
 
     return bytes(frame)
+
+
+def encode_catalog_response_payload(response: CatalogResponse) -> bytes:
+    """Encode a catalog response payload."""
+
+    if response.is_error:
+        if response.error_code is None:
+            raise ValueError("catalog response missing error code")
+        return encode_error_payload(response.error_code, response.message)
+    if response.catalog is None:
+        raise ValueError("catalog response missing catalog data")
+    return encode_catalog_payload(response.catalog)
 
 
 def decode_catalog_payload(payload: bytes) -> dict[str, Any]:

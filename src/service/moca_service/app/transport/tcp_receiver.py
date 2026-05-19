@@ -1,114 +1,36 @@
 import logging
-import socket
 import socketserver
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
-from typing import Protocol
 
+from app.protocol.health_status_protocol import (
+    FRAME_SIZE,
+    HEALTH_CMD,
+    STATUS_CMD,
+    STX,
+    parse_frame,
+)
 from app.protocol.moca_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
+    CatalogResponse,
     HEADER_SIZE as MOCA_HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
+    OrderResponse,
     decode_header as decode_moca_header,
-    encode_catalog_payload,
-    encode_error_payload,
+    encode_catalog_response_payload,
     encode_frame as encode_moca_frame,
-    encode_order_success_payload,
-    ERROR_CATALOG_UNAVAILABLE,
-    ERROR_ORDER_REJECTED,
+    encode_order_response_payload,
 )
 from app.protocol.order_protocol import (
-    ORDER_HEADER_SIZE,
-    ORDER_ITEM_SIZE,
     OrderRequest,
-    parse_order_header,
-    parse_order_request,
+    parse_order_payload,
 )
-
-# TCP contract
-# Frame: [STX=0x02][CMD][SEQ][ETX=0x03]
-# Commands:
-#   HEALTH 0x01: inbound trigger that starts the fan-out health test
-#   STATUS 0x10: outbound status notification sent to downstream services
-STX = 0x02
-HEALTH_CMD = 0x01
-STATUS_CMD = 0x10
-ETX = 0x03
-FRAME_SIZE = 4
 
 HealthHandler = Callable[[int], None]
 StatusHandler = Callable[[int, tuple[str, int]], None]
-CatalogHandler = Callable[[], dict[str, Any]]
-OrderHandler = Callable[[OrderRequest], None]
-
-
-class StatusNotifier(Protocol):
-    def notify_status(self, seq: int) -> bool:
-        """Send a STATUS notification for the received health-check sequence."""
-        ...
-
-
-@dataclass(frozen=True)
-class TcpEndpoint:
-    host: str
-    port: int
-    name: str
-
-
-def build_frame(cmd: int, seq: int) -> bytes:
-    return bytes([STX, cmd & 0xFF, seq & 0xFF, ETX])
-
-
-def build_status_frame(seq: int) -> bytes:
-    return build_frame(STATUS_CMD, seq)
-
-
-def parse_frame(frame: bytes) -> tuple[int, int]:
-    if len(frame) != FRAME_SIZE:
-        raise ValueError(f"invalid frame length: {len(frame)}")
-    stx, cmd, seq, etx = frame
-    if stx != STX:
-        raise ValueError(f"invalid STX: 0x{stx:02X}")
-    if cmd not in {HEALTH_CMD, STATUS_CMD}:
-        raise ValueError(f"unsupported CMD: 0x{cmd:02X}")
-    if etx != ETX:
-        raise ValueError(f"invalid ETX: 0x{etx:02X}")
-    return cmd, seq
-
-
-class TcpStatusNotifier(StatusNotifier):
-    def __init__(
-        self,
-        endpoint: TcpEndpoint,
-        logger: logging.Logger,
-        timeout: float = 3.0,
-    ):
-        self.endpoint = endpoint
-        self.logger = logger
-        self.timeout = timeout
-
-    def notify_status(self, seq: int) -> bool:
-        try:
-            with socket.create_connection(
-                (self.endpoint.host, self.endpoint.port),
-                timeout=self.timeout,
-            ) as sock:
-                sock.sendall(build_status_frame(seq))
-        except OSError as exc:
-            self.logger.warning(
-                "failed to send STATUS to %s at %s:%s: %s",
-                self.endpoint.name,
-                self.endpoint.host,
-                self.endpoint.port,
-                exc,
-            )
-            return False
-
-        self.logger.info("sent STATUS to %s seq=%s", self.endpoint.name, seq)
-        return True
+CatalogHandler = Callable[[], CatalogResponse]
+OrderHandler = Callable[[OrderRequest], OrderResponse]
 
 
 class TcpServer(socketserver.ThreadingTCPServer):
@@ -212,37 +134,22 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
 
     def _handle_catalog_frame(self, sequence: int) -> None:
         server: TcpServer = self.server
-        try:
-            response = server.on_catalog()
-            payload = encode_catalog_payload(response)
-            self.request.sendall(encode_moca_frame(CMD_CATALOG, METHOD_GET, sequence, payload))
-        except Exception as exc:
-            server.logger.warning("catalog tcp request failed from %s: %s", self.client_address, exc)
-            payload = encode_error_payload(ERROR_CATALOG_UNAVAILABLE, str(exc))
-            self.request.sendall(
-                encode_moca_frame(CMD_CATALOG, METHOD_GET, sequence, payload)
-            )
+        response = server.on_catalog()
+        payload = encode_catalog_response_payload(response)
+        self.request.sendall(encode_moca_frame(CMD_CATALOG, METHOD_GET, sequence, payload))
 
     def _handle_order_frame(self, sequence: int, payload: bytes) -> None:
         server: TcpServer = self.server
 
         try:
-            if len(payload) < ORDER_HEADER_SIZE:
-                raise ValueError(f"invalid order payload length: {len(payload)}")
-            order_header = payload[:ORDER_HEADER_SIZE]
-            _, _, item_count = parse_order_header(order_header)
-            expected_size = ORDER_HEADER_SIZE + item_count * ORDER_ITEM_SIZE
-            if len(payload) != expected_size:
-                raise ValueError(f"invalid order payload length: {len(payload)}")
-            request = parse_order_request(order_header, payload[ORDER_HEADER_SIZE:])
-            server.on_order(request)
-            self.request.sendall(
-                encode_moca_frame(CMD_ORDER, METHOD_SET, sequence, encode_order_success_payload())
-            )
+            request = parse_order_payload(payload)
         except Exception as exc:
-            server.logger.warning("order tcp request failed from %s: %s", self.client_address, exc)
-            payload = encode_error_payload(ERROR_ORDER_REJECTED, str(exc))
-            self.request.sendall(encode_moca_frame(CMD_ORDER, METHOD_SET, sequence, payload))
+            server.logger.warning("invalid order tcp payload from %s: %s", self.client_address, exc)
+            return
+
+        response = server.on_order(request)
+        response_payload = encode_order_response_payload(response)
+        self.request.sendall(encode_moca_frame(CMD_ORDER, METHOD_SET, sequence, response_payload))
 
     def _read_exact(self, size: int) -> bytes | None:
         server: TcpServer = self.server

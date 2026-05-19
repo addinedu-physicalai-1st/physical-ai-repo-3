@@ -45,3 +45,16 @@ def parse_order_request(header: bytes, item_bytes: bytes) -> OrderRequest:
         items.append(OrderItemRequest(product_id=product_id, quantity=quantity))
 
     return OrderRequest(receive_type=receive_type, table_id=table_id, items=items)
+
+
+def parse_order_payload(payload: bytes) -> OrderRequest:
+    if len(payload) < ORDER_HEADER_SIZE:
+        raise ValueError(f"invalid order payload length: {len(payload)}")
+
+    order_header = payload[:ORDER_HEADER_SIZE]
+    _, _, item_count = parse_order_header(order_header)
+    expected_size = ORDER_HEADER_SIZE + item_count * ORDER_ITEM_SIZE
+    if len(payload) != expected_size:
+        raise ValueError(f"invalid order payload length: {len(payload)}")
+
+    return parse_order_request(order_header, payload[ORDER_HEADER_SIZE:])

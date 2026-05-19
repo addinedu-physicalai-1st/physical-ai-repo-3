@@ -1,43 +1,19 @@
 from app.config import configure_logging, load_config
+from app.business.controller import MocaController
+from app.business.service import MocaService
+from app.business.table_assignment_runtime import TableAssignmentRuntime
 from app.repo.catalog_repo import CatalogRepository, DbConfig
 from app.repo.order_repo import OrderRepository
-from app.service import MocaService
-from app.table_state import TableStateStore
-from app.tcp import TcpEndpoint, TcpStatusNotifier, TcpServer
+from app.repo.table_repo import TableRepository
+from app.transport.tcp_receiver import TcpServer
+from app.transport.tcp_sender import build_moca_tcp_sender
 
 
 def main() -> None:
     # config 설정 로드 및 로깅 세팅
     config = load_config()
     logger = configure_logging(config.service_name)
-
-    # TCP Send EndPoint 정의
-    admin_gui = TcpEndpoint(
-        host=config.admin_gui_host,
-        port=config.admin_gui_port,
-        name="AdminGUI",
-    )
-    web_service = TcpEndpoint(
-        host=config.web_service_host,
-        port=config.web_service_tcp_port,
-        name="WebService",
-    )
-    cooking_controller_bridge = TcpEndpoint(
-        host=config.cooking_controller_bridge_host,
-        port=config.cooking_controller_bridge_port,
-        name="CookingControllerBridge",
-    )
-    serving_controller_bridge = TcpEndpoint(
-        host=config.serving_controller_bridge_host,
-        port=config.serving_controller_bridge_port,
-        name="ServingControllerBridge",
-    )
-    status_notifiers = [
-        TcpStatusNotifier(admin_gui, logger),
-        TcpStatusNotifier(web_service, logger),
-        TcpStatusNotifier(cooking_controller_bridge, logger),
-        TcpStatusNotifier(serving_controller_bridge, logger),
-    ]
+    tcp_sender = build_moca_tcp_sender(config, logger)
 
     # Database Config
     db_config = DbConfig(
@@ -51,23 +27,24 @@ def main() -> None:
     # create Service, Repo
     catalog_repository = CatalogRepository(db_config)
     order_repository = OrderRepository(db_config)
-    table_state_store = TableStateStore.from_database(db_config)
+    table_repository = TableRepository(db_config)
+    table_assignment_runtime = TableAssignmentRuntime(table_repository.fetch_table_definitions())
     service = MocaService(
-        status_notifiers,
         catalog_repository,
         order_repository,
-        table_state_store,
+        table_assignment_runtime,
         logger,
     )
+    controller = MocaController(service, tcp_sender, logger)
 
     # TCP server
     with TcpServer(
         config.server_host,
         config.server_port,
-        service.run_health_test,
-        service.handle_status,
-        service.get_catalog,
-        service.create_order,
+        controller.run_health_test,
+        controller.handle_status,
+        controller.get_catalog,
+        controller.create_order,
         logger,
         "MocaService",
     ) as server:
