@@ -45,9 +45,8 @@
     '알러지 없어요', '확인했어',
   ];
 
-  // unknown intent 자동 재시도. wake 한 번에 최대 N 회까지, 매 회 무발화 timeout.
-  const UNKNOWN_RETRY_MAX = 2;
-  const UNKNOWN_RETRY_TIMEOUT_MS = 10000;
+  // wake 한 번 → 여러 발화 follow-up. 외부에서 window.voiceIdle() 을 호출할 때까지 listening 유지.
+  // (주문번호 화면 도달 시 kiosk 측에서 명시적으로 voiceIdle 호출)
 
   // VAD CDN (잘 동작 확인되면 자체 호스팅으로 옮길 것)
   const VAD_ASSET_BASE = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/';
@@ -63,8 +62,7 @@
 
   let vadInstance = null;
   let vadBusy = false;  // VAD active 또는 ASR/LLM 처리 중이면 KWS 게이트 차단
-  let retryCount = 0;   // unknown 자동 재시도 카운터 (wake 마다 0 으로 리셋)
-  let retryTimer = null;
+  let turnCount = 0;    // wake 후 처리한 발화 수 (정보 로그용, 매 wake 마다 0)
 
   let rawBuf = new Float32Array(0);
   let melBuf = [];
@@ -127,7 +125,6 @@
       onSpeechStart: () => {
         setState('listening');
         console.log('[vad] speech start');
-        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
       },
       onSpeechEnd: async (audio) => {
         console.log(`[vad] speech end, ${audio.length} samples`);
@@ -135,10 +132,16 @@
         await processUtterance(audio);
       },
       onVADMisfire: () => {
-        console.log('[vad] misfire (너무 짧은 발화)');
-        try { vadInstance.pause(); } catch (_) {}
-        setState('idle');
-        vadBusy = false;
+        console.log('[vad] misfire (너무 짧은 발화) — listening 유지');
+        // 발화가 너무 짧아 무시. 같은 wake 안에서는 listening 으로 다시 진입.
+        try {
+          vadInstance.pause();
+          vadInstance.start();
+          setState('listening');
+        } catch (e) {
+          setState('idle');
+          vadBusy = false;
+        }
       },
     });
     console.log('[vad] loaded');
@@ -264,13 +267,16 @@
   function onWakeWord(score) {
     console.log(`[voice] wake word triggered  score=${score.toFixed(3)}`);
     vadBusy = true;
-    retryCount = 0;
-    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    turnCount = 0;
     setState('thinking');
-    const audio = new Audio('/audio/001.wav');
-    audio.play().catch((e) => console.warn('[voice] start tone play failed:', e));
-    // 시작음과 사용자 발화가 겹치지 않게 약 1.2초 후 VAD 시작
+    // wake 시작음은 인디케이터 thinking → listening 색 변화로 대체 (화면 안내음과 겹침 방지).
+    // 약 1.2초 후 VAD 시작 (화면 전환 안내음과 발화 간 짧은 여유)
     setTimeout(async () => {
+      // standby 화면이면 wake 시작음 끝난 뒤 menu 정상 진입 (loadMenu + render + 안내음 순차).
+      if (typeof currentScreen !== 'undefined' && currentScreen === 'screen-standby' &&
+          typeof goToMenu === 'function') {
+        try { await goToMenu(); } catch (e) { console.warn('[voice] goToMenu failed:', e); }
+      }
       try {
         if (!vadInstance) await loadVAD();
         vadInstance.start();
@@ -333,42 +339,36 @@
       console.log(`[llm] intent=${intent.intent} (${intent.latency_ms.toFixed(0)}ms)`);
 
       if (typeof window.handleIntent === 'function') {
-        window.handleIntent(intent);
+        window.handleIntent(intent, asr.text);
       } else {
         console.warn('[voice] handleIntent 미정의 — intent_handler.js 누락?');
       }
     } catch (e) {
       console.error('[voice] processUtterance error:', e);
     } finally {
-      const shouldRetry = !!intent && intent.intent === 'unknown' && retryCount < UNKNOWN_RETRY_MAX;
-      if (shouldRetry) {
-        retryCount++;
-        console.log(`[voice] unknown — auto retry ${retryCount}/${UNKNOWN_RETRY_MAX} (timeout ${UNKNOWN_RETRY_TIMEOUT_MS}ms)`);
-        try {
-          vadInstance.start();
-          setState('listening');
-          if (retryTimer) clearTimeout(retryTimer);
-          retryTimer = setTimeout(() => {
-            console.log('[voice] unknown retry timeout — idle');
-            try { vadInstance.pause(); } catch (_) {}
-            setState('idle');
-            vadBusy = false;
-            retryCount = 0;
-            retryTimer = null;
-          }, UNKNOWN_RETRY_TIMEOUT_MS);
-        } catch (e) {
-          console.error('[voice] retry VAD start failed:', e);
-          setState('idle');
-          vadBusy = false;
-          retryCount = 0;
-        }
-      } else {
+      // wake 후 모든 발화에 대해 listening 자동 재진입. 종료는 외부(window.voiceIdle) 호출 시.
+      try {
+        vadInstance.start();
+        setState('listening');
+        turnCount++;
+        console.log(`[voice] follow-up listening (turn ${turnCount})`);
+      } catch (e) {
+        console.error('[voice] follow-up VAD start failed:', e);
         setState('idle');
         vadBusy = false;
-        retryCount = 0;
+        turnCount = 0;
       }
     }
   }
+
+  // 외부(kiosk.html showScreen 등)에서 호출하면 마이크를 멈추고 KWS 대기 상태로 돌린다.
+  window.voiceIdle = function voiceIdle() {
+    try { if (vadInstance) vadInstance.pause(); } catch (_) {}
+    setState('idle');
+    vadBusy = false;
+    turnCount = 0;
+    console.log('[voice] voiceIdle — KWS 대기로 복귀');
+  };
 
   // Float32Array @ sampleRate → 16-bit PCM mono WAV (Uint8Array).
   function encodeWav(samples, sampleRate) {

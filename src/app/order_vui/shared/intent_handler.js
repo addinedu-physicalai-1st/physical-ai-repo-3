@@ -96,7 +96,7 @@
     console.log(`[intent] allergy_select: ${match.name}`);
   }
 
-  window.handleIntent = function handleIntent(intent) {
+  window.handleIntent = function handleIntent(intent, asrText) {
     if (!intent || !intent.intent) {
       console.warn('[intent] invalid payload', intent);
       return;
@@ -109,10 +109,23 @@
       case 'set_option':
         applyOptions(intent.items || []);
         break;
-      case 'confirm_order':
-        if (typeof goToConfirm === 'function') goToConfirm();
-        else console.warn('[intent] goToConfirm 전역에 없음');
+      case 'confirm_order': {
+        // "주문 확인 / 다음 / 다음으로" 류 발화. 현재 화면 기준 다음 단계로 진행.
+        const NEXT_STEP = {
+          'screen-menu': 'goToConfirm',
+          'screen-confirm': 'goToOptions',
+          'screen-options': 'goToAllergy',
+          'screen-allergy': 'goToPayment',
+        };
+        const fn = (typeof currentScreen !== 'undefined') ? NEXT_STEP[currentScreen] : null;
+        if (fn && typeof window[fn] === 'function') {
+          window[fn]();
+          console.log(`[intent] confirm_order: ${fn}() (from ${currentScreen})`);
+        } else {
+          console.log(`[intent] confirm_order: "${currentScreen}" 에서 다음 단계 없음`);
+        }
         break;
+      }
       case 'back':
         goBack();
         break;
@@ -123,6 +136,30 @@
         if (typeof goToPayment === 'function') goToPayment();
         else console.warn('[intent] goToPayment 전역에 없음');
         break;
+      case 'checkout': {
+        // 이중 확인 게이트: LLM 이 checkout 으로 분류해도 룰 매처가 동의해야 진행.
+        if (typeof window.isCheckout !== 'function') {
+          console.warn('[intent] isCheckout 미정의 — checkout_rules.js 누락?');
+          break;
+        }
+        const rule = window.isCheckout(asrText);
+        if (!rule.matched) {
+          // LLM 만 결제로 분류, 룰은 차단 → 사용자 재확인. TTS 는 phase 5, 일단 콘솔 안내.
+          console.warn(`[intent] checkout 차단 (rule:${rule.reason}, asr:"${asrText}") — 재확인 필요. "카드로 결제할게" 라고 말씀해 주세요`);
+          break;
+        }
+        const method = intent.payment_method || 'card';
+        if (typeof selectedPayment === 'undefined') {
+          console.warn('[intent] selectedPayment 전역 없음');
+          break;
+        }
+        selectedPayment = method;
+        if (typeof showScreen === 'function') showScreen('screen-payment');
+        console.log(`[intent] checkout: method=${method} (rule:${rule.reason})`);
+        if (typeof processPayment === 'function') setTimeout(() => processPayment(), 300);
+        else console.warn('[intent] processPayment 전역 없음');
+        break;
+      }
       case 'unknown':
         break;
       default:
