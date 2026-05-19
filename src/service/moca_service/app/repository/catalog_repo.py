@@ -48,12 +48,9 @@ class CatalogRepository:
                     {
                         "id": int(row["product_id"]),
                         "name": row["name"],
-                        "emoji": row["image_url"],
+                        "image": row["image_url"],
                         "price": int(row["price"]),
-                        "hot": False,
-                        "shot": False,
-                        "ice": False,
-                        "milk": False,
+                        "options": [],
                     }
                     for row in cursor.fetchall()
                 ]
@@ -72,20 +69,12 @@ class CatalogRepository:
                     if item is None:
                         continue
 
-                    group_name = row["name"]
+                    group_name = str(row["name"])
                     options = _decode_options(row["options"])
-                    option_names = {_option_name(option) for option in options}
-                    if group_name == "온도":
-                        item["hot"] = "HOT" in option_names
-                        item["ice"] = "ICE" in option_names
-                    elif group_name == "에스프레소 샷":
-                        item["shot"] = True
-                    elif group_name == "우유":
-                        item["milk"] = True
-
-                    for option in options:
-                        if isinstance(option, dict) and "price" in option:
-                            surcharges[f"{_legacy_option_key(group_name)}:{option['name']}"] = int(
+                    item["options"].extend(_to_catalog_options(group_name, options))
+                    for option in item["options"]:
+                        if option["option_group"] == group_name and option["price"] > 0:
+                            surcharges[f"{_legacy_option_key(group_name)}:{option['option_name']}"] = int(
                                 option["price"]
                             )
 
@@ -129,10 +118,27 @@ def _decode_options(options: Any) -> list[Any]:
     return []
 
 
-def _option_name(option: Any) -> str:
-    if isinstance(option, dict):
-        return str(option.get("name", ""))
-    return str(option)
+def _to_catalog_options(group_name: str, options: list[Any]) -> list[dict[str, Any]]:
+    default_seen = any(isinstance(option, dict) and bool(option.get("is_default", False)) for option in options)
+    catalog_options = []
+    for index, option in enumerate(options):
+        if isinstance(option, dict):
+            option_name = str(option.get("name", ""))
+            price = int(option.get("price", 0))
+            is_default = bool(option.get("is_default", False)) if default_seen else index == 0
+        else:
+            option_name = str(option)
+            price = 0
+            is_default = index == 0 and not default_seen
+        catalog_options.append(
+            {
+                "option_group": group_name,
+                "option_name": option_name,
+                "price": price,
+                "is_default": is_default,
+            }
+        )
+    return catalog_options
 
 
 def _legacy_option_key(group_name: str) -> str:

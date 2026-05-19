@@ -1,9 +1,13 @@
 import pytest
 
 from app.transport.tcp_receiver import TcpRequestHandler
-from app.protocol.catalog_protocol import CatalogResponse, decode_catalog_payload
+from app.protocol.catalog_protocol import (
+    CatalogResponse,
+    decode_catalog_payload,
+)
 from app.protocol.header_protocol import (
-    CMD_CATALOG,
+    CMD_ALLERGY,
+    CMD_MENU,
     CMD_ORDER,
     CMD_TABLE,
     HEADER_SIZE,
@@ -18,11 +22,11 @@ from app.domain.table_assignment_runtime import StoreTableDefinition, TableAssig
 
 
 def test_moca_tcp_header_round_trip():
-    frame = encode_frame(CMD_CATALOG, METHOD_GET, 9, b"abc")
+    frame = encode_frame(CMD_MENU, METHOD_GET, 9, b"abc")
 
     header = decode_header(frame[:HEADER_SIZE])
 
-    assert header.cmd_type == CMD_CATALOG
+    assert header.cmd_type == CMD_MENU
     assert header.method == METHOD_GET
     assert header.sequence == 9
     assert header.payload_size == 3
@@ -33,19 +37,49 @@ def test_moca_tcp_rejects_unknown_command():
         decode_header(bytes([0x99, METHOD_GET, 1, 0, 0, 0, 0]))
 
 
-def test_tcp_server_handles_catalog_request():
+def test_tcp_server_handles_menu_option_catalog_request():
     server = FakeServer()
-    request = FakeSocket(encode_frame(CMD_CATALOG, METHOD_GET, 3))
+    request = FakeSocket(encode_frame(CMD_MENU, METHOD_GET, 3))
 
     TcpRequestHandler(request, ("127.0.0.1", 12345), server)
     response = request.sent
 
     header = decode_header(response[:HEADER_SIZE])
 
-    assert header.cmd_type == CMD_CATALOG
+    assert header.cmd_type == CMD_MENU
     assert header.method == METHOD_GET
     assert header.sequence == 3
-    assert decode_catalog_payload(response[HEADER_SIZE:]) == {"menu": [], "allergy": [], "surcharges": {}}
+    assert decode_catalog_payload(response[HEADER_SIZE:], CMD_MENU) == {"menu": []}
+
+
+def test_tcp_server_handles_allergy_catalog_request():
+    server = FakeServer()
+    request = FakeSocket(encode_frame(CMD_ALLERGY, METHOD_GET, 3))
+
+    TcpRequestHandler(request, ("127.0.0.1", 12345), server)
+    response = request.sent
+
+    header = decode_header(response[:HEADER_SIZE])
+
+    assert header.cmd_type == CMD_ALLERGY
+    assert header.method == METHOD_GET
+    assert header.sequence == 3
+    assert decode_catalog_payload(response[HEADER_SIZE:], CMD_ALLERGY) == {"allergy": []}
+
+
+def test_tcp_server_rejects_non_empty_menu_payload_with_error():
+    server = FakeServer()
+    request = FakeSocket(encode_frame(CMD_MENU, METHOD_GET, 3, b"\x01"))
+
+    TcpRequestHandler(request, ("127.0.0.1", 12345), server)
+    response = request.sent
+
+    header = decode_header(response[:HEADER_SIZE])
+
+    assert header.cmd_type == CMD_MENU
+    assert header.method == METHOD_GET
+    assert header.sequence == 3
+    assert decode_catalog_payload(response[HEADER_SIZE:], CMD_MENU)["error"] == 0x01
 
 
 def test_tcp_server_handles_order_request():
@@ -80,9 +114,9 @@ def test_tcp_server_handles_table_request():
     assert response[HEADER_SIZE:] == bytes([0, 0, 2, 0, 1, 0, 0, 2, 1])
 
 
-def test_tcp_server_rejects_catalog_set_method():
+def test_tcp_server_rejects_menu_set_method():
     server = FakeServer()
-    request = FakeSocket(encode_frame(CMD_CATALOG, METHOD_SET, 5))
+    request = FakeSocket(encode_frame(CMD_MENU, METHOD_SET, 5))
 
     TcpRequestHandler(request, ("127.0.0.1", 12345), server)
 
@@ -138,7 +172,7 @@ class FakeServer:
         self.logger = NullLogger()
         self.on_health = lambda seq: None
         self.on_status = lambda seq, peer: None
-        self.on_catalog = lambda: CatalogResponse.ok({"menu": [], "allergy": [], "surcharges": {}})
+        self.on_catalog = lambda: CatalogResponse.ok({"menu": [], "allergy": []})
         self.on_order = self._handle_order
         self.on_table = lambda: TableResponse.ok(self.table_runtime.list_tables())
         self.on_table_assignment = self._handle_table_assignment

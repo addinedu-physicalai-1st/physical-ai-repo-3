@@ -9,7 +9,8 @@ from app.clients.moca_tcp_client import (
     MocaTcpTableClient,
 )
 from app.protocol.header_protocol import (
-    CMD_CATALOG,
+    CMD_ALLERGY,
+    CMD_MENU,
     CMD_ORDER,
     CMD_TABLE,
     ERROR_TABLE_ASSIGNMENT_REJECTED,
@@ -20,17 +21,22 @@ from app.protocol.header_protocol import (
     encode_error_payload,
     encode_frame,
 )
-from app.protocol.catalog_protocol import decode_catalog_payload, encode_catalog_payload
+from app.protocol.catalog_protocol import (
+    decode_allergy_payload,
+    decode_menu_option_payload,
+    encode_allergy_payload,
+    encode_menu_option_payload,
+)
 from app.protocol.order_protocol import encode_order_success_payload
 from app.protocol.table_protocol import decode_table_payload, encode_table_assignment_request_payload
 
 
 def test_moca_tcp_header_round_trip():
-    frame = encode_frame(CMD_CATALOG, METHOD_GET, 7, b"abc")
+    frame = encode_frame(CMD_MENU, METHOD_GET, 7, b"abc")
 
     header = decode_header(frame[:HEADER_SIZE])
 
-    assert header.cmd_type == CMD_CATALOG
+    assert header.cmd_type == CMD_MENU
     assert header.method == METHOD_GET
     assert header.sequence == 7
     assert header.payload_size == 3
@@ -39,7 +45,7 @@ def test_moca_tcp_header_round_trip():
 
 def test_moca_tcp_rejects_large_payload_size():
     with pytest.raises(ValueError):
-        decode_header(bytes([CMD_CATALOG, METHOD_GET, 1, 0, 16, 0, 1]))
+        decode_header(bytes([CMD_MENU, METHOD_GET, 1, 0, 16, 0, 1]))
 
 
 def test_moca_tcp_clients_send_catalog_and_order_requests(monkeypatch):
@@ -64,12 +70,53 @@ def test_moca_tcp_clients_send_catalog_and_order_requests(monkeypatch):
     assert catalog == {"menu": [], "allergy": [], "surcharges": {}}
     assert order_id == 1001
     assert len(sockets) == 2
-    assert len(requests) == 2
-    assert [request[0].cmd_type for request in requests] == [CMD_CATALOG, CMD_ORDER]
-    assert [request[0].method for request in requests] == [METHOD_GET, METHOD_SET]
+    assert len(requests) == 3
+    assert [request[0].cmd_type for request in requests] == [CMD_MENU, CMD_ALLERGY, CMD_ORDER]
+    assert [request[0].method for request in requests] == [METHOD_GET, METHOD_GET, METHOD_SET]
     assert requests[0][0].sequence == 1
-    assert requests[1][0].sequence == 1
-    assert requests[1][1] == bytes([1, 1, 2, 3])
+    assert requests[0][1] == b""
+    assert requests[1][0].sequence == 2
+    assert requests[1][1] == b""
+    assert requests[2][0].sequence == 1
+    assert requests[2][1] == bytes([1, 1, 2, 3])
+
+
+def test_moca_tcp_catalog_client_sends_menu_option_request(monkeypatch):
+    requests = []
+
+    def create_connection(address, timeout):
+        return FakeSocket(requests)
+
+    monkeypatch.setattr("socket.create_connection", create_connection)
+    client = MocaTcpCatalogClient("127.0.0.1", 9001, timeout_sec=1.0)
+
+    menu_options = client.fetch_menu_options()
+
+    assert menu_options == {"menu": []}
+    assert len(requests) == 1
+    assert requests[0][0].cmd_type == CMD_MENU
+    assert requests[0][0].method == METHOD_GET
+    assert requests[0][1] == b""
+    client.close()
+
+
+def test_moca_tcp_catalog_client_sends_allergy_request(monkeypatch):
+    requests = []
+
+    def create_connection(address, timeout):
+        return FakeSocket(requests)
+
+    monkeypatch.setattr("socket.create_connection", create_connection)
+    client = MocaTcpCatalogClient("127.0.0.1", 9001, timeout_sec=1.0)
+
+    allergy = client.fetch_allergy()
+
+    assert allergy == {"allergy": []}
+    assert len(requests) == 1
+    assert requests[0][0].cmd_type == CMD_ALLERGY
+    assert requests[0][0].method == METHOD_GET
+    assert requests[0][1] == b""
+    client.close()
 
 
 def test_moca_tcp_table_client_sends_table_request(monkeypatch):
@@ -137,25 +184,30 @@ def test_moca_tcp_client_maps_order_error_to_rejected(monkeypatch):
     client.close()
 
 
-def test_moca_tcp_catalog_payload_round_trip():
+def test_moca_tcp_menu_option_payload_round_trip():
     catalog = {
         "menu": [
             {
                 "id": 1,
                 "name": "아메리카노",
-                "emoji": "☕",
+                "image": "☕",
                 "price": 3500,
-                "hot": True,
-                "shot": True,
-                "ice": True,
-                "milk": False,
+                "options": [
+                    {"option_group": "온도", "option_name": "HOT", "price": 0, "is_default": True},
+                    {"option_group": "온도", "option_name": "ICE", "price": 0, "is_default": False},
+                    {"option_group": "에스프레소 샷", "option_name": "추가", "price": 500, "is_default": False},
+                ],
             }
-        ],
-        "allergy": [{"name": "유제품", "icon": "🥛", "items": ["아메리카노"]}],
-        "surcharges": {"shot:추가": 500},
+        ]
     }
 
-    assert decode_catalog_payload(encode_catalog_payload(catalog)) == catalog
+    assert decode_menu_option_payload(encode_menu_option_payload(catalog)) == catalog["menu"]
+
+
+def test_moca_tcp_allergy_payload_round_trip():
+    catalog = {"allergy": [{"name": "유제품", "icon": "🥛", "items": ["아메리카노"]}]}
+
+    assert decode_allergy_payload(encode_allergy_payload(catalog)) == catalog["allergy"]
 
 
 def test_moca_tcp_table_payload_decode_round_trip():
@@ -181,9 +233,12 @@ class FakeSocket:
         payload = data[HEADER_SIZE:]
         self.requests.append((header, payload))
 
-        if header.cmd_type == CMD_CATALOG:
-            response = encode_catalog_payload({"menu": [], "allergy": [], "surcharges": {}})
-            self.response.extend(encode_frame(CMD_CATALOG, METHOD_GET, header.sequence, response))
+        if header.cmd_type == CMD_MENU:
+            response = encode_menu_option_payload({"menu": []})
+            self.response.extend(encode_frame(CMD_MENU, METHOD_GET, header.sequence, response))
+        elif header.cmd_type == CMD_ALLERGY:
+            response = encode_allergy_payload({"allergy": []})
+            self.response.extend(encode_frame(CMD_ALLERGY, METHOD_GET, header.sequence, response))
         elif header.cmd_type == CMD_ORDER and self.order_error:
             response = encode_error_payload(2, "bad order")
             self.response.extend(encode_frame(CMD_ORDER, METHOD_SET, header.sequence, response))

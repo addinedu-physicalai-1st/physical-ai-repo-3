@@ -10,7 +10,8 @@ from app.protocol.health_status_protocol import (
     parse_frame,
 )
 from app.protocol.header_protocol import (
-    CMD_CATALOG,
+    CMD_ALLERGY,
+    CMD_MENU,
     CMD_ORDER,
     CMD_TABLE,
     HEADER_SIZE as MOCA_HEADER_SIZE,
@@ -100,7 +101,7 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
                         server.on_status(seq, peer)
                     continue
 
-                if first[0] in {CMD_CATALOG, CMD_ORDER, CMD_TABLE}:
+                if first[0] in {CMD_MENU, CMD_ALLERGY, CMD_ORDER, CMD_TABLE}:
                     self._handle_moca_frame(first)
                     continue
 
@@ -121,7 +122,7 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
             return
 
         if not (
-            (header.cmd_type == CMD_CATALOG and header.method == METHOD_GET)
+            (header.cmd_type in {CMD_MENU, CMD_ALLERGY} and header.method == METHOD_GET)
             or (header.cmd_type == CMD_ORDER and header.method == METHOD_SET)
             or (header.cmd_type == CMD_TABLE and header.method == METHOD_GET)
             or (header.cmd_type == CMD_TABLE and header.method == METHOD_SET)
@@ -138,8 +139,8 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
         if payload_bytes is None:
             return
 
-        if header.cmd_type == CMD_CATALOG:
-            self._handle_catalog_frame(header.sequence)
+        if header.cmd_type in {CMD_MENU, CMD_ALLERGY}:
+            self._handle_catalog_frame(header.cmd_type, header.sequence, payload_bytes)
             return
         if header.cmd_type == CMD_ORDER:
             self._handle_order_frame(header.sequence, payload_bytes)
@@ -153,11 +154,18 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
 
         server.logger.warning("unsupported moca tcp cmd from %s: 0x%02X", self.client_address, header.cmd_type)
 
-    def _handle_catalog_frame(self, sequence: int) -> None:
+    def _handle_catalog_frame(self, cmd_type: int, sequence: int, payload: bytes) -> None:
         server: TcpServer = self.server
-        response = server.on_catalog()
-        payload = encode_catalog_response_payload(response)
-        self.request.sendall(encode_moca_frame(CMD_CATALOG, METHOD_GET, sequence, payload))
+        try:
+            if payload:
+                raise ValueError(f"catalog request payload must be empty: {len(payload)}")
+            response = server.on_catalog()
+            response_payload = encode_catalog_response_payload(response, cmd_type)
+        except Exception as exc:
+            server.logger.warning("invalid catalog tcp payload from %s: %s", self.client_address, exc)
+            response = CatalogResponse.error(0x01, str(exc))
+            response_payload = encode_catalog_response_payload(response, cmd_type)
+        self.request.sendall(encode_moca_frame(cmd_type, METHOD_GET, sequence, response_payload))
 
     def _handle_order_frame(self, sequence: int, payload: bytes) -> None:
         server: TcpServer = self.server

@@ -3,7 +3,8 @@ import threading
 from typing import Any
 
 from app.protocol.header_protocol import (
-    CMD_CATALOG,
+    CMD_ALLERGY,
+    CMD_MENU,
     CMD_ORDER,
     CMD_TABLE,
     ERROR_ORDER_NOT_FOUND,
@@ -15,7 +16,9 @@ from app.protocol.header_protocol import (
     decode_header,
     encode_frame,
 )
-from app.protocol.catalog_protocol import decode_catalog_payload
+from app.protocol.catalog_protocol import (
+    decode_catalog_payload,
+)
 from app.protocol.order_protocol import (
     MocaOrderItem,
     decode_order_response_payload,
@@ -130,8 +133,9 @@ class MocaTcpCatalogClient(MocaTcpBaseClient):
 
     def fetch_catalog(self) -> dict[str, Any]:
         try:
-            _, payload = self.request(CMD_CATALOG, METHOD_GET, b"")
-            return self._decode_catalog_response(payload)
+            menu_options = self.fetch_menu_options()
+            allergy = self.fetch_allergy()
+            return self._to_legacy_catalog(menu_options, allergy)
         except MocaCatalogClientError:
             raise
         except (OSError, ValueError) as exc:
@@ -140,12 +144,90 @@ class MocaTcpCatalogClient(MocaTcpBaseClient):
                 f"moca_service catalog request failed: {self.host}:{self.port}: {exc}"
             ) from exc
 
-    def _decode_catalog_response(self, payload: bytes) -> dict[str, Any]:
-        catalog = decode_catalog_payload(payload)
+    def fetch_menu_options(self) -> dict[str, Any]:
+        """Fetch menu and option catalog data from moca_service."""
+
+        try:
+            _, payload = self.request(
+                CMD_MENU,
+                METHOD_GET,
+                b"",
+            )
+            return self._decode_catalog_response(payload, CMD_MENU)
+        except MocaCatalogClientError:
+            raise
+        except (OSError, ValueError) as exc:
+            self.close()
+            raise MocaCatalogClientError(
+                f"moca_service menu option request failed: {self.host}:{self.port}: {exc}"
+            ) from exc
+
+    def fetch_allergy(self) -> dict[str, Any]:
+        """Fetch allergy catalog data from moca_service."""
+
+        try:
+            _, payload = self.request(
+                CMD_ALLERGY,
+                METHOD_GET,
+                b"",
+            )
+            return self._decode_catalog_response(payload, CMD_ALLERGY)
+        except MocaCatalogClientError:
+            raise
+        except (OSError, ValueError) as exc:
+            self.close()
+            raise MocaCatalogClientError(
+                f"moca_service allergy request failed: {self.host}:{self.port}: {exc}"
+            ) from exc
+
+    def _decode_catalog_response(self, payload: bytes, catalog_type: int) -> dict[str, Any]:
+        catalog = decode_catalog_payload(payload, catalog_type)
         if "error" in catalog:
             message = catalog.get("message", catalog.get("error", "catalog error"))
             raise MocaCatalogClientError(str(message))
         return catalog
+
+    def _to_legacy_catalog(self, menu_options: dict[str, Any], allergy: dict[str, Any]) -> dict[str, Any]:
+        menu = []
+        surcharges: dict[str, int] = {}
+        for item in menu_options.get("menu", []):
+            options = item.get("options", [])
+            groups = {
+                str(option.get("option_group", "")): True
+                for option in options
+                if isinstance(option, dict)
+            }
+            option_names_by_group: dict[str, set[str]] = {}
+            for option in options:
+                if not isinstance(option, dict):
+                    continue
+                group = str(option.get("option_group", ""))
+                name = str(option.get("option_name", ""))
+                option_names_by_group.setdefault(group, set()).add(name)
+                price = int(option.get("price", 0))
+                if price > 0:
+                    surcharges[f"{self._legacy_option_key(group)}:{name}"] = price
+
+            menu.append(
+                {
+                    "id": int(item["id"]),
+                    "name": str(item.get("name", "")),
+                    "emoji": str(item.get("image", "")),
+                    "price": int(item["price"]),
+                    "hot": "HOT" in option_names_by_group.get("온도", set()),
+                    "ice": "ICE" in option_names_by_group.get("온도", set()),
+                    "shot": "에스프레소 샷" in groups,
+                    "milk": "우유" in groups,
+                }
+            )
+        return {"menu": menu, "allergy": allergy.get("allergy", []), "surcharges": surcharges}
+
+    def _legacy_option_key(self, group_name: str) -> str:
+        return {
+            "에스프레소 샷": "shot",
+            "우유": "milk",
+            "온도": "temperature",
+        }.get(group_name, group_name)
 
 
 class MocaTcpOrderClient(MocaTcpBaseClient):
