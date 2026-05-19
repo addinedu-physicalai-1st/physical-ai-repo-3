@@ -5,10 +5,12 @@ from app.clients.moca_tcp_client import (
     MocaOrderRejected,
     MocaTcpCatalogClient,
     MocaTcpOrderClient,
+    MocaTcpTableClient,
 )
 from app.protocol.header_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
+    CMD_TABLE,
     HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
@@ -18,6 +20,7 @@ from app.protocol.header_protocol import (
 )
 from app.protocol.catalog_protocol import decode_catalog_payload, encode_catalog_payload
 from app.protocol.order_protocol import encode_order_success_payload
+from app.protocol.table_protocol import decode_table_payload
 
 
 def test_moca_tcp_header_round_trip():
@@ -66,6 +69,25 @@ def test_moca_tcp_clients_send_catalog_and_order_requests(monkeypatch):
     assert requests[1][1] == bytes([1, 1, 2, 3])
 
 
+def test_moca_tcp_table_client_sends_table_request(monkeypatch):
+    requests = []
+
+    def create_connection(address, timeout):
+        return FakeSocket(requests)
+
+    monkeypatch.setattr("socket.create_connection", create_connection)
+    client = MocaTcpTableClient("127.0.0.1", 9001, timeout_sec=1.0)
+
+    tables = client.fetch_tables()
+
+    assert tables == [{"id": 1, "status": "empty"}, {"id": 2, "status": "occupied"}]
+    assert len(requests) == 1
+    assert requests[0][0].cmd_type == CMD_TABLE
+    assert requests[0][0].method == METHOD_GET
+    assert requests[0][1] == b""
+    client.close()
+
+
 def test_moca_tcp_client_maps_order_error_to_rejected(monkeypatch):
     fake_socket = FakeSocket([], order_error=True)
 
@@ -101,6 +123,12 @@ def test_moca_tcp_catalog_payload_round_trip():
     assert decode_catalog_payload(encode_catalog_payload(catalog)) == catalog
 
 
+def test_moca_tcp_table_payload_decode_round_trip():
+    payload = bytes([0, 0, 2, 0, 1, 0, 0, 2, 1])
+
+    assert decode_table_payload(payload) == [{"id": 1, "status": "empty"}, {"id": 2, "status": "occupied"}]
+
+
 class FakeSocket:
     def __init__(self, requests, order_error=False):
         self.requests = requests
@@ -127,6 +155,9 @@ class FakeSocket:
             self.response.extend(
                 encode_frame(CMD_ORDER, METHOD_SET, header.sequence, encode_order_success_payload())
             )
+        elif header.cmd_type == CMD_TABLE:
+            response = bytes([0, 0, 2, 0, 1, 0, 0, 2, 1])
+            self.response.extend(encode_frame(CMD_TABLE, METHOD_GET, header.sequence, response))
 
     def recv(self, size):
         if not self.response:

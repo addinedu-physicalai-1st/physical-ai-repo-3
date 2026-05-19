@@ -12,6 +12,7 @@ from app.protocol.health_status_protocol import (
 from app.protocol.header_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
+    CMD_TABLE,
     HEADER_SIZE as MOCA_HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
@@ -25,11 +26,13 @@ from app.protocol.order_protocol import (
     encode_order_response_payload,
     parse_order_payload,
 )
+from app.protocol.table_protocol import TableResponse, encode_table_response_payload
 
 HealthHandler = Callable[[int], None]
 StatusHandler = Callable[[int, tuple[str, int]], None]
 CatalogHandler = Callable[[], CatalogResponse]
 OrderHandler = Callable[[OrderRequest], OrderResponse]
+TableHandler = Callable[[], TableResponse]
 
 
 class TcpServer(socketserver.ThreadingTCPServer):
@@ -44,6 +47,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         on_status: StatusHandler,
         on_catalog: CatalogHandler,
         on_order: OrderHandler,
+        on_table: TableHandler,
         logger: logging.Logger,
         name: str,
     ):
@@ -54,6 +58,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         self.on_status = on_status
         self.on_catalog = on_catalog
         self.on_order = on_order
+        self.on_table = on_table
 
 
 class TcpRequestHandler(socketserver.BaseRequestHandler):
@@ -86,7 +91,7 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
                         server.on_status(seq, peer)
                     continue
 
-                if first[0] in {CMD_CATALOG, CMD_ORDER}:
+                if first[0] in {CMD_CATALOG, CMD_ORDER, CMD_TABLE}:
                     self._handle_moca_frame(first)
                     continue
 
@@ -109,6 +114,7 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
         if not (
             (header.cmd_type == CMD_CATALOG and header.method == METHOD_GET)
             or (header.cmd_type == CMD_ORDER and header.method == METHOD_SET)
+            or (header.cmd_type == CMD_TABLE and header.method == METHOD_GET)
         ):
             server.logger.warning(
                 "unsupported moca tcp method for cmd from %s: cmd=0x%02X method=0x%02X",
@@ -127,6 +133,9 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
             return
         if header.cmd_type == CMD_ORDER:
             self._handle_order_frame(header.sequence, payload_bytes)
+            return
+        if header.cmd_type == CMD_TABLE:
+            self._handle_table_frame(header.sequence)
             return
 
         server.logger.warning("unsupported moca tcp cmd from %s: 0x%02X", self.client_address, header.cmd_type)
@@ -149,6 +158,12 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
         response = server.on_order(request)
         response_payload = encode_order_response_payload(response)
         self.request.sendall(encode_moca_frame(CMD_ORDER, METHOD_SET, sequence, response_payload))
+
+    def _handle_table_frame(self, sequence: int) -> None:
+        server: TcpServer = self.server
+        response = server.on_table()
+        payload = encode_table_response_payload(response)
+        self.request.sendall(encode_moca_frame(CMD_TABLE, METHOD_GET, sequence, payload))
 
     def _read_exact(self, size: int) -> bytes | None:
         server: TcpServer = self.server

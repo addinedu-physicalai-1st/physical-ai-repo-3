@@ -5,6 +5,7 @@ from app.protocol.catalog_protocol import CatalogResponse, decode_catalog_payloa
 from app.protocol.header_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
+    CMD_TABLE,
     HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
@@ -12,6 +13,8 @@ from app.protocol.header_protocol import (
     encode_frame,
 )
 from app.protocol.order_protocol import OrderResponse, decode_order_response_payload
+from app.protocol.table_protocol import TableResponse
+from app.domain.table_assignment_runtime import StoreTableDefinition, TableAssignmentRuntime
 
 
 def test_moca_tcp_header_round_trip():
@@ -62,6 +65,21 @@ def test_tcp_server_handles_order_request():
     assert [(item.product_id, item.quantity) for item in server.orders[0].items] == [(2, 3)]
 
 
+def test_tcp_server_handles_table_request():
+    server = FakeServer()
+    request = FakeSocket(encode_frame(CMD_TABLE, METHOD_GET, 8))
+
+    TcpRequestHandler(request, ("127.0.0.1", 12345), server)
+    response = request.sent
+
+    header = decode_header(response[:HEADER_SIZE])
+
+    assert header.cmd_type == CMD_TABLE
+    assert header.method == METHOD_GET
+    assert header.sequence == 8
+    assert response[HEADER_SIZE:] == bytes([0, 0, 2, 0, 1, 0, 0, 2, 1])
+
+
 def test_tcp_server_rejects_catalog_set_method():
     server = FakeServer()
     request = FakeSocket(encode_frame(CMD_CATALOG, METHOD_SET, 5))
@@ -81,6 +99,15 @@ def test_tcp_server_rejects_order_get_method():
     assert server.orders == []
 
 
+def test_tcp_server_rejects_table_set_method():
+    server = FakeServer()
+    request = FakeSocket(encode_frame(CMD_TABLE, METHOD_SET, 7))
+
+    TcpRequestHandler(request, ("127.0.0.1", 12345), server)
+
+    assert request.sent == b""
+
+
 class NullLogger:
     def info(self, *args, **kwargs):
         pass
@@ -92,12 +119,20 @@ class NullLogger:
 class FakeServer:
     def __init__(self):
         self.orders = []
+        self.table_runtime = TableAssignmentRuntime(
+            [
+                StoreTableDefinition(1, 1, 0, 0),
+                StoreTableDefinition(2, 2, 0, 0),
+            ]
+        )
+        self.table_runtime.occupy(2)
         self.name = "TestMocaService"
         self.logger = NullLogger()
         self.on_health = lambda seq: None
         self.on_status = lambda seq, peer: None
         self.on_catalog = lambda: CatalogResponse.ok({"menu": [], "allergy": [], "surcharges": {}})
         self.on_order = self._handle_order
+        self.on_table = lambda: TableResponse.ok(self.table_runtime.list_tables())
 
     def _handle_order(self, request):
         self.orders.append(request)

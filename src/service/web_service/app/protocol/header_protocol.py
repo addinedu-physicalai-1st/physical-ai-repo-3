@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 CMD_CATALOG = 0x20
 CMD_ORDER = 0x21
+CMD_TABLE = 0x22
 
 METHOD_GET = 0x01
 METHOD_SET = 0x02
@@ -15,6 +16,7 @@ STATUS_ERROR = 0x01
 
 ERROR_CATALOG_UNAVAILABLE = 0x01
 ERROR_ORDER_REJECTED = 0x02
+ERROR_TABLE_UNAVAILABLE = 0x03
 ERROR_MESSAGE_MAX_SIZE = 512
 
 
@@ -29,7 +31,7 @@ class MocaHeader:
 def encode_header(cmd_type: int, method: int, sequence: int, payload_size: int) -> bytes:
     """Validate header fields and encode the fixed-size MOCA frame header."""
 
-    if cmd_type not in {CMD_CATALOG, CMD_ORDER}:
+    if cmd_type not in {CMD_CATALOG, CMD_ORDER, CMD_TABLE}:
         raise ValueError(f"unsupported cmd_type: 0x{cmd_type:02X}")
     if method not in {METHOD_GET, METHOD_SET}:
         raise ValueError(f"unsupported method: 0x{method:02X}")

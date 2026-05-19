@@ -51,6 +51,17 @@ class FakeOrderClient:
 ORDER_CLIENT = FakeOrderClient()
 
 
+class FakeTableClient:
+    def __init__(self):
+        self.tables = []
+
+    def fetch_tables(self):
+        return self.tables
+
+
+TABLE_CLIENT = FakeTableClient()
+
+
 @asynccontextmanager
 async def _test_lifespan(app):
     yield
@@ -106,7 +117,14 @@ class SimpleASGIClient:
 def reset_state():
     menu_service.set_catalog_client(FakeCatalogClient())
     ORDER_CLIENT.requests.clear()
+    TABLE_CLIENT.tables = [
+        {"id": 1, "status": "empty"},
+        {"id": 2, "status": "occupied"},
+        {"id": 3, "status": "empty"},
+        {"id": 4, "status": "occupied"},
+    ]
     order_service.set_order_client(ORDER_CLIENT)
+    table_service.set_table_client(TABLE_CLIENT)
     table_service.reset()
     order_service.reset()
     yield

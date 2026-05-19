@@ -5,6 +5,7 @@ from typing import Any
 from app.protocol.header_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
+    CMD_TABLE,
     HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
@@ -18,6 +19,7 @@ from app.protocol.order_protocol import (
     decode_order_response_payload,
     encode_order_request_payload,
 )
+from app.protocol.table_protocol import decode_table_payload
 
 
 class MocaCatalogClientError(RuntimeError):
@@ -29,6 +31,10 @@ class MocaOrderClientError(RuntimeError):
 
 
 class MocaOrderRejected(MocaOrderClientError):
+    pass
+
+
+class MocaTableClientError(RuntimeError):
     pass
 
 
@@ -152,3 +158,26 @@ class MocaTcpOrderClient(MocaTcpBaseClient):
         ok, message = decode_order_response_payload(payload)
         if not ok:
             raise MocaOrderRejected(message or "order rejected")
+
+
+class MocaTcpTableClient(MocaTcpBaseClient):
+    """Fetches table assignment state from moca_service over raw TCP."""
+
+    def fetch_tables(self) -> list[dict]:
+        try:
+            _, payload = self.request(CMD_TABLE, METHOD_GET, b"")
+            return self._decode_table_response(payload)
+        except MocaTableClientError:
+            raise
+        except (OSError, ValueError) as exc:
+            self.close()
+            raise MocaTableClientError(
+                f"moca_service table request failed: {self.host}:{self.port}: {exc}"
+            ) from exc
+
+    def _decode_table_response(self, payload: bytes) -> list[dict]:
+        tables = decode_table_payload(payload)
+        if tables and "error" in tables[0]:
+            message = tables[0].get("message", tables[0].get("error", "table error"))
+            raise MocaTableClientError(str(message))
+        return tables

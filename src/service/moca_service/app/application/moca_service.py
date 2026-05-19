@@ -27,6 +27,9 @@ class MocaService:
     def get_catalog(self) -> dict[str, Any]:
         return self.catalog_repository.fetch_catalog()
 
+    def get_table_assignment(self):
+        return self.table_assignment_runtime.list_tables()
+
     def create_order(self, request: OrderRequest) -> bool:
         created = self.order_repository.create_order(request)
 
@@ -38,9 +41,6 @@ class MocaService:
         )
 
         return True
-
-    def get_table_assignment():
-        pass
 
     def assign_table():
         pass

@@ -5,8 +5,10 @@ from app.protocol.catalog_protocol import CatalogResponse
 from app.protocol.header_protocol import (
     ERROR_CATALOG_UNAVAILABLE,
     ERROR_ORDER_REJECTED,
+    ERROR_TABLE_UNAVAILABLE,
 )
 from app.protocol.order_protocol import OrderRequest, OrderResponse
+from app.protocol.table_protocol import TableResponse
 from app.application.moca_service import MocaService
 from app.transport.tcp_sender import TcpSender
 
@@ -43,3 +45,10 @@ class MocaController:
             self.logger.warning("order request failed: %s", exc)
             return OrderResponse.error(ERROR_ORDER_REJECTED, str(exc))
         return OrderResponse.ok()
+
+    def get_table_assignment(self) -> TableResponse:
+        try:
+            return TableResponse.ok(self.service.get_table_assignment())
+        except Exception as exc:
+            self.logger.warning("table request failed: %s", exc)
+            return TableResponse.error(ERROR_TABLE_UNAVAILABLE, str(exc))

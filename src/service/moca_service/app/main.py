@@ -45,6 +45,7 @@ def main() -> None:
         controller.handle_status,
         controller.get_catalog,
         controller.create_order,
+        controller.get_table_assignment,
         logger,
         "MocaService",
     ) as server:
