@@ -1,3 +1,7 @@
+import time
+
+import pymysql
+
 from app.config import configure_logging, load_config
 from app.application.moca_controller import MocaController
 from app.application.moca_service import MocaService
@@ -7,6 +11,28 @@ from app.repository.order_repo import OrderRepository
 from app.repository.table_repo import TableRepository
 from app.transport.tcp_receiver import TcpServer
 from app.transport.tcp_sender import build_moca_tcp_sender
+
+
+def fetch_table_definitions_with_retry(
+    table_repository: TableRepository,
+    logger,
+    *,
+    attempts: int = 30,
+    delay_seconds: float = 2.0,
+):
+    for attempt in range(1, attempts + 1):
+        try:
+            return table_repository.fetch_table_definitions()
+        except pymysql.MySQLError as exc:
+            if attempt == attempts:
+                raise
+            logger.warning(
+                "Waiting for MySQL before loading table definitions (%s/%s): %s",
+                attempt,
+                attempts,
+                exc,
+            )
+            time.sleep(delay_seconds)
 
 
 def main() -> None:
@@ -28,7 +54,9 @@ def main() -> None:
     catalog_repository = CatalogRepository(db_config)
     order_repository = OrderRepository(db_config)
     table_repository = TableRepository(db_config)
-    table_assignment_runtime = TableAssignmentRuntime(table_repository.fetch_table_definitions())
+    table_assignment_runtime = TableAssignmentRuntime(
+        fetch_table_definitions_with_retry(table_repository, logger)
+    )
     service = MocaService(
         catalog_repository,
         order_repository,
