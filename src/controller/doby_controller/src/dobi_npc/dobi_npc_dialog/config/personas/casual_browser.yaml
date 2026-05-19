@@ -1,0 +1,73 @@
+# casual_browser.yaml
+# Phase 1 W3 — 느긋한 손님용 페르소나.
+# 부담 없는 톤, 가벼운 권유.
+
+parent: generic
+persona_id: casual_browser
+display_name: "Casual Browser"
+description: "둘러보고 있는 손님용. 부담 없이 가볍게 다가가는 톤."
+
+phrases:
+  icebreak:
+    ko:
+      - "안녕하세요! 더운데 시원한 거 한 잔 어떠세요?"
+      - "어서 오세요. 천천히 둘러보셔도 돼요."
+    en:
+      - "Hello! How about something cold on a warm day?"
+      - "Welcome. Take your time browsing."
+  minigame_invite:
+    ko:
+      - "잠깐 시간 되시면 가위바위보 한 판 하실래요?"
+      - "심심하면 게임 한 판 하실래요? 부담 없이요."
+    en:
+      - "Got a sec? Wanna play a quick rock-paper-scissors?"
+      - "Bored? Let's play a quick game, no pressure."
+  minigame_invite_speed_counter:
+    ko:
+      - "양손 손가락 합으로 숫자 만드는 거예요. 빨라요 — 다섯 번 연속 맞히면 우승!"
+      - "두 손으로 숫자 표현해보실래요? 5연속이면 추천 메뉴 알려드려요."
+    en:
+      - "Make numbers with both hands' fingers. It's fast — five in a row wins!"
+      - "Wanna try showing numbers with both hands? Five correct in a row and I'll recommend a drink."
+  minigame_invite_cafe_ninja:
+    ko:
+      - "검지로 떨어지는 메뉴를 베는 닌자 게임이에요. 폭탄은 피하시고요!"
+      - "검지 손가락으로 슥! 떨어지는 음료를 베면 돼요. 폭탄 조심!"
+    en:
+      - "Ninja game — slice falling menu items with your index finger. Avoid the bombs!"
+      - "Just swipe with your index finger to slice the drinks. Watch out for bombs!"
+  minigame_win:
+    ko:
+      - "오 잘하시네요!"
+      - "이기셨어요. 오늘 운 좋으신데요."
+    en:
+      - "Oh nice, you got me!"
+      - "You won. Lucky day, huh?"
+  minigame_lose:
+    ko:
+      - "아쉽네요. 그래도 라떼 한 잔 어때요?"
+      - "다음엔 이기실 거예요. 메뉴 한 번 보실래요?"
+    en:
+      - "Tough one. How about a latte though?"
+      - "Next time for sure. Wanna check the menu?"
+  offer:
+    ko:
+      - "오늘은 시그니처 라떼가 잘 나가요. 하나 어떠세요?"
+      - "디카페인도 준비되어 있어요."
+    en:
+      - "Our signature latte is popular today. Care for one?"
+      - "We have decaf options too."
+  leadin:
+    ko:
+      - "주문하실 거 정해지셨으면 카운터로 안내해드릴게요. 절 따라오세요."
+    en:
+      - "Ready to order? Follow me to the counter."
+  leadin_arrived:
+    ko:
+      - "여기예요. 편하게 주문하시면 돼요."
+    en:
+      - "Here we are. Order whenever you're ready."
+
+# generic의 SunHi 유지, 약간 빠른 친근 톤
+voice:
+  rate: "+5%"

@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>모드 제어 — MOCA</title>
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/reset.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/layout.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260517r">
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <h1>MoCa</h1>
+        <p>Mobile Catering Snack Bar</p>
+      </div>
+      <nav class="sidebar__nav" aria-label="페이지 네비게이션">
+        <a class="sidebar__nav-item" href="/static/pages/dashboard.html"><span>대시보드</span></a>
+        <a class="sidebar__nav-item sidebar__nav-item--active" href="/static/pages/modes.html"><span>모드 제어</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/tables.html"><span>테이블</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/events.html"><span>이벤트</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/analytics.html"><span>통계</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/settings.html"><span>설정</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/debug.html"><span>디버그</span></a>
+      </nav>
+      <div class="sidebar__status">
+        <div class="sidebar__status-line">
+          <span class="sidebar__status-dot" id="footer-dot"></span>
+          <span id="footer-online">Doby…</span>
+        </div>
+        <div class="sidebar__status-line">
+          <span class="label">BATT</span>
+          <span id="footer-battery">—</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Header -->
+    <header class="header" id="header">
+      <mode-badge></mode-badge>
+      <battery-gauge></battery-gauge>
+      <safety-indicator></safety-indicator>
+      <robot-status name="Doby" store-key="online"></robot-status>
+      <robot-status name="DDooby"></robot-status>
+      <div class="header__right">
+        <header-clock></header-clock>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="main modes-page">
+
+      <!-- 현 모드 상태 카드 -->
+      <section class="card mode-status-card">
+        <div class="mode-status-card__row">
+          <div>
+            <div class="card__small">현재 모드</div>
+            <h2 class="mode-status-card__current" id="status-current">—</h2>
+            <p class="card__small" id="status-entered">진입: —</p>
+            <p class="card__small" id="status-params">파라미터: —</p>
+          </div>
+          <div class="mode-status-card__actions">
+            <button class="btn btn--ghost" id="btn-force-idle">강제 idle 전환</button>
+          </div>
+        </div>
+        <div class="mode-status-card__queue">
+          <span class="card__small">큐:</span>
+          <span id="status-queue">—</span>
+        </div>
+      </section>
+
+      <div class="modes-grid">
+
+        <!-- 서빙 -->
+        <section class="card">
+          <h3>서빙 모드</h3>
+          <p class="card__small">강제 시작 — 카운터에서 픽업 후 지정 테이블로 배달</p>
+          <div class="form-row">
+            <label class="form-label" for="serving-table">테이블</label>
+            <select class="form-select" id="serving-table">
+              <option>T01</option><option>T02</option><option>T03</option><option>T04</option><option>T05</option>
+            </select>
+            <label class="form-check">
+              <input type="checkbox" id="serving-via-pickup" checked>
+              <span>via_pickup</span>
+            </label>
+            <button class="btn btn--primary" id="btn-serving-run">실행</button>
+          </div>
+          <h4 class="card__subtitle">서빙 큐</h4>
+          <ul class="queue-list" id="serving-queue-list">
+            <li class="queue-empty">큐 비어있음</li>
+          </ul>
+          <div class="form-row">
+            <button class="btn btn--ghost" id="btn-serving-clear" disabled title="백엔드 endpoint M4">전체 큐 초기화</button>
+          </div>
+        </section>
+
+        <!-- 순회 -->
+        <section class="card">
+          <h3>순회 모드</h3>
+          <p class="card__small">강제 시작 — 5 테이블 1회 patrol</p>
+          <div class="form-row">
+            <button class="btn btn--primary" id="btn-patrol-run">전체 순회 실행</button>
+          </div>
+          <h4 class="card__subtitle">자동 주기</h4>
+          <div class="form-row">
+            <label class="form-check">
+              <input type="checkbox" id="patrol-enabled">
+              <span>활성</span>
+            </label>
+            <label class="form-label" for="patrol-interval">주기 (분)</label>
+            <input type="number" class="form-input form-input--narrow" id="patrol-interval" min="1" max="60" value="5">
+            <button class="btn btn--ghost" id="btn-patrol-save">저장</button>
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="patrol-hours-start">영업시간</label>
+            <input type="time" class="form-input" id="patrol-hours-start">
+            <span style="color:var(--text-muted)">~</span>
+            <input type="time" class="form-input" id="patrol-hours-end">
+            <button class="btn btn--ghost" id="btn-hours-save">저장</button>
+          </div>
+        </section>
+
+        <!-- 동행 안내 -->
+        <section class="card">
+          <h3>동행 안내</h3>
+          <p class="card__small">강제 시작 — 카운터에서 빈 테이블까지 동행</p>
+          <div class="form-row">
+            <label class="form-label" for="guiding-table">테이블</label>
+            <select class="form-select" id="guiding-table">
+              <option>T01</option><option>T02</option><option>T03</option><option>T04</option><option>T05</option>
+            </select>
+            <label class="form-check">
+              <input type="checkbox" id="guiding-auto-id" checked>
+              <span>고객ID 자동생성</span>
+            </label>
+            <button class="btn btn--primary" id="btn-guiding-run">실행</button>
+          </div>
+        </section>
+
+        <!-- 모객 -->
+        <section class="card">
+          <h3>모객 모드</h3>
+          <p class="card__small">강제 시작 — 빈 테이블 50% 이상 시, 모객 시작</p>
+          <div class="form-row">
+            <label class="form-label" for="engaging-persona">페르소나</label>
+            <select class="form-select" id="engaging-persona">
+              <option value="casual_browser">casual_browser</option>
+              <option value="friendly_child">friendly_child</option>
+              <option value="professional_adult">professional_adult</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <button class="btn btn--primary" id="btn-engaging-run">시작</button>
+            <button class="btn btn--ghost" id="btn-engaging-stop">중단 (→ idle)</button>
+          </div>
+        </section>
+
+        <!-- 수동 발화 -->
+        <section class="card">
+          <h3>수동 발화</h3>
+          <p class="card__small">현재 모드의 발화 큐에 강제 끼워넣기</p>
+          <div class="form-row">
+            <input type="text" class="form-input form-input--grow" id="utter-text"
+                   placeholder="안녕하세요!" maxlength="200">
+            <button class="btn btn--primary" id="btn-utter-say">말하기</button>
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="utter-expression">표정</label>
+            <select class="form-select" id="utter-expression">
+              <option value="">— 변경 없음 —</option>
+              <option value="basic">basic</option>
+              <option value="hello">hello</option>
+              <option value="happy">happy</option>
+              <option value="fun">fun</option>
+              <option value="interest">interest</option>
+              <option value="bored">bored</option>
+              <option value="sad">sad</option>
+              <option value="angry">angry</option>
+            </select>
+            <button class="btn btn--ghost" id="btn-expression-apply">표정만 적용</button>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- JS — utils → ws → store → api → toast → 컴포넌트 -->
+  <script src="/static/js/utils.js?v=20260517r"></script>
+  <script src="/static/js/ws.js?v=20260517r"></script>
+  <script src="/static/js/store.js?v=20260517r"></script>
+  <script src="/static/js/api.js?v=20260517r"></script>
+  <script src="/static/js/toast.js?v=20260517r"></script>
+  <script src="/static/components/mode-badge.js?v=20260517r"></script>
+  <script src="/static/components/battery-gauge.js?v=20260517r"></script>
+  <script src="/static/components/safety-indicator.js?v=20260517r"></script>
+  <script src="/static/components/robot-status.js?v=20260517r"></script>
+  <script src="/static/components/header-clock.js?v=20260517r"></script>
+
+  <script>
+    (function () {
+      // ───── 사이드바 / 헤더 상태 ─────
+      const dot = document.getElementById('footer-dot');
+      const onlineLabel = document.getElementById('footer-online');
+      const batt = document.getElementById('footer-battery');
+      const header = document.getElementById('header');
+      store.on('online', (on) => {
+        if (on) {
+          dot.classList.add('sidebar__status-dot--online');
+          onlineLabel.textContent = 'Doby Online';
+          header.classList.remove('header--offline');
+        } else {
+          dot.classList.remove('sidebar__status-dot--online');
+          onlineLabel.textContent = 'Doby Offline';
+          header.classList.add('header--offline');
+        }
+      });
+      store.on('battery', (b) => {
+        if (b && typeof b.percentage === 'number' && b.percentage >= 0) {
+          batt.textContent = `${Math.round(b.percentage * 100)}%`;
+        } else { batt.textContent = '—'; }
+      });
+
+      // ───── 현 모드 상태 카드 ─────
+      const statusCurrent = document.getElementById('status-current');
+      const statusEntered = document.getElementById('status-entered');
+      const statusParams = document.getElementById('status-params');
+      const statusQueue = document.getElementById('status-queue');
+
+      function renderStatus() {
+        const m = store.get('mode');
+        if (!m) {
+          statusCurrent.textContent = '—';
+          statusEntered.textContent = '진입: —';
+          statusParams.textContent = '파라미터: —';
+          return;
+        }
+        statusCurrent.textContent = (m.current || '—').toUpperCase();
+        if (m.entered_at) {
+          const rel = utils.formatRelative(m.entered_at);
+          statusEntered.textContent =
+            `진입: ${utils.formatTime(m.entered_at)} (${rel} 경과)`;
+        } else {
+          statusEntered.textContent = '진입: —';
+        }
+        const p = m.params;
+        statusParams.textContent =
+          '파라미터: ' + (p && Object.keys(p).length ? JSON.stringify(p) : '없음');
+      }
+      store.on('mode', renderStatus);
+      setInterval(() => {
+        const m = store.get('mode');
+        if (m && m.entered_at) {
+          const rel = utils.formatRelative(m.entered_at);
+          statusEntered.textContent =
+            `진입: ${utils.formatTime(m.entered_at)} (${rel} 경과)`;
+        }
+      }, 1000);
+
+      // ───── 큐 표시 (welcome snapshot) ─────
+      function renderQueue() {
+        const snap = store.get('welcome');
+        const q = (snap && snap.snapshot && snap.snapshot.queue) || {};
+        const serving = q.serving || [];
+        const guiding = q.guiding || [];
+        const parts = [];
+        if (serving.length) parts.push(`서빙 ${serving.length}건`);
+        if (guiding.length) parts.push(`안내 ${guiding.length}건`);
+        statusQueue.textContent = parts.length ? parts.join(' · ') : '없음';
+
+        const list = document.getElementById('serving-queue-list');
+        const clearBtn = document.getElementById('btn-serving-clear');
+        if (serving.length === 0) {
+          list.innerHTML = '<li class="queue-empty">큐 비어있음</li>';
+          clearBtn.disabled = true;
+        } else {
+          list.innerHTML = serving.map(s => `
+            <li>
+              <span>${s.drink_id || s.order_id || '?'} → ${s.target_table || '?'}</span>
+              <span class="queue-actions">
+                <button class="btn btn--mini" data-skip="${s.target_table || ''}">건너뛰기</button>
+              </span>
+            </li>
+          `).join('');
+          list.querySelectorAll('button[data-skip]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const tid = btn.getAttribute('data-skip');
+              if (!tid) { toast('대상 테이블 없음', 'warn'); return; }
+              if (!confirm(`${tid} 서빙을 큐에서 건너뛰시겠습니까?`)) return;
+              const ok = wsClient.send({ type: 'skip_table', table_id: tid });
+              toast(ok ? `${tid} 건너뛰기 요청 전송` : 'WS 연결 끊김',
+                    ok ? 'info' : 'warn');
+            });
+          });
+          // 전체 큐 초기화는 백엔드 endpoint 부재 — disabled 유지
+        }
+      }
+      store.on('welcome', renderQueue);
+
+      // ───── 강제 idle ─────
+      document.getElementById('btn-force-idle').addEventListener('click', () => {
+        if (!confirm('현재 모드를 종료하고 idle 로 강제 전환하시겠습니까?')) return;
+        const ok = wsClient.send({
+          type: 'set_mode', mode: 'idle', params: {}, override_priority: true,
+        });
+        toast(ok ? 'idle 강제 전환 요청 전송' : 'WS 연결 끊김',
+              ok ? 'info' : 'warn');
+      });
+
+      // ───── 서빙 실행 ─────
+      document.getElementById('btn-serving-run').addEventListener('click', () => {
+        const table = document.getElementById('serving-table').value;
+        const via = document.getElementById('serving-via-pickup').checked;
+        if (!confirm(`${table} 로 서빙을 시작하시겠습니까? (via_pickup=${via})`)) return;
+        const ok = wsClient.send({
+          type: 'set_mode', mode: 'serving',
+          params: { waypoint: table, via_pickup: via },
+          override_priority: true,
+        });
+        toast(ok ? `서빙 ${table} 요청 전송` : 'WS 연결 끊김',
+              ok ? 'info' : 'warn');
+      });
+
+      // ───── 순회 실행 ─────
+      document.getElementById('btn-patrol-run').addEventListener('click', () => {
+        if (!confirm('전체 순회를 강제 시작하시겠습니까?')) return;
+        const ok = wsClient.send({
+          type: 'set_mode', mode: 'patrol', params: {}, override_priority: true,
+        });
+        toast(ok ? '순회 요청 전송' : 'WS 연결 끊김', ok ? 'info' : 'warn');
+      });
+
+      // ───── 안내 실행 ─────
+      document.getElementById('btn-guiding-run').addEventListener('click', () => {
+        const table = document.getElementById('guiding-table').value;
+        const autoId = document.getElementById('guiding-auto-id').checked;
+        const cid = autoId
+          ? `C-${Date.now()}`
+          : (window.prompt('고객 ID 입력 (예: C-12345)') || '').trim();
+        if (!cid) return;
+        if (!confirm(`${cid} 손님을 ${table} 까지 안내하시겠습니까?`)) return;
+        const ok = wsClient.send({
+          type: 'set_mode', mode: 'guiding',
+          params: { target_table: table, customer_id: cid },
+          override_priority: true,
+        });
+        toast(ok ? `안내 ${cid} → ${table} 요청 전송` : 'WS 연결 끊김',
+              ok ? 'info' : 'warn');
+      });
+
+      // ───── 모객 시작/중단 ─────
+      document.getElementById('btn-engaging-run').addEventListener('click', () => {
+        const persona = document.getElementById('engaging-persona').value;
+        if (!confirm(`${persona} 페르소나로 모객을 시작하시겠습니까?`)) return;
+        const ok = wsClient.send({
+          type: 'set_mode', mode: 'engaging',
+          params: { persona }, override_priority: true,
+        });
+        toast(ok ? `모객 (${persona}) 요청 전송` : 'WS 연결 끊김',
+              ok ? 'info' : 'warn');
+      });
+      document.getElementById('btn-engaging-stop').addEventListener('click', () => {
+        if (!confirm('모객을 중단하고 idle 로 전환하시겠습니까?')) return;
+        const ok = wsClient.send({
+          type: 'set_mode', mode: 'idle', params: {}, override_priority: true,
+        });
+        toast(ok ? 'idle 전환 요청 전송' : 'WS 연결 끊김',
+              ok ? 'info' : 'warn');
+      });
+
+      // ───── 수동 발화 ─────
+      document.getElementById('btn-utter-say').addEventListener('click', () => {
+        const text = document.getElementById('utter-text').value.trim();
+        if (!text) { toast('발화 텍스트 비어있음', 'warn'); return; }
+        const exp = document.getElementById('utter-expression').value;
+        const ok = wsClient.send({
+          type: 'utter', text, face_expression: exp || '',
+        });
+        toast(ok ? `발화 전송: "${text.slice(0, 24)}"` : 'WS 연결 끊김',
+              ok ? 'info' : 'warn');
+        if (ok) document.getElementById('utter-text').value = '';
+      });
+
+      // 표정만 적용 — REST POST /command (command_type='express')
+      document.getElementById('btn-expression-apply').addEventListener('click', () => {
+        const exp = document.getElementById('utter-expression').value;
+        if (!exp) { toast('표정 미선택', 'warn'); return; }
+        api.post('/command', {
+          command_type: 'express',
+          payload: { face_expression: exp },
+        }).then(() => toast(`표정 ${exp} 적용 요청 전송`, 'info'))
+          .catch((e) => toast(
+            `표정 적용 실패 (${e.status || 'NET'})`, 'error'));
+      });
+
+      // ───── 설정 로드 (자동 주기 + 영업시간) ─────
+      function loadConfig() {
+        api.get('/config').then(r => {
+          const c = (r && r.data) || {};
+          if (typeof c.patrol_enabled === 'boolean') {
+            document.getElementById('patrol-enabled').checked = c.patrol_enabled;
+          }
+          if (typeof c.patrol_interval_minutes === 'number') {
+            document.getElementById('patrol-interval').value = c.patrol_interval_minutes;
+          }
+          if (typeof c.business_hours === 'string' && c.business_hours.includes('-')) {
+            const [s, e] = c.business_hours.split('-');
+            const sEl = document.getElementById('patrol-hours-start');
+            const eEl = document.getElementById('patrol-hours-end');
+            sEl.value = (s || '').trim();
+            eEl.value = (e || '').trim();
+          }
+        }).catch(() => { /* 초기 로드 실패는 silent — 사용자가 저장 시 다시 시도 */ });
+      }
+
+      // 순회 주기 저장
+      document.getElementById('btn-patrol-save').addEventListener('click', () => {
+        const enabled = document.getElementById('patrol-enabled').checked;
+        const minutes = parseFloat(document.getElementById('patrol-interval').value);
+        if (isNaN(minutes) || minutes <= 0) {
+          toast('주기 값 오류 (1 이상)', 'warn'); return;
+        }
+        const ok = wsClient.send({
+          type: 'set_config',
+          patrol_enabled: enabled,
+          patrol_interval_minutes: minutes,
+        });
+        toast(ok ? `순회 주기 ${enabled ? '활성' : '비활성'} / ${minutes}분 저장 요청`
+                 : 'WS 연결 끊김',
+              ok ? 'info' : 'warn');
+      });
+
+      // 영업시간 저장
+      document.getElementById('btn-hours-save').addEventListener('click', () => {
+        const s = document.getElementById('patrol-hours-start').value;
+        const e = document.getElementById('patrol-hours-end').value;
+        if (!s || !e) { toast('시작/종료 시간 미입력', 'warn'); return; }
+        const ok = wsClient.send({
+          type: 'set_config', business_hours: `${s}-${e}`,
+        });
+        toast(ok ? `영업시간 ${s}-${e} 저장 요청` : 'WS 연결 끊김',
+              ok ? 'info' : 'warn');
+      });
+
+      // ───── 초기 렌더 ─────
+      renderStatus();
+      renderQueue();
+      loadConfig();
+    })();
+  </script>
+</body>
+</html>

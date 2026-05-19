@@ -1,0 +1,13 @@
+# dobi_npc_emotion — Python pip 의존성 핀 (Phase 2 W4)
+#
+# 설치:
+#   pip install --user -r requirements.txt
+#   pip uninstall --yes numpy opencv-contrib-python
+#     ↑ mediapipe가 user site에 끌어오는 numpy 2.x / opencv-contrib-python 4.13.x를 제거.
+#       시스템 numpy 1.26.4 + cv2 4.6.0 (apt python3-numpy / python3-opencv)을 사용해야
+#       cv_bridge / rclpy 충돌을 피할 수 있다.
+#
+# 참고: opencv-python / numpy는 의도적으로 여기 명시하지 않는다 (시스템 apt 패키지 사용).
+#       자세한 정책은 CLAUDE.md §7 외부 의존성 버전 정책 참조.
+
+mediapipe==0.10.14
