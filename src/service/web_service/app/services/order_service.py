@@ -96,9 +96,9 @@ def create(payload: OrderCreate) -> Order:
             moca_order_id=moca_order_id,
             order_number=order_number,
             channel=payload.channel,
-            delivery=payload.delivery,
+            receive_type=payload.receive_type,
             payment=payload.payment,
-            table_no=payload.table_no if payload.delivery == "serving" else None,
+            table_no=payload.table_no if payload.receive_type == "dine_in" else None,
             items=payload.items,
             total=total,
         )

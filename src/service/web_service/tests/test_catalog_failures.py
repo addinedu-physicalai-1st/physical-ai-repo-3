@@ -30,7 +30,7 @@ def test_post_order_returns_503_when_catalog_unavailable(client):
         "/api/orders",
         json={
             "channel": "kiosk",
-            "delivery": "pickup",
+            "receive_type": "take_out",
             "payment": "card",
             "items": [{"menu_id": 1, "qty": 1}],
         },

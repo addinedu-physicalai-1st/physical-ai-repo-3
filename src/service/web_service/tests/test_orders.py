@@ -6,7 +6,7 @@ from tests.conftest import ORDER_CLIENT
 def _pickup_payload():
     return {
         "channel": "kiosk",
-        "delivery": "pickup",
+        "receive_type": "take_out",
         "payment": "card",
         "items": [{"menu_id": 1, "qty": 2}],
     }
@@ -15,7 +15,7 @@ def _pickup_payload():
 def _serving_payload(table_no: int):
     return {
         "channel": "table",
-        "delivery": "serving",
+        "receive_type": "dine_in",
         "payment": "card",
         "table_no": table_no,
         "items": [{"menu_id": 2, "qty": 1, "options": {"shot": "추가", "ice": "기본 얼음", "milk": "저지방"}}],
@@ -65,7 +65,7 @@ def test_get_order_by_id(client):
     body = r.json()
     assert body["id"] == created["order_id"]
     assert body["moca_order_id"] == created["moca_order_id"]
-    assert body["delivery"] == "pickup"
+    assert body["receive_type"] == "take_out"
     assert body["total"] == 7000
 
 
