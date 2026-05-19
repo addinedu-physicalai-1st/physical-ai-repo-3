@@ -221,8 +221,8 @@ bash scripts/record_demo.sh
 ## Phase 진행 상황 (2026-05-17 기준)
 
 **두 트랙 동시 진행:**
-- **학술 트랙 (Phase 0~5, 16주)** — `docs/cafe_npc_implementation_plan.md` SoT
-- **운영 트랙 (M0~M4, 6주)** — `docs/moca_mode_and_opserver_plan.md` SoT (2026-05-16 추가)
+- **학술 트랙 (Phase 0~5)** — `docs/cafe_npc_implementation_plan.md` SoT
+- **운영 트랙 (M0~M4)** — `docs/moca_mode_and_opserver_plan.md` SoT (2026-05-16 추가)
 
 ### 학술 트랙 (Phase 0~5)
 
