@@ -27,6 +27,17 @@
   const MODELS_BASE = '/order_vui/shared/models';
   const VOICE_SERVICE_URL = window.VOICE_SERVICE_URL || 'http://192.168.0.133:8010';
 
+  // voice_service 호출 타임아웃 — 응답이 없을 때 무한 대기 방지.
+  // 정상 흐름은 1~2 초 안에 끝나므로 99% 케이스엔 영향 없음.
+  const ASR_TIMEOUT_MS = 8000;
+  const LLM_TIMEOUT_MS = 8000;
+  const TTS_TIMEOUT_MS = 10000;
+
+  // 키오스크 wake 후 follow-up listening 동안 30 초 무발화면 자동 standby 복귀.
+  // 손님이 자리를 뜬 채로 listening 상태가 영원히 유지되는 것을 막는다.
+  // table(PTT) 모드는 wake/follow-up 흐름이 없어 적용 대상 아님.
+  const IDLE_TIMEOUT_MS = 30000;
+
   const KWS_THRESHOLD = 0.65;
   // 합성 TTS 학습 모델 + 사람 발화는 high 청크가 단발성이라 1 청크만 통과해도 트리거.
   const KWS_CONSEC = 1;
@@ -41,16 +52,13 @@
   const MEL_FRAMES_STEP = 8;
   const EMB_BUFFER_LEN = 16;
 
-  // ASR context hint — 메뉴/알러지 외에 키오스크에서 자주 나오는 발화 어휘.
-  // 메뉴/알러지명은 호출 시점에 동적으로 합쳐 보낸다.
-  const ASR_KEYWORDS = [
-    '주문할게요', '한 잔', '두 잔', '세 잔',
-    '따뜻하게', '차갑게', '뜨겁게',
-    '샷 추가', '얼음 빼', '얼음 없이',
-    '다음으로', '결제할게', '주문 확인할게',
-    '뒤로', '다시 고를래',
-    '알러지 없어요', '확인했어',
-  ];
+  // ASR context: 도메인 톤 + 정식 명칭(별명 포함). 알러지명/어휘는 제외.
+  // Qwen3-ASR 의 context 인자는 정확도 향상의 핵심 메커니즘이므로 풍부하게 넘긴다.
+  // 다만 빈 발화 시 ASR 가 context 를 그대로 echo 해 LLM 이 add_menu 로 오분류하는
+  // leakage 가 발생할 수 있어, voice_service prompts.py 의 시스템 프롬프트에
+  // "콤마 명사구 나열 형태이면 unknown" 방어를 같이 두었다.
+  // 단일 진실: web_service seed.py MenuItem(name, aliases) → /api/menu → MENU 전역 → 여기로 전파.
+  const ASR_CONTEXT_PREFIX = '카페 키오스크 주문.';
 
   // wake 한 번 → 여러 발화 follow-up. 외부에서 window.voiceIdle() 을 호출할 때까지 listening 유지.
   // (주문번호 화면 도달 시 kiosk 측에서 명시적으로 voiceIdle 호출)
@@ -71,6 +79,8 @@
   let vadBusy = false;  // VAD active 또는 ASR/LLM 처리 중이면 KWS 게이트 차단
   let ttsSpeaking = false;  // TTS 재생 중 — KWS/VAD 모두 차단해 echo 방지
   let turnCount = 0;    // wake 후 처리한 발화 수 (정보 로그용, 매 wake 마다 0)
+  let idleTimer = null; // 무발화 30초 standby 복귀 타이머 (kiosk only)
+  let lastActivityTs = 0; // 마지막 유효 intent 시점. 잡음/leak (unknown) 은 갱신 안 함.
 
   let rawBuf = new Float32Array(0);
   let melBuf = [];
@@ -95,6 +105,22 @@
     const r = await fetch(path);
     if (!r.ok) throw new Error(`fetch ${path} -> HTTP ${r.status}`);
     return new Uint8Array(await r.arrayBuffer());
+  }
+
+  // AbortController 기반 타임아웃 wrapper. 시간 초과 시 AbortError 가 throw 된다.
+  async function fetchWithTimeout(url, opts, timeoutMs, label) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...opts, signal: ctrl.signal });
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        throw new Error(`${label || 'fetch'} timeout (${timeoutMs}ms)`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function loadSession(label, modelPath, externalDataPaths) {
@@ -135,11 +161,12 @@
     vadInstance = await window.vad.MicVAD.new({
       baseAssetPath: VAD_ASSET_BASE,
       onnxWASMBasePath: VAD_ORT_BASE,
-      positiveSpeechThreshold: 0.5,
+      positiveSpeechThreshold: 0.7,   // 잡음(키보드/주변 대화) 으로 인한 false speech 차단
       negativeSpeechThreshold: 0.35,
-      minSpeechFrames: 4,         // 너무 짧은 잡음 제외 (~128ms)
-      redemptionFrames: 24,       // 발화 끝 판정 후 ~768ms 여유
+      minSpeechFrames: 8,             // 너무 짧은 잡음 제외 (~256ms)
+      redemptionFrames: 24,           // 발화 끝 판정 후 ~768ms 여유
       onSpeechStart: () => {
+        clearIdleTimer();
         setState('listening');
         console.log('[vad] speech start');
       },
@@ -155,6 +182,7 @@
           vadInstance.pause();
           vadInstance.start();
           setState('listening');
+          armIdleTimer();
         } catch (e) {
           setState('idle');
           vadBusy = false;
@@ -306,6 +334,7 @@
         if (!vadInstance) await loadVAD();
         vadInstance.start();
         setState('listening');
+        armIdleTimer();
       } catch (e) {
         console.error('[voice] VAD start failed:', e);
         vadBusy = false;
@@ -327,41 +356,57 @@
       const ctList = (typeof cart !== 'undefined' && Array.isArray(cart)) ? cart : [];
       const alList = (typeof ALLERGY_INFO !== 'undefined' && Array.isArray(ALLERGY_INFO)) ? ALLERGY_INFO : [];
 
-      // ASR context 구성: 도메인 톤 + 현재 메뉴 (별칭 포함) + 알러지 + 키오스크 어휘
-      const ctxParts = ['카페 키오스크 음성 주문.'];
-      if (mnList.length) {
-        const menuStrs = mnList.map((m) => {
-          const ali = Array.isArray(m.aliases) && m.aliases.length ? ` (${m.aliases.join(', ')})` : '';
-          return m.name + ali;
-        });
-        ctxParts.push('메뉴: ' + menuStrs.join(', ') + '.');
-      }
-      if (alList.length) ctxParts.push('알러지: ' + alList.map((a) => a.name).join(', ') + '.');
-      ctxParts.push('자주 쓰는 말: ' + ASR_KEYWORDS.join(', ') + '.');
-      const asrContext = ctxParts.join(' ');
+      // "메뉴: 아메리카노 (아메, 아아, 따아), 카페라떼 (라떼), ..." 형태로 동적 구성.
+      const menuPart = mnList.length
+        ? '메뉴: ' + mnList.map((m) => {
+            const ali = Array.isArray(m.aliases) && m.aliases.length
+              ? ` (${m.aliases.join(', ')})`
+              : '';
+            return `${m.name}${ali}`;
+          }).join(', ') + '.'
+        : '';
+      const asrContext = menuPart ? `${ASR_CONTEXT_PREFIX} ${menuPart}` : ASR_CONTEXT_PREFIX;
 
       const fd = new FormData();
       fd.append('file', new Blob([wav], { type: 'audio/wav' }), 'utt.wav');
       fd.append('context', asrContext);
-      const asrRes = await fetch(`${VOICE_SERVICE_URL}/asr/transcribe`, { method: 'POST', body: fd });
+      const asrRes = await fetchWithTimeout(
+        `${VOICE_SERVICE_URL}/asr/transcribe`,
+        { method: 'POST', body: fd },
+        ASR_TIMEOUT_MS,
+        'ASR',
+      );
       if (!asrRes.ok) throw new Error(`ASR HTTP ${asrRes.status}`);
       const asr = await asrRes.json();
       console.log(`[asr] "${asr.text}" (${asr.latency_ms.toFixed(0)}ms)`);
 
-      const llmRes = await fetch(`${VOICE_SERVICE_URL}/llm/intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_text: asr.text,
-          current_screen: csName,
-          cart: ctList,
-          menu: mnList.map((m) => ({ name: m.name })),
-          allergies: alList.map((a) => a.name),
-        }),
-      });
+      const llmRes = await fetchWithTimeout(
+        `${VOICE_SERVICE_URL}/llm/intent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_text: asr.text,
+            current_screen: csName,
+            cart: ctList,
+            menu: mnList.map((m) => ({
+              name: m.name,
+              aliases: Array.isArray(m.aliases) ? m.aliases : [],
+            })),
+            allergies: alList.map((a) => a.name),
+          }),
+        },
+        LLM_TIMEOUT_MS,
+        'LLM',
+      );
       if (!llmRes.ok) throw new Error(`LLM HTTP ${llmRes.status}`);
       intent = await llmRes.json();
       console.log(`[llm] intent=${intent.intent} (${intent.latency_ms.toFixed(0)}ms)`);
+      // 유효 의도가 분류된 경우만 손님 활동으로 인정 → idle 카운트 anchor 갱신.
+      // 잡음/leak (intent='unknown') 은 anchor 유지 → 무발화 30초 카운트 잡음 사이클 사이에서도 이어짐.
+      if (intent && intent.intent && intent.intent !== 'unknown') {
+        noteActivity();
+      }
 
       if (typeof window.handleIntent === 'function') {
         await window.handleIntent(intent, asr.text);
@@ -380,6 +425,13 @@
       }
     } catch (e) {
       console.error('[voice] processUtterance error:', e);
+      // 손님에게 무발화/오류 사실을 정형 TTS 한 마디로 안내.
+      // 안내 자체가 또 실패하면 무한 루프 방지 위해 console.warn 까지만.
+      try {
+        await speak('죄송해요, 다시 말씀해 주세요');
+      } catch (ttsErr) {
+        console.warn('[voice] 에러 안내 TTS 재생 실패:', ttsErr);
+      }
     } finally {
       if (IS_TABLE) {
         // PTT: 한 발화 처리 후 idle 로 복귀. 다음 발화는 사용자가 PTT 버튼을 다시 누르면 시작.
@@ -387,11 +439,12 @@
         vadBusy = false;
         turnCount = 0;
       } else {
-        // wake 후 모든 발화에 대해 listening 자동 재진입. 종료는 외부(window.voiceIdle) 호출 시.
+        // wake 후 모든 발화에 대해 listening 자동 재진입. 종료는 외부(window.voiceIdle) 호출 또는 무발화 타이머.
         try {
           vadInstance.start();
           setState('listening');
           turnCount++;
+          armIdleTimer();
           console.log(`[voice] follow-up listening (turn ${turnCount})`);
         } catch (e) {
           console.error('[voice] follow-up VAD start failed:', e);
@@ -413,7 +466,12 @@
     try {
       const fd = new FormData();
       fd.append('text', cleaned);
-      const res = await fetch(`${VOICE_SERVICE_URL}/tts/speak`, { method: 'POST', body: fd });
+      const res = await fetchWithTimeout(
+        `${VOICE_SERVICE_URL}/tts/speak`,
+        { method: 'POST', body: fd },
+        TTS_TIMEOUT_MS,
+        'TTS',
+      );
       if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -429,12 +487,47 @@
   }
   window.speak = speak;
 
+  // 무발화 30초 standby 복귀 타이머 — kiosk only.
+  // 잡음/오인식(unknown intent)이 들어와도 카운트가 리셋되지 않도록 lastActivityTs 기준 잔여 시간으로 카운트.
+  // 유효 intent(add_menu, confirm_order 등) 가 들어와야만 noteActivity 가 호출되어 anchor 갱신.
+  function clearIdleTimer() {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+  }
+  function noteActivity() {
+    lastActivityTs = Date.now();
+  }
+  function onIdleTimeout() {
+    idleTimer = null;
+    // 처리 중이면 standby 지연 — 1초 후 재확인. 발화/응답 중 갑작스러운 standby 방지.
+    if (vadBusy || ttsSpeaking) {
+      idleTimer = setTimeout(onIdleTimeout, 1000);
+      return;
+    }
+    console.log('[voice] 무발화 30초 — standby 복귀');
+    lastActivityTs = 0;
+    if (typeof resetSession === 'function') {
+      resetSession();   // 내부에서 showScreen('screen-standby') → window.voiceIdle 호출
+    } else if (typeof window.voiceIdle === 'function') {
+      window.voiceIdle();
+    }
+  }
+  function armIdleTimer() {
+    if (IS_TABLE) return;
+    clearIdleTimer();
+    if (lastActivityTs === 0) lastActivityTs = Date.now(); // 첫 호출 시 anchor 초기화
+    const remaining = lastActivityTs + IDLE_TIMEOUT_MS - Date.now();
+    if (remaining <= 0) { onIdleTimeout(); return; }
+    idleTimer = setTimeout(onIdleTimeout, remaining);
+  }
+
   // 외부(kiosk.html showScreen 등)에서 호출하면 마이크를 멈추고 KWS 대기 상태로 돌린다.
   window.voiceIdle = function voiceIdle() {
     try { if (vadInstance) vadInstance.pause(); } catch (_) {}
     setState('idle');
     vadBusy = false;
     turnCount = 0;
+    clearIdleTimer();
+    lastActivityTs = 0;
     console.log('[voice] voiceIdle — KWS 대기로 복귀');
   };
 
@@ -542,6 +635,8 @@
     pttRecording = false;
     busy = false;
     vadBusy = false;
+    clearIdleTimer();
+    lastActivityTs = 0;
     setState('idle');
     if (startBtn) {
       startBtn.disabled = false;
