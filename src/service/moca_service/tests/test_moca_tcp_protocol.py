@@ -13,7 +13,7 @@ from app.protocol.header_protocol import (
     encode_frame,
 )
 from app.protocol.order_protocol import OrderResponse, decode_order_response_payload
-from app.protocol.table_protocol import TableResponse
+from app.protocol.table_protocol import TableAssignmentResponse, TableResponse
 from app.domain.table_assignment_runtime import StoreTableDefinition, TableAssignmentRuntime
 
 
@@ -60,7 +60,7 @@ def test_tcp_server_handles_order_request():
     assert header.cmd_type == CMD_ORDER
     assert header.method == METHOD_SET
     assert header.sequence == 4
-    assert decode_order_response_payload(response[HEADER_SIZE:]) == (True, None)
+    assert decode_order_response_payload(response[HEADER_SIZE:]) == (True, 1001, None)
     assert len(server.orders) == 1
     assert [(item.product_id, item.quantity) for item in server.orders[0].items] == [(2, 3)]
 
@@ -99,13 +99,20 @@ def test_tcp_server_rejects_order_get_method():
     assert server.orders == []
 
 
-def test_tcp_server_rejects_table_set_method():
+def test_tcp_server_handles_table_assignment_request():
     server = FakeServer()
-    request = FakeSocket(encode_frame(CMD_TABLE, METHOD_SET, 7))
+    request = FakeSocket(encode_frame(CMD_TABLE, METHOD_SET, 7, bytes([0, 0, 3, 233, 1, 0, 2])))
 
     TcpRequestHandler(request, ("127.0.0.1", 12345), server)
+    response = request.sent
 
-    assert request.sent == b""
+    header = decode_header(response[:HEADER_SIZE])
+
+    assert header.cmd_type == CMD_TABLE
+    assert header.method == METHOD_SET
+    assert header.sequence == 7
+    assert response[HEADER_SIZE:] == bytes([0])
+    assert server.assignments == [(1001, "dine_in", 2)]
 
 
 class NullLogger:
@@ -119,6 +126,7 @@ class NullLogger:
 class FakeServer:
     def __init__(self):
         self.orders = []
+        self.assignments = []
         self.table_runtime = TableAssignmentRuntime(
             [
                 StoreTableDefinition(1, 1, 0, 0),
@@ -133,10 +141,15 @@ class FakeServer:
         self.on_catalog = lambda: CatalogResponse.ok({"menu": [], "allergy": [], "surcharges": {}})
         self.on_order = self._handle_order
         self.on_table = lambda: TableResponse.ok(self.table_runtime.list_tables())
+        self.on_table_assignment = self._handle_table_assignment
 
     def _handle_order(self, request):
         self.orders.append(request)
-        return OrderResponse.ok()
+        return OrderResponse.ok(1001)
+
+    def _handle_table_assignment(self, request):
+        self.assignments.append((request.order_id, request.receive_type, request.table_number))
+        return TableAssignmentResponse.ok()
 
 
 class FakeSocket:

@@ -20,12 +20,13 @@ class OrderRequest:
 
 @dataclass(frozen=True)
 class OrderResponse:
+    order_id: int | None = None
     error_code: int | None = None
     message: str = ""
 
     @classmethod
-    def ok(cls) -> "OrderResponse":
-        return cls()
+    def ok(cls, order_id: int) -> "OrderResponse":
+        return cls(order_id=order_id)
 
     @classmethod
     def error(cls, error_code: int, message: str) -> "OrderResponse":
@@ -76,10 +77,12 @@ def parse_order_payload(payload: bytes) -> OrderRequest:
     return parse_order_request(order_header, payload[ORDER_HEADER_SIZE:])
 
 
-def encode_order_success_payload() -> bytes:
+def encode_order_success_payload(order_id: int) -> bytes:
     """Encode a successful order response payload."""
 
-    return bytes([STATUS_OK])
+    if not 1 <= order_id <= 0xFFFFFFFF:
+        raise ValueError(f"invalid order_id={order_id}")
+    return bytes([STATUS_OK]) + struct.pack(">I", order_id)
 
 
 def encode_order_response_payload(response: OrderResponse) -> bytes:
@@ -89,13 +92,15 @@ def encode_order_response_payload(response: OrderResponse) -> bytes:
         if response.error_code is None:
             raise ValueError("order response missing error code")
         return encode_error_payload(response.error_code, response.message)
-    return encode_order_success_payload()
+    if response.order_id is None:
+        raise ValueError("order response missing order_id")
+    return encode_order_success_payload(response.order_id)
 
 
-def decode_order_response_payload(payload: bytes) -> tuple[bool, str | None]:
-    """Decode an order response into success flag and optional rejection message."""
+def decode_order_response_payload(payload: bytes) -> tuple[bool, int | None, str | None]:
+    """Decode an order response into success flag, order_id, and optional rejection message."""
 
-    if payload == bytes([STATUS_OK]):
-        return True, None
+    if len(payload) == 5 and payload[0] == STATUS_OK:
+        return True, struct.unpack(">I", payload[1:])[0], None
     _, message = decode_error_payload(payload)
-    return False, message
+    return False, None, message

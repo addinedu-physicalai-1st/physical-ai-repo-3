@@ -79,7 +79,7 @@ def create(payload: OrderCreate) -> Order:
     total = _calc_total(payload)
 
     try:
-        _order_client.create_order(
+        moca_order_id = _order_client.create_order(
             [MocaOrderItem(product_id=item.menu_id, quantity=item.qty) for item in payload.items],
         )
     except MocaOrderRejected as exc:
@@ -93,6 +93,7 @@ def create(payload: OrderCreate) -> Order:
         order_id = uuid.uuid4().hex
         order = Order(
             id=order_id,
+            moca_order_id=moca_order_id,
             order_number=order_number,
             channel=payload.channel,
             delivery=payload.delivery,

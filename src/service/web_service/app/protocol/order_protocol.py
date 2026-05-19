@@ -27,19 +27,21 @@ def encode_order_request_payload(items: list[MocaOrderItem]) -> bytes:
     return bytes(payload)
 
 
-def encode_order_success_payload() -> bytes:
+def encode_order_success_payload(order_id: int) -> bytes:
     """Encode a successful order response payload."""
 
-    return bytes([STATUS_OK])
+    if not 1 <= order_id <= 0xFFFFFFFF:
+        raise ValueError(f"invalid order_id={order_id}")
+    return bytes([STATUS_OK]) + struct.pack(">I", order_id)
 
 
-def decode_order_response_payload(payload: bytes) -> tuple[bool, str | None]:
-    """Decode an order response into success flag and optional rejection message."""
+def decode_order_response_payload(payload: bytes) -> tuple[bool, int | None, str | None]:
+    """Decode an order response into success flag, order_id, and optional rejection message."""
 
-    if payload == bytes([STATUS_OK]):
-        return True, None
+    if len(payload) == 5 and payload[0] == STATUS_OK:
+        return True, struct.unpack(">I", payload[1:])[0], None
     _, message = decode_error_payload(payload)
-    return False, message
+    return False, None, message
 
 
 def _validate_order_header(item_count: int) -> None:

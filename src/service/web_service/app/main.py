@@ -8,6 +8,7 @@ from app.config import configure_logging, load_config
 from app.routers import menu as menu_router
 from app.routers import orders as orders_router
 from app.routers import pages as pages_router
+from app.routers import table_assignments as table_assignments_router
 from app.routers import tables as tables_router
 from app.servers.tcp_server import TcpServerThread
 from app.services.status_service import StatusService
@@ -45,6 +46,7 @@ app.add_middleware(
 app.include_router(menu_router.router)
 app.include_router(tables_router.router)
 app.include_router(orders_router.router)
+app.include_router(table_assignments_router.router)
 app.include_router(pages_router.router)
 
 

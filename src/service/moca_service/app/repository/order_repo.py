@@ -14,6 +14,14 @@ class CreatedOrder:
     total_price: int
 
 
+@dataclass(frozen=True)
+class OrderAssignment:
+    order_id: int
+    order_source: str
+    receive_type: str
+    table_number: int | None
+
+
 class OrderRepository:
     def __init__(self, config: DbConfig):
         self.config = config
@@ -91,6 +99,65 @@ class OrderRepository:
                     )
                 conn.commit()
                 return CreatedOrder(order_id=order_id, total_price=total_price)
+            except Exception:
+                conn.rollback()
+                raise
+
+    def fetch_assignment(self, order_id: int) -> OrderAssignment | None:
+        with pymysql.connect(
+            host=self.config.host,
+            port=self.config.port,
+            user=self.config.user,
+            password=self.config.password,
+            database=self.config.database,
+            charset="utf8mb4",
+            cursorclass=DictCursor,
+        ) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT order_id, order_source, receive_type, table_number
+                    FROM orders
+                    WHERE order_id = %s
+                    """,
+                    (order_id,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                return OrderAssignment(
+                    order_id=int(row["order_id"]),
+                    order_source=str(row["order_source"]),
+                    receive_type=str(row["receive_type"]),
+                    table_number=int(row["table_number"]) if row["table_number"] is not None else None,
+                )
+
+    def update_assignment(self, order_id: int, order_source: str, receive_type: str, table_number: int | None) -> bool:
+        with pymysql.connect(
+            host=self.config.host,
+            port=self.config.port,
+            user=self.config.user,
+            password=self.config.password,
+            database=self.config.database,
+            charset="utf8mb4",
+            cursorclass=DictCursor,
+            autocommit=False,
+        ) as conn:
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE orders
+                        SET order_source = %s,
+                            receive_type = %s,
+                            table_number = %s
+                        WHERE order_id = %s
+                        """,
+                        (order_source, receive_type, table_number, order_id),
+                    )
+                    updated = cursor.rowcount > 0
+                conn.commit()
+                return updated
             except Exception:
                 conn.rollback()
                 raise

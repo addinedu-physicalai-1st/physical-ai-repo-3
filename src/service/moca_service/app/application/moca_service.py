@@ -2,13 +2,22 @@ import logging
 from typing import TYPE_CHECKING
 from typing import Any
 
+from app.domain.table_assignment_runtime import TableAssignmentRuntime, TableUnavailable
 from app.protocol.order_protocol import OrderRequest
-from app.domain.table_assignment_runtime import TableAssignmentRuntime
+from app.protocol.table_protocol import TableAssignmentRequest
 
 if TYPE_CHECKING:
     from app.repository.catalog_repo import CatalogRepository
     from app.repository.order_repo import CreatedOrder
     from app.repository.order_repo import OrderRepository
+
+
+class OrderNotFound(Exception):
+    pass
+
+
+class TableAssignmentRejected(Exception):
+    pass
 
 
 class MocaService:
@@ -30,7 +39,7 @@ class MocaService:
     def get_table_assignment(self):
         return self.table_assignment_runtime.list_tables()
 
-    def create_order(self, request: OrderRequest) -> bool:
+    def create_order(self, request: OrderRequest) -> "CreatedOrder":
         created = self.order_repository.create_order(request)
 
         self.logger.info(
@@ -40,7 +49,50 @@ class MocaService:
             len(request.items),
         )
 
-        return True
+        return created
 
-    def assign_table():
-        pass
+    def assign_table(self, request: TableAssignmentRequest) -> None:
+        assignment = self.order_repository.fetch_assignment(request.order_id)
+        if assignment is None:
+            raise OrderNotFound(f"order {request.order_id} not found")
+
+        order_source, receive_type, table_number = self._target_assignment(request)
+        if (
+            assignment.order_source == order_source
+            and assignment.receive_type == receive_type
+            and assignment.table_number == table_number
+        ):
+            return
+
+        if assignment.receive_type != "TAKE_OUT" or assignment.table_number is not None:
+            raise TableAssignmentRejected(f"order {request.order_id} is already assigned")
+
+        occupied_table_number: int | None = None
+        if request.receive_type == "dine_in":
+            try:
+                self.table_assignment_runtime.occupy_by_table_number(request.table_number)
+                occupied_table_number = request.table_number
+            except TableUnavailable as exc:
+                raise TableAssignmentRejected(str(exc)) from exc
+
+        try:
+            updated = self.order_repository.update_assignment(
+                request.order_id,
+                order_source,
+                receive_type,
+                table_number,
+            )
+        except Exception:
+            if occupied_table_number is not None:
+                self.table_assignment_runtime.release_by_table_number(occupied_table_number)
+            raise
+
+        if not updated:
+            if occupied_table_number is not None:
+                self.table_assignment_runtime.release_by_table_number(occupied_table_number)
+            raise OrderNotFound(f"order {request.order_id} not found")
+
+    def _target_assignment(self, request: TableAssignmentRequest) -> tuple[str, str, int | None]:
+        if request.receive_type == "take_out":
+            return "COUNTER", "TAKE_OUT", None
+        return "TABLE", "DINE_IN", request.table_number

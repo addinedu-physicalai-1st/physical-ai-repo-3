@@ -27,6 +27,7 @@ def test_post_pickup_order_returns_order_number_and_total(client):
     assert r.status_code == 201
     body = r.json()
     assert "order_id" in body
+    assert body["moca_order_id"] == 1001
     assert isinstance(body["order_number"], int)
     assert body["order_number"] >= 42
     # 아메리카노 3500 * 2 = 7000
@@ -63,6 +64,7 @@ def test_get_order_by_id(client):
     assert r.status_code == 200
     body = r.json()
     assert body["id"] == created["order_id"]
+    assert body["moca_order_id"] == created["moca_order_id"]
     assert body["delivery"] == "pickup"
     assert body["total"] == 7000
 

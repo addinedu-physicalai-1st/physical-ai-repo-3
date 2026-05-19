@@ -33,6 +33,7 @@ def create_order(payload: OrderCreate) -> OrderCreateResponse:
         raise HTTPException(status_code=400, detail=str(e))
     return OrderCreateResponse(
         order_id=order.id,
+        moca_order_id=order.moca_order_id,
         order_number=order.order_number,
         total=order.total,
     )

@@ -6,6 +6,8 @@ from app.protocol.header_protocol import (
     CMD_CATALOG,
     CMD_ORDER,
     CMD_TABLE,
+    ERROR_ORDER_NOT_FOUND,
+    ERROR_TABLE_ASSIGNMENT_REJECTED,
     HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
@@ -19,7 +21,12 @@ from app.protocol.order_protocol import (
     decode_order_response_payload,
     encode_order_request_payload,
 )
-from app.protocol.table_protocol import decode_table_payload
+from app.protocol.table_protocol import (
+    ReceiveType,
+    decode_table_assignment_response_payload,
+    decode_table_payload,
+    encode_table_assignment_request_payload,
+)
 
 
 class MocaCatalogClientError(RuntimeError):
@@ -35,6 +42,14 @@ class MocaOrderRejected(MocaOrderClientError):
 
 
 class MocaTableClientError(RuntimeError):
+    pass
+
+
+class MocaTableAssignmentNotFound(MocaTableClientError):
+    pass
+
+
+class MocaTableAssignmentRejected(MocaTableClientError):
     pass
 
 
@@ -136,11 +151,11 @@ class MocaTcpCatalogClient(MocaTcpBaseClient):
 class MocaTcpOrderClient(MocaTcpBaseClient):
     """Creates orders in moca_service using the MOCA raw TCP order payload."""
 
-    def create_order(self, items: list[MocaOrderItem]) -> None:
+    def create_order(self, items: list[MocaOrderItem]) -> int:
         payload = self.encode_order_request(items)
         try:
             _, response_payload = self.request(CMD_ORDER, METHOD_SET, payload)
-            self._raise_if_order_rejected(response_payload)
+            return self._decode_order_response(response_payload)
         except MocaOrderRejected:
             raise
         except MocaOrderClientError:
@@ -154,10 +169,13 @@ class MocaTcpOrderClient(MocaTcpBaseClient):
     def encode_order_request(self, items: list[MocaOrderItem]) -> bytes:
         return encode_order_request_payload(items)
 
-    def _raise_if_order_rejected(self, payload: bytes) -> None:
-        ok, message = decode_order_response_payload(payload)
+    def _decode_order_response(self, payload: bytes) -> int:
+        ok, order_id, message = decode_order_response_payload(payload)
         if not ok:
             raise MocaOrderRejected(message or "order rejected")
+        if order_id is None:
+            raise MocaOrderClientError("order response missing order_id")
+        return order_id
 
 
 class MocaTcpTableClient(MocaTcpBaseClient):
@@ -181,3 +199,28 @@ class MocaTcpTableClient(MocaTcpBaseClient):
             message = tables[0].get("message", tables[0].get("error", "table error"))
             raise MocaTableClientError(str(message))
         return tables
+
+    def assign_table(self, order_id: int, receive_type: ReceiveType, table_id: int | None) -> None:
+        payload = encode_table_assignment_request_payload(order_id, receive_type, table_id)
+        try:
+            _, response_payload = self.request(CMD_TABLE, METHOD_SET, payload)
+            self._raise_if_assignment_failed(response_payload)
+        except (MocaTableAssignmentNotFound, MocaTableAssignmentRejected):
+            raise
+        except MocaTableClientError:
+            raise
+        except (OSError, ValueError) as exc:
+            self.close()
+            raise MocaTableClientError(
+                f"moca_service table assignment request failed: {self.host}:{self.port}: {exc}"
+            ) from exc
+
+    def _raise_if_assignment_failed(self, payload: bytes) -> None:
+        ok, error_code, message = decode_table_assignment_response_payload(payload)
+        if ok:
+            return
+        if error_code == ERROR_ORDER_NOT_FOUND:
+            raise MocaTableAssignmentNotFound(message or "order not found")
+        if error_code == ERROR_TABLE_ASSIGNMENT_REJECTED:
+            raise MocaTableAssignmentRejected(message or "table assignment rejected")
+        raise MocaTableClientError(message or "table assignment failed")

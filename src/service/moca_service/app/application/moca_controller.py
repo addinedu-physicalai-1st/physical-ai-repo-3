@@ -4,12 +4,14 @@ from app.protocol.health_status_protocol import build_status_frame
 from app.protocol.catalog_protocol import CatalogResponse
 from app.protocol.header_protocol import (
     ERROR_CATALOG_UNAVAILABLE,
+    ERROR_ORDER_NOT_FOUND,
     ERROR_ORDER_REJECTED,
+    ERROR_TABLE_ASSIGNMENT_REJECTED,
     ERROR_TABLE_UNAVAILABLE,
 )
 from app.protocol.order_protocol import OrderRequest, OrderResponse
-from app.protocol.table_protocol import TableResponse
-from app.application.moca_service import MocaService
+from app.protocol.table_protocol import TableAssignmentRequest, TableAssignmentResponse, TableResponse
+from app.application.moca_service import MocaService, OrderNotFound, TableAssignmentRejected
 from app.transport.tcp_sender import TcpSender
 
 
@@ -40,11 +42,11 @@ class MocaController:
 
     def create_order(self, request: OrderRequest) -> OrderResponse:
         try:
-            self.service.create_order(request)
+            created = self.service.create_order(request)
         except Exception as exc:
             self.logger.warning("order request failed: %s", exc)
             return OrderResponse.error(ERROR_ORDER_REJECTED, str(exc))
-        return OrderResponse.ok()
+        return OrderResponse.ok(created.order_id)
 
     def get_table_assignment(self) -> TableResponse:
         try:
@@ -52,3 +54,17 @@ class MocaController:
         except Exception as exc:
             self.logger.warning("table request failed: %s", exc)
             return TableResponse.error(ERROR_TABLE_UNAVAILABLE, str(exc))
+
+    def assign_table(self, request: TableAssignmentRequest) -> TableAssignmentResponse:
+        try:
+            self.service.assign_table(request)
+        except OrderNotFound as exc:
+            self.logger.warning("table assignment order not found: %s", exc)
+            return TableAssignmentResponse.error(ERROR_ORDER_NOT_FOUND, str(exc))
+        except TableAssignmentRejected as exc:
+            self.logger.warning("table assignment rejected: %s", exc)
+            return TableAssignmentResponse.error(ERROR_TABLE_ASSIGNMENT_REJECTED, str(exc))
+        except Exception as exc:
+            self.logger.warning("table assignment failed: %s", exc)
+            return TableAssignmentResponse.error(ERROR_TABLE_UNAVAILABLE, str(exc))
+        return TableAssignmentResponse.ok()

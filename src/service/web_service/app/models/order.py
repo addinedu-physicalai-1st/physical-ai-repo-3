@@ -29,6 +29,7 @@ class OrderCreate(BaseModel):
 
 class Order(BaseModel):
     id: str
+    moca_order_id: int
     order_number: int
     channel: Channel
     delivery: Delivery
@@ -40,5 +41,6 @@ class Order(BaseModel):
 
 class OrderCreateResponse(BaseModel):
     order_id: str
+    moca_order_id: int
     order_number: int
     total: int

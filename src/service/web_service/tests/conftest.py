@@ -6,10 +6,12 @@ from fastapi import HTTPException
 
 from app.main import app
 from app.models.order import OrderCreate
+from app.models.table_assignment import TableAssignmentCreate
 from app.routers import menu as menu_router
 from app.routers import orders as orders_router
+from app.routers import table_assignments as table_assignments_router
 from app.routers import tables as tables_router
-from app.services import menu_service, order_service, table_service
+from app.services import menu_service, order_service, table_assignment_service, table_service
 
 
 CATALOG = {
@@ -43,9 +45,11 @@ class FakeCatalogClient:
 class FakeOrderClient:
     def __init__(self):
         self.requests = []
+        self.next_order_id = 1001
 
     def create_order(self, items):
         self.requests.append(items)
+        return self.next_order_id
 
 
 ORDER_CLIENT = FakeOrderClient()
@@ -54,9 +58,13 @@ ORDER_CLIENT = FakeOrderClient()
 class FakeTableClient:
     def __init__(self):
         self.tables = []
+        self.assignments = []
 
     def fetch_tables(self):
         return self.tables
+
+    def assign_table(self, order_id, receive_type, table_id):
+        self.assignments.append((order_id, receive_type, table_id))
 
 
 TABLE_CLIENT = FakeTableClient()
@@ -98,6 +106,11 @@ class SimpleASGIClient:
         try:
             if path == "/api/orders":
                 return self._response(201, orders_router.create_order(OrderCreate.model_validate(json)))
+            if path == "/api/table-assignments":
+                return self._response(
+                    200,
+                    table_assignments_router.create_table_assignment(TableAssignmentCreate.model_validate(json)),
+                )
         except HTTPException as exc:
             return self._response(exc.status_code, {"detail": exc.detail})
         raise AssertionError(f"unsupported test POST path: {path}")
@@ -117,13 +130,16 @@ class SimpleASGIClient:
 def reset_state():
     menu_service.set_catalog_client(FakeCatalogClient())
     ORDER_CLIENT.requests.clear()
+    ORDER_CLIENT.next_order_id = 1001
     TABLE_CLIENT.tables = [
         {"id": 1, "status": "empty"},
         {"id": 2, "status": "occupied"},
         {"id": 3, "status": "empty"},
         {"id": 4, "status": "occupied"},
     ]
+    TABLE_CLIENT.assignments.clear()
     order_service.set_order_client(ORDER_CLIENT)
+    table_assignment_service.set_table_client(TABLE_CLIENT)
     table_service.set_table_client(TABLE_CLIENT)
     table_service.reset()
     order_service.reset()

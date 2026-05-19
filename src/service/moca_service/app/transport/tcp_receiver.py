@@ -27,12 +27,19 @@ from app.protocol.order_protocol import (
     parse_order_payload,
 )
 from app.protocol.table_protocol import TableResponse, encode_table_response_payload
+from app.protocol.table_protocol import (
+    TableAssignmentRequest,
+    TableAssignmentResponse,
+    encode_table_assignment_response_payload,
+    parse_table_assignment_payload,
+)
 
 HealthHandler = Callable[[int], None]
 StatusHandler = Callable[[int, tuple[str, int]], None]
 CatalogHandler = Callable[[], CatalogResponse]
 OrderHandler = Callable[[OrderRequest], OrderResponse]
 TableHandler = Callable[[], TableResponse]
+TableAssignmentHandler = Callable[[TableAssignmentRequest], TableAssignmentResponse]
 
 
 class TcpServer(socketserver.ThreadingTCPServer):
@@ -48,6 +55,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         on_catalog: CatalogHandler,
         on_order: OrderHandler,
         on_table: TableHandler,
+        on_table_assignment: TableAssignmentHandler,
         logger: logging.Logger,
         name: str,
     ):
@@ -59,6 +67,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         self.on_catalog = on_catalog
         self.on_order = on_order
         self.on_table = on_table
+        self.on_table_assignment = on_table_assignment
 
 
 class TcpRequestHandler(socketserver.BaseRequestHandler):
@@ -115,6 +124,7 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
             (header.cmd_type == CMD_CATALOG and header.method == METHOD_GET)
             or (header.cmd_type == CMD_ORDER and header.method == METHOD_SET)
             or (header.cmd_type == CMD_TABLE and header.method == METHOD_GET)
+            or (header.cmd_type == CMD_TABLE and header.method == METHOD_SET)
         ):
             server.logger.warning(
                 "unsupported moca tcp method for cmd from %s: cmd=0x%02X method=0x%02X",
@@ -135,7 +145,10 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
             self._handle_order_frame(header.sequence, payload_bytes)
             return
         if header.cmd_type == CMD_TABLE:
-            self._handle_table_frame(header.sequence)
+            if header.method == METHOD_GET:
+                self._handle_table_frame(header.sequence)
+            else:
+                self._handle_table_assignment_frame(header.sequence, payload_bytes)
             return
 
         server.logger.warning("unsupported moca tcp cmd from %s: 0x%02X", self.client_address, header.cmd_type)
@@ -164,6 +177,19 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
         response = server.on_table()
         payload = encode_table_response_payload(response)
         self.request.sendall(encode_moca_frame(CMD_TABLE, METHOD_GET, sequence, payload))
+
+    def _handle_table_assignment_frame(self, sequence: int, payload: bytes) -> None:
+        server: TcpServer = self.server
+
+        try:
+            request = parse_table_assignment_payload(payload)
+        except Exception as exc:
+            server.logger.warning("invalid table assignment tcp payload from %s: %s", self.client_address, exc)
+            return
+
+        response = server.on_table_assignment(request)
+        response_payload = encode_table_assignment_response_payload(response)
+        self.request.sendall(encode_moca_frame(CMD_TABLE, METHOD_SET, sequence, response_payload))
 
     def _read_exact(self, size: int) -> bytes | None:
         server: TcpServer = self.server
