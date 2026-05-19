@@ -707,7 +707,7 @@ function playVoice(num, onended) {
 }
 
 // ─── API ────────────────────────────────────────────
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = location.origin;
 
 async function api(path, opts = {}) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
