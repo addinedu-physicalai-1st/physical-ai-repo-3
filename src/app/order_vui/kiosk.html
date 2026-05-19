@@ -1150,7 +1150,8 @@ loadAllergy().catch(()=>{});
 <!-- voice: KWS (onnxruntime-web) + VAD (silero-vad-web) + ASR/LLM (pai-server voice_service) -->
 <script>
   // pai-server 의 voice_service 위치. 키오스크 PC 와 같은 LAN.
-  window.VOICE_SERVICE_URL = 'http://192.168.0.133:8010';
+  // 폰(table 모드) 의 마이크 권한 위해 voice_service 도 https 로 종단되어 두 채널 통일.
+  window.VOICE_SERVICE_URL = 'https://192.168.0.133:8010';
 </script>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>

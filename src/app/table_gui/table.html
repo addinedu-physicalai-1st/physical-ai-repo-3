@@ -552,8 +552,8 @@ window.TABLE_NO = (() => {
   const v = parseInt(new URLSearchParams(location.search).get('no'), 10);
   return Number.isFinite(v) && v > 0 ? v : null;
 })();
-// voice_service (pai-server). 키오스크와 동일 LAN.
-window.VOICE_SERVICE_URL = 'http://192.168.0.133:8010';
+// voice_service (pai-server). 폰 브라우저의 마이크 권한(secure context) 위해 https 종단.
+window.VOICE_SERVICE_URL = 'https://192.168.0.133:8010';
 </script>
 
 <script>
