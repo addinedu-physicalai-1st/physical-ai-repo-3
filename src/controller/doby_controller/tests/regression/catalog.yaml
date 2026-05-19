@@ -4,37 +4,49 @@
 
 version: 1
 generated: 2026-05-19
-
-# 카테고리 정의 (v1)
 categories:
-  - id: perception
-    handler: perception-tester
-    description: GEVA, rapport_tracker, decision_rule, person_tracking_pkg
-  - id: dialog
-    handler: dialog-tester
-    description: persona_manager, tts_node, face_avatar_node
-  - id: navigation
-    handler: navigation-tester
-    description: Nav2, serving_dispatcher, follow_controller, person_detector
-  - id: safety
-    handler: safety-tester
-    description: safety_zone_monitor, twist_mux, /scan, /battery_state
-  - id: minigame
-    handler: minigame-tester
-    description: RPS + 3 games (rps_evolution, speed_counter, cafe_ninja)
-  - id: mode_e2e
-    handler: mode-e2e-tester
-    description: mode_npc / mode_serving / mode_follow / teleop_ui full launch
-  - id: infra_readonly
-    handler: safety-tester
-    description: vic_pinky read-only checks, RPi ping (§0-A 활성 시 skip)
-
-# 정책 차단 키워드 (catalog 의 tests[*].policy.blocks 에 등장 가능)
+- id: perception
+  handler: perception-tester
+  description: GEVA, rapport_tracker, decision_rule, person_tracking_pkg
+- id: dialog
+  handler: dialog-tester
+  description: persona_manager, tts_node, face_avatar_node
+- id: navigation
+  handler: navigation-tester
+  description: Nav2, serving_dispatcher, follow_controller, person_detector
+- id: safety
+  handler: safety-tester
+  description: safety_zone_monitor, twist_mux, /scan, /battery_state
+- id: minigame
+  handler: minigame-tester
+  description: RPS + 3 games (rps_evolution, speed_counter, cafe_ninja)
+- id: mode_e2e
+  handler: mode-e2e-tester
+  description: mode_npc / mode_serving / mode_follow / teleop_ui full launch
+- id: infra_readonly
+  handler: safety-tester
+  description: vic_pinky read-only checks, RPi ping (§0-A 활성 시 skip)
 policy_blocks_vocabulary:
-  - rpi_ssh           # §0-A 활성 시 차단
-  - live_robot        # §0-A 활성 시 차단
-  - vic_pinky_write   # §0-B 영구 차단
-  - internet_required # edge-tts 등 인터넷 필요 명시
-
-# 테스트 목록 (Task 4 이후 채워짐)
-tests: []
+- rpi_ssh
+- live_robot
+- vic_pinky_write
+- internet_required
+tests:
+- id: geva_webcam_smoke
+  category: perception
+  file: perception/geva_webcam_smoke.md
+  depth: smoke
+  tags:
+  - geva
+  - webcam
+  - phase2
+  - perception
+  duration_estimate_sec: 15
+  requires:
+  - device: camera_1
+  - package: dobi_npc_emotion
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: null
+  last_run: null
