@@ -69,6 +69,23 @@ CREATE TABLE IF NOT EXISTS product_allergy (
         ON DELETE CASCADE
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS store_table (
+    table_id INT AUTO_INCREMENT PRIMARY KEY,
+    table_number INT NOT NULL,
+    pos_x DECIMAL(10, 3) NOT NULL,
+    pos_y DECIMAL(10, 3) NOT NULL
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+INSERT INTO store_table (table_id, table_number, pos_x, pos_y) VALUES
+    (1, 1, 0.000, 0.000),
+    (2, 2, 0.000, 0.000),
+    (3, 3, 0.000, 0.000),
+    (4, 4, 0.000, 0.000)
+ON DUPLICATE KEY UPDATE
+    table_number = VALUES(table_number),
+    pos_x = VALUES(pos_x),
+    pos_y = VALUES(pos_y);
+
 CREATE TABLE IF NOT EXISTS orders (
     order_id INT AUTO_INCREMENT PRIMARY KEY,
     order_source ENUM('COUNTER', 'TABLE') NOT NULL,

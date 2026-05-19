@@ -2,6 +2,7 @@ from app.config import configure_logging, load_config
 from app.repo.catalog_repo import CatalogRepository, DbConfig
 from app.repo.order_repo import OrderRepository
 from app.service import MocaService
+from app.table_state import TableStateStore
 from app.tcp import TcpEndpoint, TcpStatusNotifier, TcpServer
 
 
@@ -50,7 +51,14 @@ def main() -> None:
     # create Service, Repo
     catalog_repository = CatalogRepository(db_config)
     order_repository = OrderRepository(db_config)
-    service = MocaService(status_notifiers, catalog_repository, order_repository, logger)
+    table_state_store = TableStateStore.from_database(db_config)
+    service = MocaService(
+        status_notifiers,
+        catalog_repository,
+        order_repository,
+        table_state_store,
+        logger,
+    )
 
     # TCP server
     with TcpServer(
