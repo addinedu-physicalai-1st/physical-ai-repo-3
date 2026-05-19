@@ -9,3 +9,5 @@ __pycache__/
 build/
 install/
 log/
+.codex/
+AGENTS.md
