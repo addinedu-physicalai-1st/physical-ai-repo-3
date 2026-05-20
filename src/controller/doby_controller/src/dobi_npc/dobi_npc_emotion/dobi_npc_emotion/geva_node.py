@@ -32,7 +32,7 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 
-from dobi_npc_msgs.msg import EmotionState
+from dobi_npc_msgs.msg import EmotionState, PersonTrackArray
 
 
 EMOTIONS = ["happy", "sad", "angry", "surprise", "fear", "disgust", "neutral"]
@@ -155,6 +155,9 @@ class GevaNode(Node):
 
         self.declare_parameter('input_topic', '/webcam/image_raw')
         self.declare_parameter('publish_rate_hz', 10.0)
+        # 2026-05-21 Track B — closest track 매칭 파라미터
+        self.declare_parameter('tracks_topic', '/person_tracking/tracks')
+        self.declare_parameter('tracks_stale_timeout_sec', 0.5)
         self.declare_parameter('model_path', '')  # 비우면 share/models/face_landmarker.task
         self.declare_parameter('min_detection_confidence', 0.5)
         self.declare_parameter('min_tracking_confidence', 0.5)
@@ -191,6 +194,16 @@ class GevaNode(Node):
         self.landmarker = mp_vision.FaceLandmarker.create_from_options(options)
         self.get_logger().info("FaceLandmarker 초기화 완료 (Blendshapes ON)")
 
+        # 2026-05-21 Track B — PersonTrackArray 구독 + closest cache
+        tracks_topic = self.get_parameter('tracks_topic').value
+        self._tracks_stale_timeout = float(
+            self.get_parameter('tracks_stale_timeout_sec').value)
+        self._sub_tracks = self.create_subscription(
+            PersonTrackArray, tracks_topic, self._cb_tracks, 10)
+        self._closest_track_id: int = -1
+        self._closest_group_id: int = -1
+        self._last_tracks_ts: float = 0.0
+
         self.pub = self.create_publisher(EmotionState, '/emotion/state', 10)
         self.timer = self.create_timer(1.0 / publish_rate_hz, self._tick)
 
@@ -211,6 +224,23 @@ class GevaNode(Node):
             return
         with self._frame_lock:
             self._last_frame = frame
+
+    def _cb_tracks(self, msg: PersonTrackArray) -> None:
+        """PersonTrackArray 수신 → closest track 캐시 갱신.
+
+        empty tracks 도 alive 신호로 _last_tracks_ts 갱신 — stale guard 와 구분.
+        spec: docs/superpowers/specs/2026-05-21-track-id-integration-design.md §5.2
+        """
+        import time as _time
+        if not msg.tracks:
+            self._closest_track_id = -1
+            self._closest_group_id = -1
+            self._last_tracks_ts = _time.time()
+            return
+        top = select_closest_track(msg.tracks)
+        self._closest_track_id = int(top.track_id)
+        self._closest_group_id = int(top.group_id)
+        self._last_tracks_ts = _time.time()
 
     def _tick(self):
         with self._frame_lock:
@@ -238,6 +268,14 @@ class GevaNode(Node):
             msg.arousal = 0.0
             msg.confidence = 0.0
             msg.flags = ["no_face"]
+            # 2026-05-21 Track B — track_id/group_id (stale guard 포함)
+            import time as _time_b
+            if _time_b.time() - self._last_tracks_ts > self._tracks_stale_timeout:
+                msg.track_id = -1
+                msg.group_id = -1
+            else:
+                msg.track_id = self._closest_track_id
+                msg.group_id = self._closest_group_id
             self.pub.publish(msg)
             self._maybe_log()
             return
@@ -252,6 +290,14 @@ class GevaNode(Node):
         msg.arousal = a
         msg.confidence = top
         msg.flags = [f"top:{top_emotion}"]
+        # 2026-05-21 Track B — track_id/group_id (stale guard 포함)
+        import time as _time_b
+        if _time_b.time() - self._last_tracks_ts > self._tracks_stale_timeout:
+            msg.track_id = -1
+            msg.group_id = -1
+        else:
+            msg.track_id = self._closest_track_id
+            msg.group_id = self._closest_group_id
         self.pub.publish(msg)
         self._maybe_log()
 
