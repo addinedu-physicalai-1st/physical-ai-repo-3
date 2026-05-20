@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<!--
+  vicpinky_moca.urdf.xacro
+  vicpinky_description robot.urdf.xacro wrapper + body riser add-on.
+  External package (vicpinky_description) not modified [feedback_dont_touch_working_code].
+
+  riser - extends vicpinky body to bar_counter height (0.35 m floor frame).
+    base_link mesh top z=0.131 (base_link frame), 0.218 (floor frame)
+    bar_counter top z=0.35 (floor frame)
+    riser_height = 0.35 - 0.218 = 0.132 m
+    attach to base_link top z=0.131 (mesh top), deep pink
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="vicpinky">
+
+  <xacro:arg name="namespace" default=""/>
+
+  <!-- 2026-05-15: 외부 robot.urdf.xacro 통째 include 중단.
+       moca-측 vicpinky_moca_core 직접 사용 (front-axle 정합) + 외부 sensor/gazebo 개별 include.
+       외부 패키지 vicpinky_description 는 무수정 유지. -->
+  <xacro:include filename="$(find moca_gazebo)/urdf/vicpinky_moca_core.xacro"/>
+  <xacro:include filename="$(find vicpinky_description)/urdf/robot_gazebo.xacro"/>
+  <xacro:include filename="$(find vicpinky_description)/urdf/gazebo_control.xacro"/>
+  <xacro:include filename="$(find vicpinky_description)/urdf/lidar.xacro"/>
+  <xacro:include filename="$(find vicpinky_description)/urdf/camera.xacro"/>
+
+  <!-- ============================================================
+       body_riser — vicpinky 본체 위 짙은 핑크 박스
+       크기: 0.5 × 0.4 × 0.132 m
+       부착: base_link 의 mesh top (z=0.131)
+       총 floor frame 높이: 0.218 (mesh top) + 0.132 = 0.350 = bar_counter top
+       ============================================================ -->
+  <xacro:property name="riser_l" value="0.50"/>
+  <xacro:property name="riser_w" value="0.40"/>
+  <xacro:property name="riser_h" value="0.132"/>
+  <xacro:property name="riser_x_offset" value="-0.02"/>  <!-- mesh center 가 x=-0.0215 → riser 정렬 -->
+
+  <link name="$(arg namespace)body_riser">
+    <visual>
+      <origin xyz="0 0 ${riser_h/2}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${riser_l} ${riser_w} ${riser_h}"/>
+      </geometry>
+      <material name="moca_deep_pink">
+        <color rgba="0.85 0.18 0.40 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${riser_h/2}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${riser_l} ${riser_w} ${riser_h}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 ${riser_h/2}" rpy="0 0 0"/>
+      <mass value="0.5"/>
+      <inertia ixx="0.005" ixy="0" ixz="0" iyy="0.008" iyz="0" izz="0.008"/>
+    </inertial>
+  </link>
+
+  <joint name="$(arg namespace)body_riser_joint" type="fixed">
+    <parent link="$(arg namespace)base_link"/>
+    <child link="$(arg namespace)body_riser"/>
+    <origin xyz="${riser_x_offset} 0 0.131" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Gazebo 측 material override (URDF <material> 가 gz-sim 에서 가끔 무시됨) -->
+  <gazebo reference="$(arg namespace)body_riser">
+    <visual>
+      <material>
+        <ambient>0.85 0.18 0.40 1</ambient>
+        <diffuse>0.95 0.25 0.50 1</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </gazebo>
+
+</robot>

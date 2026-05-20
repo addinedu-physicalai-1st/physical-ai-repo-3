@@ -1,0 +1,23 @@
+# 운영 모드 전환 — vic_pinky 5상태 FSM (idle/serving/patrol/guiding/engaging)
+# 서버: mode_manager_node
+# 클라이언트: moca_opserver(자동 트리거), 운영자 UI, CLI 디버깅
+#
+# 가드: 배터리 < battery_min 또는 safety alarm dwell 내일 때 idle 외 모드 거부.
+# 응답은 비동기 — 실제 전이 결과는 /mode/state 토픽 관찰로 확인.
+# 자세한 사양: docs/moca_5state_fsm_spec.md §3, §6.
+
+string requested_mode    # "idle" | "serving" | "patrol" | "guiding" | "engaging"
+                         # legacy alias (M3 종료까지만 지원): "npc" -> engaging, "follow" -> guiding
+string params            # JSON string. 모드별 페이로드:
+                         #   serving:  {"waypoint":"T03","via_pickup":true}
+                         #   patrol:   {"sweep_mode":"all"|"priority_only","report_to_opserver":true}
+                         #   guiding:  {"target_table":"T02","customer_id":"C-..."}
+                         #   engaging: {"persona":"casual_browser"|"friendly_child"|"professional_adult"}
+                         #   idle:     "" 또는 "{}"
+---
+bool success             # 검증 통과 여부 (가드/잘못된 모드명/잘못된 params 시 false)
+string current_mode      # 응답 시점의 실제 현재 모드
+string reason            # success=true 시: "transition_started"
+                         # success=false 시: "unknown_mode:..." | "invalid_json_params:..." |
+                         #                   "transition_in_progress" | "battery_low:<pct><<min>" |
+                         #                   "safety_alarm_active" | "spawn_failed:..." | "rollback_to_idle:..."

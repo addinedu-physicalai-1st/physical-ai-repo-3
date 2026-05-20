@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>통계 — MOCA</title>
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/reset.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/layout.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260517r">
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <h1>MoCa</h1>
+        <p>Mobile Catering Snack Bar</p>
+      </div>
+      <nav class="sidebar__nav" aria-label="페이지 네비게이션">
+        <a class="sidebar__nav-item" href="/static/pages/dashboard.html"><span>대시보드</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/modes.html"><span>모드 제어</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/tables.html"><span>테이블</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/events.html"><span>이벤트</span></a>
+        <a class="sidebar__nav-item sidebar__nav-item--active" href="/static/pages/analytics.html"><span>통계</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/settings.html"><span>설정</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/debug.html"><span>디버그</span></a>
+      </nav>
+      <div class="sidebar__status">
+        <div class="sidebar__status-line">
+          <span class="sidebar__status-dot" id="footer-dot"></span>
+          <span id="footer-online">Doby…</span>
+        </div>
+        <div class="sidebar__status-line">
+          <span class="label">BATT</span>
+          <span id="footer-battery">—</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Header -->
+    <header class="header" id="header">
+      <mode-badge></mode-badge>
+      <battery-gauge></battery-gauge>
+      <safety-indicator></safety-indicator>
+      <robot-status name="Doby" store-key="online"></robot-status>
+      <robot-status name="DDooby"></robot-status>
+      <div class="header__right">
+        <header-clock></header-clock>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="main analytics-page">
+
+      <p class="analytics-banner">
+        in-session 집계 — 메모리 deque 500건 한도 기반. 영구 KPI / 일·주·월 차트 / 날짜 선택은 M4 (DB + KPI endpoint).
+      </p>
+
+      <!-- 4 KPI 카드 -->
+      <section class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-card__label">서빙</span>
+          <span class="kpi-card__value" id="kpi-serving">—</span>
+          <span class="kpi-card__sub" id="kpi-serving-sub">accept된 모드 요청</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-card__label">순회</span>
+          <span class="kpi-card__value" id="kpi-patrol">—</span>
+          <span class="kpi-card__sub" id="kpi-patrol-sub">accept된 모드 요청</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-card__label">안내</span>
+          <span class="kpi-card__value" id="kpi-guiding">—</span>
+          <span class="kpi-card__sub" id="kpi-guiding-sub">accept된 모드 요청</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-card__label">모객</span>
+          <span class="kpi-card__value" id="kpi-engaging">—</span>
+          <span class="kpi-card__sub" id="kpi-engaging-sub">accept된 모드 요청</span>
+        </div>
+      </section>
+
+      <!-- 도넛 + 시간대별 막대 -->
+      <section class="chart-grid">
+        <div class="chart-card">
+          <h4>카테고리별 이벤트 비율</h4>
+          <canvas id="chart-categories"></canvas>
+        </div>
+        <div class="chart-card">
+          <h4>시간대별 이벤트 분포 (시 단위)</h4>
+          <canvas id="chart-hourly"></canvas>
+        </div>
+      </section>
+
+      <!-- 테이블별 + 시스템 KPI -->
+      <section class="chart-grid">
+        <div class="chart-card">
+          <h4>테이블별 모드 요청 (T01~T05)</h4>
+          <canvas id="chart-tables"></canvas>
+        </div>
+        <div class="chart-card">
+          <h4>시스템 KPI</h4>
+          <dl class="kv-list">
+            <dt>총 이벤트</dt><dd id="sys-total">—</dd>
+            <dt>info / warn / error</dt><dd id="sys-levels">—</dd>
+            <dt>비상정지</dt><dd id="sys-estop">—</dd>
+            <dt>alarm 이벤트</dt><dd id="sys-alarm">—</dd>
+            <dt>모드 reject</dt><dd id="sys-reject">—</dd>
+            <dt>OpServer 가동</dt><dd id="sys-uptime">—</dd>
+            <dt>현재 모드</dt><dd id="sys-mode">—</dd>
+            <dt>이벤트 데이터 범위</dt><dd id="sys-range">—</dd>
+          </dl>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Chart.js CDN — 오프라인 환경 대비는 M4 (로컬 카피) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <script src="/static/js/utils.js?v=20260517r"></script>
+  <script src="/static/js/ws.js?v=20260517r"></script>
+  <script src="/static/js/store.js?v=20260517r"></script>
+  <script src="/static/js/api.js?v=20260517r"></script>
+  <script src="/static/js/toast.js?v=20260517r"></script>
+  <script src="/static/components/mode-badge.js?v=20260517r"></script>
+  <script src="/static/components/battery-gauge.js?v=20260517r"></script>
+  <script src="/static/components/safety-indicator.js?v=20260517r"></script>
+  <script src="/static/components/robot-status.js?v=20260517r"></script>
+  <script src="/static/components/header-clock.js?v=20260517r"></script>
+
+  <script>
+    (function () {
+      // ───── 사이드바 / 헤더 ─────
+      const dot = document.getElementById('footer-dot');
+      const onlineLabel = document.getElementById('footer-online');
+      const batt = document.getElementById('footer-battery');
+      const header = document.getElementById('header');
+      store.on('online', (on) => {
+        if (on) {
+          dot.classList.add('sidebar__status-dot--online');
+          onlineLabel.textContent = 'Doby Online';
+          header.classList.remove('header--offline');
+        } else {
+          dot.classList.remove('sidebar__status-dot--online');
+          onlineLabel.textContent = 'Doby Offline';
+          header.classList.add('header--offline');
+        }
+      });
+      store.on('battery', (b) => {
+        if (b && typeof b.percentage === 'number' && b.percentage >= 0) {
+          batt.textContent = `${Math.round(b.percentage * 100)}%`;
+        } else { batt.textContent = '—'; }
+      });
+
+      // ───── 차트 컬러 (PinkLAB 테마) ─────
+      const PINK = '#ff007a';
+      const PALETTE = ['#ff007a', '#ff66b3', '#ffb3cf', '#6bd9a8',
+                       '#4ed4e8', '#ffb84d', '#ff8c7a', '#cc0062'];
+      const TEXT = '#e8d8f5';
+      const BORDER = 'rgba(255, 102, 179, 0.25)';
+
+      // Chart.js 전역 default
+      if (window.Chart) {
+        Chart.defaults.color = TEXT;
+        Chart.defaults.borderColor = BORDER;
+        Chart.defaults.font.family = "'Pretendard', system-ui, sans-serif";
+        Chart.defaults.font.size = 12;
+      }
+
+      // ───── 차트 인스턴스 ─────
+      let chartCat = null, chartHour = null, chartTable = null;
+
+      // ───── 이벤트 → 집계 ─────
+      function groupCategory(cat) {
+        const c = (cat || '').toLowerCase();
+        if (c.startsWith('pickup') || c.startsWith('order')) return 'pickup/order';
+        if (c.startsWith('guide')) return 'guide';
+        if (c.includes('manual_mode') || c.includes('mode_change')) return 'mode_change';
+        if (c.includes('alarm') || c.includes('emergency') || c.includes('safety')) return 'alarm';
+        if (c.startsWith('command:')) return 'command';
+        if (c.startsWith('config')) return 'config';
+        return 'other';
+      }
+
+      function aggregate(events) {
+        const out = {
+          counts: { serving: 0, patrol: 0, guiding: 0, engaging: 0 },
+          categories: {},
+          hourly: new Array(24).fill(0),
+          tables: { T01: 0, T02: 0, T03: 0, T04: 0, T05: 0 },
+          totals: { info: 0, warn: 0, error: 0, all: 0 },
+          estop: 0,
+          alarm: 0,
+          reject: 0,
+          first: null,
+          last: null,
+        };
+
+        events.forEach(e => {
+          const ts = e.ts || '';
+          if (!out.first || ts < out.first) out.first = ts;
+          if (!out.last || ts > out.last) out.last = ts;
+
+          const lv = (e.level || 'info').toLowerCase();
+          if (out.totals[lv] != null) out.totals[lv] += 1;
+          out.totals.all += 1;
+
+          // 카테고리 그룹
+          const g = groupCategory(e.category);
+          out.categories[g] = (out.categories[g] || 0) + 1;
+
+          // hourly bucket
+          const t = Date.parse(ts);
+          if (!isNaN(t)) {
+            const h = new Date(t).getHours();
+            if (h >= 0 && h < 24) out.hourly[h] += 1;
+          }
+
+          const msg = String(e.msg || '');
+          const cat = String(e.category || '');
+
+          // 모드별 accept count — manual_mode 이벤트 + msg 안 outcome:accepted
+          if (cat === 'manual_mode' && /accepted/i.test(msg)) {
+            // msg 예: 'manual_mode: accepted' — payload 별도 추출 필요 — events deque 만으론 모드 알 수 없음.
+            // best-effort: 본 페이지는 mode_state ws 별 카운트로 보강은 향후. 일단 manual_mode 전체를 4 모드에 균등 적용은 비합리적 → 'mode 요청' 합계만 표시.
+          }
+
+          // 비상정지
+          if (cat === 'emergency_stop') out.estop += 1;
+          // alarm
+          if (g === 'alarm' || lv === 'warn' || lv === 'error') {
+            if (cat !== 'manual_mode') out.alarm += 1;
+          }
+          // reject — msg 안 'rejected' 포함
+          if (/rejected/i.test(msg)) out.reject += 1;
+
+          // 테이블 ID 추출
+          const m = msg.match(/T0[1-5]\b/g);
+          if (m) m.forEach(t => { out.tables[t] = (out.tables[t] || 0) + 1; });
+        });
+        return out;
+      }
+
+      // mode_state WS — manual_mode 별 모드 매핑 위해 별도 카운터 운영
+      const modeRequestCounts = { serving: 0, patrol: 0, guiding: 0, engaging: 0 };
+
+      function bumpModeRequest(mode) {
+        if (modeRequestCounts[mode] != null) modeRequestCounts[mode] += 1;
+      }
+
+      // ───── 차트 그리기 ─────
+      function drawCategories(catMap) {
+        if (!window.Chart) return;
+        const keys = Object.keys(catMap).sort();
+        const vals = keys.map(k => catMap[k]);
+        const ctx = document.getElementById('chart-categories').getContext('2d');
+        if (chartCat) chartCat.destroy();
+        chartCat = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: keys,
+            datasets: [{
+              data: vals,
+              backgroundColor: keys.map((_, i) => PALETTE[i % PALETTE.length]),
+              borderColor: 'rgba(20, 10, 30, 0.8)',
+              borderWidth: 2,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'right', labels: { font: { size: 11 } } },
+            },
+          },
+        });
+      }
+
+      function drawHourly(arr) {
+        if (!window.Chart) return;
+        const ctx = document.getElementById('chart-hourly').getContext('2d');
+        if (chartHour) chartHour.destroy();
+        chartHour = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: arr.map((_, i) => `${i}시`),
+            datasets: [{
+              label: '이벤트 수',
+              data: arr,
+              backgroundColor: PINK,
+              borderRadius: 4,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: BORDER } },
+              x: { grid: { display: false } },
+            },
+          },
+        });
+      }
+
+      function drawTables(t) {
+        if (!window.Chart) return;
+        const labels = ['T01', 'T02', 'T03', 'T04', 'T05'];
+        const data = labels.map(k => t[k] || 0);
+        const ctx = document.getElementById('chart-tables').getContext('2d');
+        if (chartTable) chartTable.destroy();
+        chartTable = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: '모드 요청 수',
+              data,
+              backgroundColor: labels.map((_, i) => PALETTE[i % PALETTE.length]),
+              borderRadius: 4,
+            }],
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: BORDER } },
+              y: { grid: { display: false } },
+            },
+          },
+        });
+      }
+
+      // ───── 본 렌더 ─────
+      const $ = (id) => document.getElementById(id);
+
+      function render(events, status) {
+        const agg = aggregate(events);
+
+        // KPI 카드 — modeRequestCounts (이 세션의 set_mode 클릭 추적) 우선,
+        // 없으면 manual_mode 합계 일부 표시 (best-effort)
+        $('kpi-serving').textContent = modeRequestCounts.serving || '—';
+        $('kpi-patrol').textContent = modeRequestCounts.patrol || '—';
+        $('kpi-guiding').textContent = modeRequestCounts.guiding || '—';
+        $('kpi-engaging').textContent = modeRequestCounts.engaging || '—';
+        const note = '본 세션 클릭 기준 — 영구 KPI M4';
+        ['kpi-serving-sub','kpi-patrol-sub','kpi-guiding-sub','kpi-engaging-sub']
+          .forEach(id => { $(id).textContent = note; });
+
+        // 차트 — Chart.js 미로드 시 silent skip (CDN 오프라인 등)
+        drawCategories(agg.categories);
+        drawHourly(agg.hourly);
+        drawTables(agg.tables);
+
+        // 시스템 KPI
+        $('sys-total').textContent = String(agg.totals.all);
+        $('sys-levels').textContent =
+          `${agg.totals.info} / ${agg.totals.warn} / ${agg.totals.error}`;
+        $('sys-estop').textContent = String(agg.estop);
+        $('sys-alarm').textContent = String(agg.alarm);
+        $('sys-reject').textContent = String(agg.reject);
+        if (status && typeof status.uptime_sec === 'number') {
+          const u = status.uptime_sec;
+          const h = Math.floor(u / 3600);
+          const m = Math.floor((u % 3600) / 60);
+          $('sys-uptime').textContent = `${h}h ${m}m`;
+        }
+        if (status && status.mode && status.mode.current) {
+          $('sys-mode').textContent = String(status.mode.current).toUpperCase();
+        }
+        if (agg.first && agg.last) {
+          $('sys-range').textContent =
+            `${utils.formatTime(agg.first)} ~ ${utils.formatTime(agg.last)}`;
+        } else {
+          $('sys-range').textContent = '데이터 없음';
+        }
+      }
+
+      // ───── 데이터 fetch / 라이브 갱신 ─────
+      let lastFetch = null;
+      function loadAll() {
+        Promise.all([
+          api.get('/events?limit=500').catch(() => null),
+          api.get('/status').catch(() => null),
+        ]).then(([evRes, stRes]) => {
+          const events = (evRes && evRes.data && evRes.data.events) || [];
+          const status = (stRes && stRes.data) || {};
+          lastFetch = { events, status };
+          render(events, status);
+        });
+      }
+
+      // WS event_log 도 누적 → 라이브 차트 갱신 (debounce 1s)
+      let liveTimer = null;
+      store.on('events', (arr) => {
+        if (!lastFetch) return;
+        // store.events 가 가장 최신 ring buffer — 그대로 render
+        if (liveTimer) clearTimeout(liveTimer);
+        liveTimer = setTimeout(() => {
+          render(arr || [], lastFetch.status);
+        }, 1000);
+      });
+
+      // mode_state 변경 → modeRequestCounts 증가 (운영자 set_mode 클릭만 카운트)
+      // 정확한 운영자 클릭 카운트는 set_mode_result WS 응답으로 추적
+      wsClient.on('set_mode_result', (msg) => {
+        const d = msg.data || {};
+        if (!d.ok) return;
+        const m = d.current_mode_after;
+        if (m && modeRequestCounts[m] != null) {
+          bumpModeRequest(m);
+          if (lastFetch) render(lastFetch.events, lastFetch.status);
+        }
+      });
+
+      // 초기
+      loadAll();
+    })();
+  </script>
+</body>
+</html>

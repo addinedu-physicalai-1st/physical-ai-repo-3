@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- floorplan.svg — moca 매장 평면도 (halltop.png 정합)
+     좌표계 = mapv5_mocamap.pgm pixel space (391 × 250).
+     world (m) → pixel: px = (x + 51.320) * 20, py = 250 - (y + 6.624) * 20
+
+     halltop.png (944x597) 는 PGM 의 2.4x 업스케일 — preserveAspectRatio=none 으로 stretch.
+
+     마커 좌표 산정 (2026-05-16 tables.yaml + cafe_layout.yaml):
+       T01 (-36.337, 0.526)   → (299.66, 107.00)
+       T02 (-41.037, 0.243)   → (205.66, 112.66)
+       T03 (-41.037, -0.574)  → (205.66, 129.00)
+       T04 (-44.903, 0.243)   → (128.34, 112.66)
+       T05 (-44.903, -0.507)  → (128.34, 127.66)
+       home (-36.887, 2.809)  → (288.66, 61.34)
+       pickup (-36.07, 2.793) → (304.60, 61.66)
+       arm    (-36.42, 3.276) → (297.60, 51.34)
+       kiosk  (-35.70, 3.300) → (312.40, 51.34)
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 391 250"
+     preserveAspectRatio="xMidYMid meet"
+     aria-label="MOCA 매장 평면도">
+
+  <style>
+    .map-bg     { opacity: 0.85; }
+
+    .ui-label   { fill: var(--text-secondary, #5a4a30); font-size: 4px; font-family: var(--font-sans, sans-serif); font-weight: 500; pointer-events: none; }
+    .home-label { fill: var(--gold-primary, #b8860b); font-size: 4px; font-weight: 700; letter-spacing: 0.4px; }
+
+    /* 테이블 — occupancy 상태별 fill */
+    .table { stroke: var(--border-strong, #a88a5c); stroke-width: 0.6; }
+    .table-empty    { fill: rgba(138, 117, 88, 0.5); }
+    .table-occupied { fill: var(--copper, #b66830); filter: drop-shadow(0 0 4px rgba(182, 104, 48, 0.5)); }
+    .table-finished { fill: var(--warning, #b87830); }
+    .table-unknown  { fill: rgba(184, 160, 124, 0.3); }
+
+    /* 로봇 마커 */
+    .robot-body  { fill: var(--gold-primary, #b8860b); stroke: var(--gold-soft, #d4af37); stroke-width: 0.5; filter: drop-shadow(0 0 4px rgba(184, 134, 11, 0.5)); }
+    .robot-arrow { fill: #fffaf0; }
+
+    /* 가구 / 라벨 */
+    .furniture { fill: var(--bg-quaternary, #e8dcc0); stroke: var(--border, #d6c4a0); stroke-width: 0.3; }
+  </style>
+
+  <!-- ───── 배경: maptopview.png (PGM 의 3x 업스케일 1171x741) ───── -->
+  <image class="map-bg"
+         href="/static/assets/maptopview.png"
+         x="0" y="0" width="391" height="250"
+         preserveAspectRatio="none" />
+
+  <!-- ───── 가구 라벨 (카운터 영역) ───── -->
+  <g>
+    <!-- 픽업 -->
+    <rect class="furniture" x="302.6" y="59.66" width="4" height="4" />
+    <text class="ui-label" x="304.6" y="58.5" text-anchor="middle">픽업</text>
+  </g>
+  <g>
+    <!-- OpenARM -->
+    <circle class="furniture" cx="297.6" cy="51.34" r="2.5" />
+    <text class="ui-label" x="297.6" y="46" text-anchor="middle">arm</text>
+  </g>
+  <g>
+    <!-- 키오스크 -->
+    <rect class="furniture" x="310.4" y="49.34" width="4" height="4" />
+    <text class="ui-label" x="312.4" y="46" text-anchor="middle">키오스크</text>
+  </g>
+
+  <!-- ───── 테이블 T01~T05 — occupancy 상태별 동적 색상 ─────
+       좌표: maptopview.png (1171×741) 안 가구 사각형 측정값 기반 (2026-05-16).
+       이미지 안 회색 박스 4개 = T02/T03/T04/T05. T01 은 카운터 정남 단독 (추정).
+       tables.yaml 실 좌표는 보존 (Nav2 영향 X) — 본 cx/cy 는 평면도 표시용. -->
+  <g>
+    <circle id="table-T01" class="table table-unknown" data-table="T01" cx="310" cy="101" r="6" />
+    <text class="ui-label" x="310" y="113" text-anchor="middle">T01</text>
+  </g>
+  <g>
+    <circle id="table-T02" class="table table-unknown" data-table="T02" cx="202" cy="121.5" r="6" />
+    <text class="ui-label" x="202" y="116" text-anchor="middle">T02</text>
+  </g>
+  <g>
+    <circle id="table-T03" class="table table-unknown" data-table="T03" cx="202" cy="143.4" r="6" />
+    <text class="ui-label" x="202" y="155" text-anchor="middle">T03</text>
+  </g>
+  <g>
+    <circle id="table-T04" class="table table-unknown" data-table="T04" cx="103.5" cy="121.5" r="6" />
+    <text class="ui-label" x="103.5" y="116" text-anchor="middle">T04</text>
+  </g>
+  <g>
+    <circle id="table-T05" class="table table-unknown" data-table="T05" cx="103.5" cy="143.4" r="6" />
+    <text class="ui-label" x="103.5" y="155" text-anchor="middle">T05</text>
+  </g>
+
+  <!-- ───── Home pose (점선 원) ───── -->
+  <circle cx="288.66" cy="61.34" r="5"
+          fill="none" stroke="var(--gold-soft, #d4af37)" stroke-width="0.8"
+          stroke-dasharray="2.5 1.5" />
+  <text class="home-label" x="288.66" y="74" text-anchor="middle">HOME</text>
+
+  <!-- ───── 로봇 마커 (JS 가 매 1Hz transform 갱신) ─────
+       초기 위치 = home_pose. arrow 는 SVG +x 방향 가리킴.
+       ROS yaw=0 → SVG rotate=0. SVG y 는 아래 양수라 yaw 부호 반전. -->
+  <g id="robot-marker" transform="translate(288.66, 61.34) rotate(-90)">
+    <circle class="robot-body" r="4" />
+    <path class="robot-arrow" d="M 1,-2.5 L 4,0 L 1,2.5 Z" />
+  </g>
+</svg>

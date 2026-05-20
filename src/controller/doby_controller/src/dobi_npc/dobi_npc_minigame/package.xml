@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dobi_npc_minigame</name>
+  <version>0.0.0</version>
+  <description>Dobi NPC minigame (RPS, Castro-Gonzalez)</description>
+  <maintainer email="skong097@gmail.com">gjkong</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>dobi_npc_msgs</depend>
+  <depend>std_msgs</depend>
+  <!-- 게임 자체 의존성 (mediapipe pip / pygame / cv2) 은 subprocess 가
+       자체 보유. ROS 노드는 wrapper 라 추가 의존 없음. -->
+
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

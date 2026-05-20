@@ -1,0 +1,8 @@
+# 페르소나 전환 (Isla 2005 character hierarchy)
+# 서버: persona_loader_node
+# 클라이언트: BT, 또는 운영자 명령
+
+string persona_name   # "casual_browser" | "friendly_child" | "professional_adult"
+---
+bool success
+string current_persona

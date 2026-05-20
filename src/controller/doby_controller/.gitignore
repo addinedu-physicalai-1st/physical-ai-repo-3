@@ -1,0 +1,61 @@
+# === ROS2 build artifacts ===
+build/
+install/
+log/
+
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*~
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Project temporary ===
+*.log
+*.bag
+rosbag2_*/
+
+# === Heavy assets (Phase 0-A에서 가져온 cabot 자산) ===
+# 이 디렉토리들은 별도 관리 (git-lfs 또는 다운로드 스크립트)
+# root anchor — src/moca_gazebo/models/ 등 sub-디렉토리 추적 가능
+/maps/
+/datasets/
+/web/
+/tools/
+/models/
+
+# === ML model assets (mediapipe .task/.tflite 등) — download_models.sh 로 별도 관리 ===
+src/dobi_npc/**/models/
+*.pt              # YOLO weights
+*.pth             # PyTorch checkpoints
+*.onnx
+*.gguf            # LLM weights
+*.bin
+
+# === Data ===
+*.csv
+*.xlsx
+*.npz
+*.npy
+
+# === Docs that are reference only ===
+docs/cabot_legacy/
+docs/cabot_README.md
+
+# === Submodule git directories (vic_pinky는 자체 git) ===
+# .git 디렉토리 자체는 ignore 하면 안 됨 (vic_pinky/.git이 함께 사라짐)
+# 그러나 vic_pinky 내부 변경사항은 vic_pinky의 자체 git이 관리
+
+# === src/shared 의 외부 저장소 (각자 자체 git, vcs import로 복원) ===
+src/shared/vic_pinky/
