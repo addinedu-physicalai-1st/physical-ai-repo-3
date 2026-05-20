@@ -5,6 +5,7 @@
 # markdown
 **/AGENTS.md
 
+
 # === ROS2 build artifacts ===
 build/
 install/
@@ -47,6 +48,7 @@ rosbag2_*/
 **/web/
 **/tools/
 **/models/
+!src/service/web_service/app/models/
 
 # === ML model assets (mediapipe .task/.tflite 등) — download_models.sh 로 별도 관리 ===
 src/dobi_npc/**/models/
@@ -55,6 +57,8 @@ src/dobi_npc/**/models/
 *.onnx
 *.gguf            # LLM weights
 *.bin
+# audio assets (TTS reference 등) — 별도 다운로드 스크립트로 관리
+*.wav
 
 # === Data ===
 *.csv
@@ -75,3 +79,6 @@ src/shared/vic_pinky/
 
 # Antigravity
 .antigravitycli
+
+# mkcert 로컬 인증서 (개발 환경, 절대 commit 하지 말 것)
+src/service/certs/

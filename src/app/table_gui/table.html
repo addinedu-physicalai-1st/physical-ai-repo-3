@@ -2,8 +2,8 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MOCA — 카페 키오스크</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MOCA — 테이블 주문</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,16 +32,22 @@
     align-items: center;
     font-family: 'Noto Sans KR', sans-serif;
     overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
 
   #kiosk {
-    width: 480px;
-    height: 900px;
+    width: min(480px, 100vw);
+    height: min(900px, 100vh);
     background: var(--bg);
     position: relative;
     overflow: hidden;
-    border-radius: 24px;
-    box-shadow: 0 0 80px rgba(232,168,76,0.15), 0 40px 120px rgba(0,0,0,0.8);
+    border-radius: 0;
+    box-shadow: 0 0 80px rgba(232,168,76,0.15);
+  }
+  @media (min-width: 540px) and (min-height: 940px) {
+    #kiosk { border-radius: 24px; box-shadow: 0 0 80px rgba(232,168,76,0.15), 0 40px 120px rgba(0,0,0,0.8); }
   }
 
   .screen {
@@ -50,6 +56,7 @@
     flex-direction: column;
     opacity: 0;
     transition: opacity 0.35s ease;
+    padding-bottom: 130px;  /* PTT 버튼 영역 확보 */
   }
   .screen.active { display: flex; }
   .screen.visible { opacity: 1; }
@@ -97,6 +104,13 @@
     letter-spacing: 1px;
     text-transform: uppercase;
   }
+  .kiosk-header .table-badge {
+    margin-left: auto;
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 2px;
+    font-weight: 700;
+  }
   .back-btn {
     background: none; border: none; cursor: pointer;
     color: var(--muted); font-size: 20px; padding: 4px;
@@ -112,10 +126,9 @@
     align-items: center; justify-content: center; gap: 8px;
   }
   .btn-primary { background: var(--accent); color: #1a0f00; font-size: 15px; padding: 14px 24px; }
-  .btn-primary:hover { background: #f0b55e; transform: translateY(-1px); }
-  .btn-primary:active { transform: translateY(0); }
+  .btn-primary:active { background: #f0b55e; }
   .btn-outline { background: transparent; color: var(--text); border: 1.5px solid var(--border); font-size: 14px; padding: 12px 20px; }
-  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-outline:active { border-color: var(--accent); color: var(--accent); }
   .btn-danger { background: var(--danger); color: #fff; font-size: 15px; padding: 14px 24px; }
   .btn-success { background: var(--success); color: #fff; font-size: 15px; padding: 14px 24px; }
   .btn-lg { width: 100%; padding: 16px; font-size: 16px; border-radius: 12px; }
@@ -124,6 +137,7 @@
     justify-content: center;
     align-items: center;
     background: radial-gradient(ellipse at 40% 30%, #2a1a06 0%, #0f0a05 60%);
+    padding-bottom: 130px;
   }
   .standby-inner { text-align: center; }
   .standby-logo {
@@ -135,33 +149,32 @@
   }
   .standby-tagline {
     font-size: 13px; letter-spacing: 5px; color: var(--muted);
-    text-transform: uppercase; margin: 12px 0 60px;
+    text-transform: uppercase; margin: 12px 0 36px;
+  }
+  .standby-table-label {
+    color: var(--accent); font-size: 16px; letter-spacing: 4px;
+    font-weight: 700; margin-bottom: 36px;
   }
   @keyframes glow {
     0%, 100% { text-shadow: 0 0 20px rgba(232,168,76,0.3); }
     50%       { text-shadow: 0 0 50px rgba(232,168,76,0.7); }
   }
-  .standby-btn {
-    background: var(--accent); color: #1a0f00; border: none;
-    font-family: 'Noto Sans KR', sans-serif;
-    font-size: 18px; font-weight: 700;
-    padding: 20px 56px; border-radius: 50px;
-    cursor: pointer; letter-spacing: 2px;
-    box-shadow: 0 0 40px rgba(232,168,76,0.4);
-    transition: all 0.3s;
-    animation: pulse 2.5s ease-in-out infinite;
-  }
-  .standby-btn:hover { transform: scale(1.05); box-shadow: 0 0 60px rgba(232,168,76,0.6); }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 40px rgba(232,168,76,0.4); }
-    50%       { box-shadow: 0 0 60px rgba(232,168,76,0.7); }
+  .standby-instruction {
+    color: var(--text); font-size: 15px; letter-spacing: 1px;
+    margin-bottom: 16px; line-height: 1.7;
   }
   .standby-hint {
-    margin-top: 24px; color: var(--muted); font-size: 13px; letter-spacing: 1px;
-    animation: blink 2s ease-in-out infinite;
+    color: var(--muted); font-size: 12px; letter-spacing: 1px;
+    margin-bottom: 26px;
   }
-  @keyframes blink { 0%,100%{opacity:0.4;} 50%{opacity:1;} }
-  .coffee-deco { font-size: 80px; margin-bottom: 30px; animation: float 4s ease-in-out infinite; }
+  .standby-gui-btn {
+    background: transparent; color: var(--muted); border: 1.5px solid var(--border);
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px; padding: 12px 28px;
+    border-radius: 50px; cursor: pointer; letter-spacing: 1px;
+  }
+  .standby-gui-btn:active { color: var(--text); border-color: var(--text); }
+  .coffee-deco { font-size: 64px; margin-bottom: 20px; animation: float 4s ease-in-out infinite; }
   @keyframes float { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-10px);} }
 
   #screen-menu { flex-direction: column; }
@@ -181,7 +194,7 @@
     text-align: center; gap: 8px;
     position: relative; overflow: hidden;
   }
-  .menu-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .menu-card:active { border-color: var(--accent); }
   .menu-card.selected { border-color: var(--accent); background: #2e1c06; }
   .menu-card .emoji { font-size: 36px; }
   .menu-card .name { color: var(--text); font-size: 13px; font-weight: 700; }
@@ -207,12 +220,11 @@
   .cart-item .item-qty { display: flex; align-items: center; gap: 8px; }
   .qty-btn {
     background: var(--card); border: 1px solid var(--border);
-    color: var(--text); width: 24px; height: 24px;
+    color: var(--text); width: 28px; height: 28px;
     border-radius: 6px; cursor: pointer; font-size: 14px;
     display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s;
   }
-  .qty-btn:hover { background: var(--accent); color: #1a0f00; border-color: var(--accent); }
+  .qty-btn:active { background: var(--accent); color: #1a0f00; border-color: var(--accent); }
   .cart-item .item-price { color: var(--accent); font-weight: 700; width: 70px; text-align: right; }
   .cart-total {
     display: flex; justify-content: space-between; align-items: center;
@@ -257,10 +269,10 @@
   .chip {
     background: var(--card); border: 1.5px solid var(--border);
     color: var(--text); font-size: 13px; font-weight: 500;
-    padding: 8px 16px; border-radius: 50px; cursor: pointer;
+    padding: 10px 18px; border-radius: 50px; cursor: pointer;
     transition: all 0.2s; font-family: 'Noto Sans KR', sans-serif;
   }
-  .chip:hover { border-color: var(--accent); }
+  .chip:active { border-color: var(--accent); }
   .chip.selected { background: var(--accent); border-color: var(--accent); color: #1a0f00; font-weight: 700; }
   .option-price-row {
     display: flex; justify-content: space-between; align-items: center;
@@ -302,80 +314,9 @@
     font-size: 16px; font-weight: 600; color: #ff6b6b;
   }
 
-  #screen-payment .payment-total { text-align: center; padding: 24px 0 20px; }
-  #screen-payment .payment-total .total-label { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
-  #screen-payment .payment-total .total-amount {
-    color: var(--accent); font-size: 44px; font-weight: 700;
-    font-family: 'Cormorant Garamond', serif; letter-spacing: 2px;
-  }
-  .payment-methods { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 0 20px; }
-  .payment-card {
-    background: var(--card); border: 2px solid var(--border);
-    border-radius: 14px; padding: 22px 8px;
-    cursor: pointer; transition: all 0.25s;
-    display: flex; flex-direction: column; align-items: center; gap: 10px;
-    text-align: center;
-  }
-  .payment-card:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 8px 30px rgba(232,168,76,0.2); }
-  .payment-card.selected { border-color: var(--accent); background: #2e1c06; }
-  .payment-card .pay-icon { font-size: 34px; }
-  .payment-card .pay-name { color: var(--text); font-size: 13px; font-weight: 700; }
-  .payment-card .pay-desc { color: var(--muted); font-size: 11px; }
-  .payment-confirm { padding: 20px; flex-shrink: 0; }
-  .processing-overlay {
-    position: absolute; inset: 0;
-    background: rgba(15,10,5,0.95);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 20px; z-index: 100;
-  }
-  .spinner {
-    width: 56px; height: 56px;
-    border: 4px solid var(--border); border-top-color: var(--accent);
-    border-radius: 50%; animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .processing-text { color: var(--text); font-size: 16px; font-weight: 500; }
-
-  .delivery-options { display: flex; gap: 14px; padding: 0 20px; margin-top: 10px; }
-  .delivery-card {
-    flex: 1; background: var(--card); border: 2px solid var(--border);
-    border-radius: 16px; padding: 32px 16px;
-    cursor: pointer; transition: all 0.25s;
-    display: flex; flex-direction: column; align-items: center; gap: 16px;
-    text-align: center;
-  }
-  .delivery-card:hover { border-color: var(--accent); transform: translateY(-3px); }
-  .delivery-card .d-icon { font-size: 48px; }
-  .delivery-card .d-name { color: var(--text); font-size: 17px; font-weight: 700; }
-  .delivery-card .d-desc { color: var(--muted); font-size: 12px; line-height: 1.5; }
-
-  .table-map-wrap { flex: 1; padding: 16px 20px; }
-  .table-map-label { color: var(--muted); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 14px; font-weight: 600; }
-  .table-legend { display: flex; gap: 16px; margin-bottom: 16px; }
-  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
-  .legend-dot.empty { background: var(--card); border: 1.5px solid var(--border); }
-  .legend-dot.occupied { background: #3a1010; border: 1.5px solid #8b2020; }
-  .legend-dot.selected { background: var(--accent); }
-  .table-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .table-cell {
-    aspect-ratio: 1; border-radius: 10px;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    font-size: 12px; font-weight: 700;
-    cursor: pointer; transition: all 0.2s; gap: 4px;
-    border: 1.5px solid var(--border);
-    background: var(--card); color: var(--text);
-  }
-  .table-cell .t-icon { font-size: 20px; }
-  .table-cell.occupied { background: #1a0808; border-color: #5a1515; color: #6a3535; cursor: not-allowed; }
-  .table-cell.selected-table { background: #2e1c06; border-color: var(--accent); color: var(--accent); }
-  .table-cell:not(.occupied):hover { border-color: var(--accent); transform: scale(1.05); }
-  .table-actions { padding: 14px 20px; flex-shrink: 0; }
-
-  #screen-complete, #screen-complete-serving {
+  #screen-counter {
     align-items: center; justify-content: center; text-align: center;
-    padding: 40px 30px;
+    padding: 40px 30px 130px;
   }
   .complete-icon { font-size: 80px; margin-bottom: 24px; animation: popIn 0.5s ease; }
   @keyframes popIn { 0%{transform:scale(0);} 80%{transform:scale(1.1);} 100%{transform:scale(1);} }
@@ -409,21 +350,45 @@
   .voice-ind.speaking  { color: #5cb85c; border-color: #5cb85c; }
   @keyframes voicePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
 
-  .mic-start-btn {
-    position: fixed; top: 14px; right: 60px; z-index: 1000;
-    background: #1f1611; color: var(--muted); border: 1.5px solid var(--border);
-    padding: 6px 14px; border-radius: 18px; font-size: 13px; cursor: pointer;
-    font-family: inherit; transition: all 0.25s;
+  /* PTT 버튼 — 모든 화면에서 fixed bottom-center */
+  .ptt-btn {
+    position: fixed;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #1a0f00;
+    border: 3px solid #f0b55e;
+    box-shadow: 0 0 30px rgba(232,168,76,0.4), 0 8px 24px rgba(0,0,0,0.6);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; cursor: pointer;
+    font-family: inherit;
+    z-index: 999;
+    touch-action: none;  /* pointerleave 가 시작점 위치 이동에 끌려가지 않게 */
+    transition: transform 0.1s ease, box-shadow 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
   }
-  .mic-start-btn:hover:not(:disabled) { color: var(--text); border-color: var(--text); }
-  .mic-start-btn:disabled { opacity: 0.6; cursor: default; }
-  .mic-start-btn.on { color: #e8a84c; border-color: #e8a84c; }
+  .ptt-btn .mic-icon { font-size: 36px; line-height: 1; }
+  .ptt-btn .ptt-label { font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+  .ptt-btn.pressed {
+    background: #d9534f;
+    border-color: #ff7a76;
+    color: #fff;
+    transform: translateX(-50%) scale(1.08);
+    box-shadow: 0 0 50px rgba(217,83,79,0.6), 0 8px 24px rgba(0,0,0,0.6);
+    animation: pttPulse 0.9s ease-in-out infinite;
+  }
+  @keyframes pttPulse {
+    0%, 100% { box-shadow: 0 0 50px rgba(217,83,79,0.6), 0 8px 24px rgba(0,0,0,0.6); }
+    50%       { box-shadow: 0 0 70px rgba(217,83,79,0.85), 0 8px 24px rgba(0,0,0,0.6); }
+  }
 </style>
 </head>
 <body>
 
 <div id="voice-indicator" class="voice-ind idle" title="음성 상태">🎤</div>
-<button id="mic-start-btn" class="mic-start-btn" type="button">마이크 시작</button>
 
 <div id="kiosk">
 
@@ -432,8 +397,14 @@
     <div class="standby-inner">
       <div class="coffee-deco">☕</div>
       <div class="standby-logo">MOCA</div>
-      <button class="standby-btn" onclick="goToMenu()">주문 시작</button>
-      <div class="standby-hint">"주문할게요" 라고 말해주세요</div>
+      <div class="standby-tagline">TABLE ORDER</div>
+      <div class="standby-table-label" id="standby-table-label">테이블 정보 없음</div>
+      <div class="standby-instruction">
+        🎤 마이크 버튼을 <b>누르고</b> 메뉴를 말씀해 주세요<br>
+        <span style="color:var(--muted); font-size:12px;">예) "아메리카노 두 잔"</span>
+      </div>
+      <div class="standby-hint">손을 떼면 인식합니다</div>
+      <button class="standby-gui-btn" onclick="goToMenu()">또는 직접 누르고 주문하기</button>
     </div>
   </div>
 
@@ -441,7 +412,7 @@
   <div class="screen" id="screen-menu">
     <div class="kiosk-header">
       <div class="logo">MOCA</div>
-      <div class="step">STEP 1 — 메뉴 선택</div>
+      <div class="table-badge" id="hdr-table-label"></div>
     </div>
     <div class="robot-voice">
       <span class="icon">🤖</span>
@@ -468,11 +439,11 @@
     <div class="kiosk-header">
       <button class="back-btn" onclick="showScreen('screen-menu')">←</button>
       <div class="logo">MOCA</div>
-      <div class="step">STEP 2 — 주문 확인</div>
+      <div class="step">주문 확인</div>
     </div>
-    <div class="robot-voice" id="confirm-voice">
+    <div class="robot-voice">
       <span class="icon">🤖</span>
-      <p>화면에 보이는 주문이 맞으세요?<br>수정을 원하신다면 이전 페이지로 안내하겠습니다.</p>
+      <p>화면에 보이는 주문이 맞으세요?</p>
     </div>
     <div class="confirm-list" id="confirm-list"></div>
     <div class="confirm-total">
@@ -491,7 +462,7 @@
     <div class="kiosk-header">
       <button class="back-btn" onclick="showScreen('screen-confirm')">←</button>
       <div class="logo">MOCA</div>
-      <div class="step">STEP 3 — 옵션 선택</div>
+      <div class="step">옵션 선택</div>
     </div>
     <div class="robot-voice">
       <span class="icon">🤖</span>
@@ -514,7 +485,7 @@
     <div class="kiosk-header">
       <button class="back-btn" onclick="showScreen('screen-options')">←</button>
       <div class="logo">MOCA</div>
-      <div class="step">STEP 4 — 알러지 확인</div>
+      <div class="step">알러지 확인</div>
     </div>
     <div class="robot-voice">
       <span class="icon">🤖</span>
@@ -531,7 +502,7 @@
     </div>
     <div class="allergy-actions">
       <button class="btn btn-danger" style="flex:1" onclick="allergyIssue()">알러지 있어요</button>
-      <button class="btn btn-success" style="flex:2" onclick="goToPayment()">확인했습니다 →</button>
+      <button class="btn btn-success" style="flex:2" onclick="submitTableOrder()">확인했습니다 →</button>
     </div>
   </div>
 
@@ -547,164 +518,57 @@
     <div class="countdown-bar"><div class="countdown-fill" id="bar-allergy-warning"></div></div>
   </div>
 
-  <!-- ── S6: 결제 ── -->
-  <div class="screen" id="screen-payment">
-    <div class="kiosk-header">
-      <button class="back-btn" onclick="showScreen('screen-allergy')">←</button>
-      <div class="logo">MOCA</div>
-      <div class="step">STEP 5 — 결제</div>
-    </div>
-    <div class="robot-voice">
-      <span class="icon">🤖</span>
-      <p>결제 방법을 선택해 주세요.</p>
-    </div>
-    <div class="payment-total">
-      <div class="total-label">최종 결제 금액</div>
-      <div class="total-amount" id="payment-total-amt">₩0</div>
-    </div>
-    <div class="payment-methods">
-      <div class="payment-card" id="pay-card" onclick="selectPayment('card')">
-        <div class="pay-icon">💳</div>
-        <div class="pay-name">카드</div>
-        <div class="pay-desc">신용/체크</div>
-      </div>
-      <div class="payment-card" id="pay-apple" onclick="selectPayment('apple_pay')">
-        <div class="pay-icon">🍎</div>
-        <div class="pay-name">Apple Pay</div>
-        <div class="pay-desc">간편 결제</div>
-      </div>
-      <div class="payment-card" id="pay-samsung" onclick="selectPayment('samsung_pay')">
-        <div class="pay-icon">📱</div>
-        <div class="pay-name">Samsung Pay</div>
-        <div class="pay-desc">간편 결제</div>
-      </div>
-    </div>
-    <div class="payment-confirm">
-      <button class="btn btn-primary btn-lg" onclick="processPayment()">결제하기</button>
-    </div>
-  </div>
-
-  <!-- ── S7: 픽업/서빙 선택 ── -->
-  <div class="screen" id="screen-delivery">
-    <div class="kiosk-header">
-      <div class="logo">MOCA</div>
-      <div class="step">STEP 6 — 수령 방법</div>
-    </div>
-    <div class="robot-voice">
-      <span class="icon">🤖</span>
-      <p>픽업을 하시겠습니까?<br>아니면 테이블로 서빙을 원하십니까?</p>
-    </div>
-    <div class="delivery-options" style="margin-top:30px;">
-      <div class="delivery-card" onclick="selectDelivery('pickup')">
-        <div class="d-icon">🛍️</div>
-        <div class="d-name">픽업</div>
-        <div class="d-desc">카운터에서<br>직접 수령</div>
-      </div>
-      <div class="delivery-card" onclick="selectDelivery('serving')">
-        <div class="d-icon">🤖</div>
-        <div class="d-name">로봇 서빙</div>
-        <div class="d-desc">테이블로<br>로봇이 서빙</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── S8: 테이블 선택 ── -->
-  <div class="screen" id="screen-table">
-    <div class="kiosk-header">
-      <button class="back-btn" onclick="showScreen('screen-delivery')">←</button>
-      <div class="logo">MOCA</div>
-      <div class="step">테이블 선택</div>
-    </div>
-    <div class="robot-voice">
-      <span class="icon">🤖</span>
-      <p>어느 테이블로 서빙하면 될까요?</p>
-    </div>
-    <div class="table-map-wrap">
-      <div class="table-legend">
-        <div class="legend-item"><div class="legend-dot empty"></div> 비어있음</div>
-        <div class="legend-item"><div class="legend-dot occupied"></div> 사용중</div>
-        <div class="legend-item"><div class="legend-dot selected"></div> 선택됨</div>
-      </div>
-      <div class="table-map-label">카페 내부 테이블 현황</div>
-      <div class="table-grid" id="table-grid"></div>
-    </div>
-    <div class="table-actions">
-      <button class="btn btn-primary btn-lg" id="confirm-table-btn" onclick="confirmTable()" disabled style="opacity:0.5;">테이블 선택 후 확인</button>
-    </div>
-  </div>
-
-  <!-- ── S9: 완료 (픽업) ── -->
-  <div class="screen" id="screen-complete">
-    <div class="complete-icon">✅</div>
-    <div class="complete-title">주문 완료!</div>
+  <!-- ── S6: 카운터 안내 (결제 화면 대신) ── -->
+  <div class="screen" id="screen-counter">
+    <div class="complete-icon">📋</div>
+    <div class="complete-title">주문 접수 완료!</div>
     <div class="robot-voice" style="width:100%;">
       <span class="icon">🤖</span>
-      <p>주문이 완료되었습니다.<br>상품이 준비되면 번호로 불러드리겠습니다.</p>
+      <p id="counter-voice-text">카운터에서 결제 후 자리로 가져다 드리겠습니다.</p>
     </div>
     <div class="order-number-box">
       <div class="on-label">주문 번호</div>
-      <div class="on-number" id="order-number-pickup">--</div>
+      <div class="on-number" id="order-number-counter">--</div>
     </div>
-    <div class="complete-desc">
-      카운터 앞에서 번호를 기다려 주세요.<br>
+    <div class="complete-desc" id="counter-desc">
+      이 번호를 카운터에 알려 주세요.<br>
       감사합니다 😊
     </div>
-    <div class="countdown-bar"><div class="countdown-fill" id="bar-pickup"></div></div>
-  </div>
-
-  <!-- ── S10: 완료 (서빙) ── -->
-  <div class="screen" id="screen-complete-serving">
-    <div class="complete-icon">🤖</div>
-    <div class="complete-title">서빙 예약 완료!</div>
-    <div class="robot-voice" style="width:100%;">
-      <span class="icon">🤖</span>
-      <p id="serving-complete-text">상품이 준비되면 테이블로 서빙하겠습니다.<br>잠시만 기다려 주세요.</p>
-    </div>
-    <div class="order-number-box">
-      <div class="on-label">주문 번호</div>
-      <div class="on-number" id="order-number-serving">--</div>
-    </div>
-    <div class="complete-desc">
-      자리에서 편히 기다려 주세요.<br>
-      감사합니다 😊
-    </div>
-    <div class="countdown-bar"><div class="countdown-fill" id="bar-serving"></div></div>
+    <div class="countdown-bar"><div class="countdown-fill" id="bar-counter"></div></div>
   </div>
 
 </div><!-- #kiosk -->
+
+<!-- PTT 버튼 — 누름/뗌으로 음성 발화 (voice.js 가 pointer 이벤트 처리) -->
+<button id="ptt-btn" class="ptt-btn" type="button" aria-label="누르고 말씀하세요">
+  <span class="mic-icon">🎤</span>
+  <span class="ptt-label">누르고 말씀</span>
+</button>
+
+<script>
+// table 모드 식별 — voice.js / intent_handler.js 가 이 플래그를 읽어 분기.
+window.VOICE_MODE = 'table';
+window.TABLE_NO = (() => {
+  const v = parseInt(new URLSearchParams(location.search).get('no'), 10);
+  return Number.isFinite(v) && v > 0 ? v : null;
+})();
+// voice_service (pai-server). 폰 브라우저의 마이크 권한(secure context) 위해 https 종단.
+window.VOICE_SERVICE_URL = 'https://192.168.0.133:8010';
+</script>
 
 <script>
 // ─── DATA (백엔드에서 fetch) ──────────────────────────
 let MENU = [];
 let ALLERGY_INFO = [];
-let TABLE_STATUS = [];   // ['empty','occupied',...]
 
 const SHOT_SURCHARGE = 500;
 const LOWFAT_SURCHARGE = 300;
 
 // ─── STATE ──────────────────────────────────────────
-let cart = [];         // { menuId, qty, options: {shot, ice, milk} }
+let cart = [];
 let currentScreen = 'screen-standby';
 let currentOptionIndex = 0;
-let selectedPayment = null;
-let selectedTable = null;
 let orderNumber = null;
-
-// ─── VOICE ──────────────────────────────────────────
-const VOICE_MAP = {
-  'screen-menu': '001', 'screen-confirm': '002', 'screen-options': '003',
-  'screen-allergy': '004', 'screen-payment': '005', 'screen-delivery': '006',
-  'screen-table': '007', 'screen-complete': '015', 'screen-complete-serving': '017',
-};
-let currentAudio = null;
-function playVoice(num, onended) {
-  if (currentAudio) { try { currentAudio.pause(); } catch (_) {} currentAudio = null; }
-  if (!num) return;
-  const audio = new Audio(`/audio/${num}.wav`);
-  currentAudio = audio;
-  if (onended) audio.addEventListener('ended', onended);
-  audio.play().catch(() => {});
-}
 
 // ─── API ────────────────────────────────────────────
 const API_BASE_URL = location.origin;
@@ -726,17 +590,13 @@ async function api(path, opts = {}) {
 
 async function loadMenu()    { MENU = await api('/api/menu'); }
 async function loadAllergy() { ALLERGY_INFO = await api('/api/allergy'); }
-async function loadTables()  {
-  const tables = await api('/api/tables');
-  TABLE_STATUS = tables.map(t => t.status);
-}
 
-function buildOrderPayload(receiveType, tableNo) {
+function buildOrderPayload() {
   return {
-    channel: 'kiosk',
-    receive_type: receiveType,
-    payment: selectedPayment,
-    table_no: tableNo ?? null,
+    channel: 'table',
+    delivery: 'serving',
+    payment: null,
+    table_no: window.TABLE_NO ?? null,
     items: cart.map(ci => ({
       menu_id: ci.menuId,
       qty: ci.qty,
@@ -755,20 +615,9 @@ function showScreen(id) {
   next.classList.add('active');
   setTimeout(()=>next.classList.add('visible'), 10);
 
-  // 주문번호 표시 화면 또는 대기화면 도달 시 음성 follow-up 종료 (KWS 대기로 복귀).
-  if (id === 'screen-complete' || id === 'screen-complete-serving' || id === 'screen-standby') {
+  // 카운터 안내 또는 standby 도달 시 follow-up 종료 (PTT 모드라 자동 idle 이지만 일관성)
+  if (id === 'screen-counter' || id === 'screen-standby') {
     if (typeof window.voiceIdle === 'function') window.voiceIdle();
-  }
-
-  const voiceNum = VOICE_MAP[id];
-  if (!voiceNum) return;
-  if (id === 'screen-table') {
-    playVoice(voiceNum, () => {
-      const idx = TABLE_STATUS.findIndex((s, i) => i < 5 && s !== 'occupied');
-      if (idx >= 0) playVoice(String(8 + idx).padStart(3, '0'));
-    });
-  } else {
-    playVoice(voiceNum);
   }
 }
 
@@ -860,7 +709,6 @@ async function goToMenu() {
 // ─── CONFIRM SCREEN ─────────────────────────────────
 function goToConfirm() {
   if (cart.length === 0) { alert('메뉴를 선택해 주세요!'); return; }
-
   const list = document.getElementById('confirm-list');
   list.innerHTML = cart.map(ci => {
     const m = MENU.find(m=>m.id===ci.menuId);
@@ -991,9 +839,7 @@ async function goToAllergy() {
   const grid = document.getElementById('allergy-grid');
   grid.innerHTML = ALLERGY_INFO.map(a => {
     const hasIt = a.items.some(i => myItems.includes(i));
-    const onClick = hasIt
-      ? ` onclick="showAllergyWarning('${a.name}')"`
-      : '';
+    const onClick = hasIt ? ` onclick="showAllergyWarning('${a.name}')"` : '';
     return `<div class="allergy-badge ${hasIt?'has-allergy':''}"${onClick}>
       <span class="icon">${a.icon}</span>
       <div class="text">
@@ -1006,7 +852,6 @@ async function goToAllergy() {
 }
 
 function allergyIssue() {
-  playVoice('013');
   alert('직원을 호출합니다. 잠시만 기다려 주세요.');
 }
 
@@ -1024,115 +869,40 @@ function showAllergyWarning(allergyName) {
   });
 }
 
-// ─── PAYMENT ─────────────────────────────────────────
-function goToPayment() {
-  document.getElementById('payment-total-amt').textContent = '₩' + cartTotal().toLocaleString();
-  selectedPayment = null;
-  document.getElementById('pay-card').classList.remove('selected');
-  document.getElementById('pay-apple').classList.remove('selected');
-  document.getElementById('pay-samsung').classList.remove('selected');
-  showScreen('screen-payment');
-}
-
-const PAYMENT_LABELS = { card: '카드 결제 처리 중...', apple_pay: 'Apple Pay 인증 중...', samsung_pay: 'Samsung Pay 인증 중...' };
-
-function selectPayment(type) {
-  selectedPayment = type;
-  document.getElementById('pay-card').classList.toggle('selected', type==='card');
-  document.getElementById('pay-apple').classList.toggle('selected', type==='apple_pay');
-  document.getElementById('pay-samsung').classList.toggle('selected', type==='samsung_pay');
-}
-
-function processPayment() {
-  if (!selectedPayment) { alert('결제 방법을 선택해 주세요.'); return; }
-  const overlay = document.createElement('div');
-  overlay.className = 'processing-overlay';
-  overlay.innerHTML = `<div class="spinner"></div><div class="processing-text">${PAYMENT_LABELS[selectedPayment] || '결제 처리 중...'}</div>`;
-  document.getElementById('screen-payment').appendChild(overlay);
-  setTimeout(() => { overlay.remove(); showScreen('screen-delivery'); }, 2000);
-}
-
-// ─── DELIVERY ────────────────────────────────────────
-async function selectDelivery(type) {
-  if (type === 'pickup') {
-    try {
-      const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload('take_out')) });
-      orderNumber = r.order_number;
-      document.getElementById('order-number-pickup').textContent = orderNumber;
-      showScreen('screen-complete');
-      startCountdown('bar-pickup', ()=>{ resetSession(); });
-    } catch (e) {
-      alert('주문 생성 실패: ' + e.message);
-    }
-  } else {
-    try { await loadTables(); } catch (e) { alert('테이블 정보를 불러오지 못했습니다: ' + e.message); return; }
-    renderTableMap();
-    showScreen('screen-table');
-  }
-}
-
-// ─── TABLE MAP ────────────────────────────────────────
-function renderTableMap() {
-  selectedTable = null;
-  const grid = document.getElementById('table-grid');
-  grid.innerHTML = TABLE_STATUS.map((s,i) => `
-    <div class="table-cell ${s==='occupied'?'occupied':''}" id="tc-${i}" onclick="selectTableCell(${i}, '${s}')">
-      <span class="t-icon">${s==='occupied'?'👥':'🪑'}</span>
-      <span>${i+1}번</span>
-    </div>
-  `).join('');
-  const btn = document.getElementById('confirm-table-btn');
-  btn.disabled = true;
-  btn.style.opacity = '0.5';
-  btn.textContent = '테이블 선택 후 확인';
-}
-
-function selectTableCell(i, status) {
-  if (status === 'occupied') return;
-  selectedTable = i + 1;
-  document.querySelectorAll('.table-cell').forEach((el,j) => {
-    el.classList.toggle('selected-table', j===i);
-    if (j===i) el.querySelector('.t-icon').textContent = '📍';
-    else if (TABLE_STATUS[j]!=='occupied') el.querySelector('.t-icon').textContent = '🪑';
-  });
-  const btn = document.getElementById('confirm-table-btn');
-  btn.disabled = false; btn.style.opacity = '1';
-  btn.textContent = `${selectedTable}번 테이블로 서빙 확인`;
-}
-
-async function confirmTable() {
-  if (!selectedTable) return;
+// ─── COUNTER (테이블 주문 제출) ───────────────────────
+async function submitTableOrder() {
+  if (cart.length === 0) { alert('주문할 메뉴가 없습니다.'); return; }
   try {
-    const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload('dine_in', selectedTable)) });
+    const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload()) });
     orderNumber = r.order_number;
-    document.getElementById('order-number-serving').textContent = orderNumber;
-    document.getElementById('serving-complete-text').textContent =
-      `${selectedTable}번 테이블로 서빙하겠습니다.\n상품이 준비되면 곧 서빙하겠습니다.`;
-    showScreen('screen-complete-serving');
-    startCountdown('bar-serving', ()=>{ resetSession(); });
+    document.getElementById('order-number-counter').textContent = orderNumber;
+    const tableLabel = window.TABLE_NO ? `${window.TABLE_NO}번 테이블로` : '주문하신 자리로';
+    document.getElementById('counter-voice-text').textContent =
+      `카운터에서 결제 후 ${tableLabel} 가져다 드리겠습니다.`;
+    document.getElementById('counter-desc').innerHTML =
+      `이 번호를 카운터에 알려 주세요.<br>감사합니다 😊`;
+    showScreen('screen-counter');
+    startCountdown('bar-counter', () => { resetSession(); }, 8000);
   } catch (e) {
-    if (e.status === 409) {
-      playVoice('014');
-      alert('해당 테이블은 방금 점유되었습니다. 다른 테이블을 선택해 주세요.');
-      try { await loadTables(); renderTableMap(); } catch (_) {}
-    } else {
-      alert('주문 생성 실패: ' + e.message);
-    }
+    alert('주문 생성 실패: ' + e.message);
   }
 }
+window.submitTableOrder = submitTableOrder;
+// intent_handler 의 일부 경로가 goToPayment 를 부를 경우에 대비한 안전망 (table 모드에서도 호출되면 카운터로 직행)
+window.goToPayment = submitTableOrder;
 
 // ─── COUNTDOWN ────────────────────────────────────────
-function startCountdown(barId, cb) {
+function startCountdown(barId, cb, durationMs) {
+  const dur = durationMs || 3000;
   const bar = document.getElementById(barId);
+  if (!bar) { setTimeout(cb, dur + 200); return; }
   bar.style.transition = 'none'; bar.style.width = '100%';
-  setTimeout(()=>{ bar.style.transition = 'width 3s linear'; bar.style.width = '0%'; }, 50);
-  setTimeout(cb, 3200);
+  setTimeout(()=>{ bar.style.transition = `width ${dur/1000}s linear`; bar.style.width = '0%'; }, 50);
+  setTimeout(cb, dur + 200);
 }
 
 function resetSession() {
   cart = [];
-  selectedPayment = null;
-  selectedTable = null;
   orderNumber = null;
   showScreen('screen-standby');
 }
@@ -1142,19 +912,22 @@ const initScreen = document.getElementById('screen-standby');
 initScreen.classList.add('active');
 setTimeout(()=>initScreen.classList.add('visible'), 50);
 
-// 메뉴를 미리 prefetch (대기 화면에서 백그라운드로)
+// 테이블 번호 표시
+(() => {
+  const label = window.TABLE_NO ? `TABLE ${window.TABLE_NO}` : '테이블 정보 없음';
+  const stdLabel = document.getElementById('standby-table-label');
+  const hdrLabel = document.getElementById('hdr-table-label');
+  if (stdLabel) stdLabel.textContent = label;
+  if (hdrLabel) hdrLabel.textContent = label;
+})();
+
+// 백그라운드 prefetch
 loadMenu().catch(()=>{});
 loadAllergy().catch(()=>{});
 </script>
 
-<!-- voice: KWS (onnxruntime-web) + VAD (silero-vad-web) + ASR/LLM (pai-server voice_service) -->
-<script>
-  // pai-server 의 voice_service 위치. 키오스크 PC 와 같은 LAN.
-  // 폰(table 모드) 의 마이크 권한 위해 voice_service 도 https 로 종단되어 두 채널 통일.
-  window.VOICE_SERVICE_URL = 'https://192.168.0.133:8010';
-</script>
+<!-- voice: 같은 origin 의 shared 자산을 그대로 재사용 (kiosk.html 와 동일 경로) -->
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
 <script src="/order_vui/shared/checkout_rules.js"></script>
 <script src="/order_vui/shared/intent_handler.js"></script>
 <script src="/order_vui/shared/voice.js"></script>

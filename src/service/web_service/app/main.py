@@ -3,8 +3,11 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
 
 from app.dependencies import config, logger, status_service
+from app.config import ORDER_VUI_DIR
 from app.routers import menu as menu_router
 from app.routers import orders as orders_router
 from app.routers import pages as pages_router
@@ -43,3 +46,6 @@ app.include_router(tables_router.router)
 app.include_router(orders_router.router)
 app.include_router(pages_router.router)
 app.include_router(status_router.router)
+
+app.mount("/audio", StaticFiles(directory=ORDER_VUI_DIR / "audio"), name="audio")
+app.mount("/order_vui", StaticFiles(directory=ORDER_VUI_DIR), name="order_vui")

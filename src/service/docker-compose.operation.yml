@@ -17,6 +17,17 @@ services:
     volumes:
       - ../app/order_vui:/app/ui/order_vui:ro
       - ../app/table_gui:/app/ui/table_gui:ro
+      - ./certs:/certs:ro
+    # 폰의 getUserMedia (마이크) 는 secure context 만 허용해 https 가 필수.
+    # mkcert 로 발급한 self-signed CA 인증서를 mount 해서 uvicorn 으로 HTTPS 종단.
+    command:
+      [
+        "uvicorn", "app.main:app",
+        "--host", "0.0.0.0",
+        "--port", "8000",
+        "--ssl-certfile", "/certs/cert.pem",
+        "--ssl-keyfile", "/certs/key.pem",
+      ]
 
   moca_db:
     image: mysql:8.4
