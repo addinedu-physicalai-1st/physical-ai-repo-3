@@ -399,6 +399,8 @@ class OpServerNode(Node):
             'a': float(msg.emotion.arousal),
             'conf': float(msg.emotion.confidence),
             'reason': msg.reason,
+            'track_id': int(msg.emotion.track_id),
+            'group_id': int(msg.emotion.group_id),
             'ts': time.time(),
         }
         self._rapport_events.append(rec)
@@ -421,6 +423,8 @@ class OpServerNode(Node):
             'conf': float(msg.confidence),
             'source': msg.source,
             'flags': list(msg.flags),
+            'track_id': int(msg.track_id),
+            'group_id': int(msg.group_id),
             'ts': time.time(),
         }
         self._emotion_state = rec
@@ -614,11 +618,13 @@ class OpServerNode(Node):
         msg.data = table_id
         self.pub_serving_goto.publish(msg)
 
-    def publish_dialog_router_in(self, text: str, persona: str = '') -> bool:
+    def publish_dialog_router_in(self, text: str, persona: str = '',
+                                  face_expression: str = '') -> bool:
         """engaging-analytics 강제 발화 (Task 4) — /dialog/router_in 발행.
 
         teleop_server.publish_utter (web/teleop_server.py:1322) 패턴 포팅 —
-        operator 우선순위 + preempt=True 로 즉시 발화.
+        operator 우선순위 + preempt=True 로 즉시 발화. face_expression 채우면
+        tts_node 가 발화 직전 /face_avatar/expression 도 함께 변경.
         """
         msg = UtterRequest()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -627,6 +633,7 @@ class OpServerNode(Node):
         msg.priority = 10
         msg.preempt = True
         msg.persona_id = persona or ''
+        msg.face_expression = face_expression or ''
         self.pub_router_in.publish(msg)
         return True
 
