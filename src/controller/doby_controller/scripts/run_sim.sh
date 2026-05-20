@@ -57,14 +57,21 @@ log "Step 1/3 — Gazebo 시뮬 풀 스택"
 if [ "$NO_NAV2" = 1 ]; then
     log "  (--no-nav2) Gazebo + Nav2 skip — UI 단독 검증 모드"
 else
-    bash "$SCRIPT_DIR/run_nav2_sim.sh" $NAV2_OPT
+    if ! bash "$SCRIPT_DIR/run_nav2_sim.sh" $NAV2_OPT; then
+        log "Step 1 실패 — Gazebo/Nav2가 기동되지 않아 중단합니다."
+        log "  로그와 맵 자산을 확인하세요: $SCRIPT_DIR/../maps/mapv5_mocamap.yaml"
+        exit 1
+    fi
 fi
 
 echo ""
 log "Step 2/3 — 운영 UI (DOMAIN=99 시뮬)"
 # ★ run_dashboard.sh 의 --cleanup 은 stop_moca.sh ('ros2 launch' 매칭) 호출 →
 #   방금 띄운 Gazebo+Nav2 launch 가 같이 죽음. run_sim 흐름에선 절대 forward X.
-bash "$SCRIPT_DIR/run_dashboard.sh" --domain=99 --no-browser $DASH_TEST_OPT
+if ! bash "$SCRIPT_DIR/run_dashboard.sh" --domain=99 --no-browser $DASH_TEST_OPT; then
+    log "Step 2 실패 — 운영 UI 기동 실패."
+    exit 1
+fi
 
 echo ""
 log "Step 3/3 — 브라우저 open"
