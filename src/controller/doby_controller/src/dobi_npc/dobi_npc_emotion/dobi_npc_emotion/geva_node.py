@@ -231,16 +231,15 @@ class GevaNode(Node):
         empty tracks 도 alive 신호로 _last_tracks_ts 갱신 — stale guard 와 구분.
         spec: docs/superpowers/specs/2026-05-21-track-id-integration-design.md §5.2
         """
-        import time as _time
         if not msg.tracks:
             self._closest_track_id = -1
             self._closest_group_id = -1
-            self._last_tracks_ts = _time.time()
+            self._last_tracks_ts = time.time()
             return
         top = select_closest_track(msg.tracks)
         self._closest_track_id = int(top.track_id)
         self._closest_group_id = int(top.group_id)
-        self._last_tracks_ts = _time.time()
+        self._last_tracks_ts = time.time()
 
     def _tick(self):
         with self._frame_lock:
@@ -269,8 +268,7 @@ class GevaNode(Node):
             msg.confidence = 0.0
             msg.flags = ["no_face"]
             # 2026-05-21 Track B — track_id/group_id (stale guard 포함)
-            import time as _time_b
-            if _time_b.time() - self._last_tracks_ts > self._tracks_stale_timeout:
+            if time.time() - self._last_tracks_ts > self._tracks_stale_timeout:
                 msg.track_id = -1
                 msg.group_id = -1
             else:
@@ -291,8 +289,7 @@ class GevaNode(Node):
         msg.confidence = top
         msg.flags = [f"top:{top_emotion}"]
         # 2026-05-21 Track B — track_id/group_id (stale guard 포함)
-        import time as _time_b
-        if _time_b.time() - self._last_tracks_ts > self._tracks_stale_timeout:
+        if time.time() - self._last_tracks_ts > self._tracks_stale_timeout:
             msg.track_id = -1
             msg.group_id = -1
         else:
