@@ -45,3 +45,12 @@ pydantic>=2,<3
 # 본격 사용 전엔 주석 처리.
 # asyncpg
 # alembic
+
+# ============================================================
+# ROS2 Build & System Compatibility
+# ============================================================
+# ROS2 Jazzy build tool / launch-ros / parameter library compatibility
+setuptools
+jinja2
+typeguard
+empy==3.3.4
