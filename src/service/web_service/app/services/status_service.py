@@ -12,13 +12,8 @@ class StatusService:
 
     def status_data(self) -> dict[str, Any]:
         return {
-            "role": "Accepts HTTP requests from app clients and communicates with OperationService over TCP.",
-            "dependencies": {
-                "moca_service": {
-                    "host": self.config.moca_service_host,
-                    "port": self.config.moca_service_port,
-                },
-            },
+            "role": "Serves dummy HTTP data and accepts OperationService TCP probes.",
+            "dependencies": {},
             "listeners": {
                 "http": {"host": self.config.http_host, "port": self.config.http_port},
                 "tcp": {"host": self.config.tcp_host, "port": self.config.tcp_port},

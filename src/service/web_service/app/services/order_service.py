@@ -1,22 +1,15 @@
 import threading
 import uuid
-from typing import Protocol
 
 from app.models.order import Order, OrderCreate
 from app.models.menu import MenuItem
-from app.clients.moca_tcp_client import (
-    MocaOrderClientError,
-    MocaOrderRejected,
-)
-from app.clients.moca_shared import get_order_client
 from app.services import menu_service
-from app.protocol.order_protocol import MocaOrderItem
 
 
 _lock = threading.Lock()
 _orders: dict[str, Order] = {}
 _counter = 41  # 키오스크 원본의 첫 표시값(42)에 맞춤
-_order_client = get_order_client()
+_moca_order_counter = 1000
 
 
 class OrderError(Exception):
@@ -43,16 +36,12 @@ class OrderRejected(OrderError):
     pass
 
 
-def set_order_client(client) -> None:
-    global _order_client
-    _order_client = client
-
-
 def reset() -> None:
-    global _counter
+    global _counter, _moca_order_counter
     with _lock:
         _orders.clear()
         _counter = 41
+        _moca_order_counter = 1000
 
 
 def _calc_total(payload: OrderCreate) -> int:
@@ -74,22 +63,15 @@ def _calc_total(payload: OrderCreate) -> int:
 
 
 def create(payload: OrderCreate) -> Order:
-    global _counter
+    global _counter, _moca_order_counter
 
     total = _calc_total(payload)
 
-    try:
-        moca_order_id = _order_client.create_order(
-            [MocaOrderItem(product_id=item.menu_id, quantity=item.qty) for item in payload.items],
-        )
-    except MocaOrderRejected as exc:
-        raise OrderRejected(str(exc)) from exc
-    except MocaOrderClientError as exc:
-        raise OrderServiceUnavailable(str(exc)) from exc
-
     with _lock:
         _counter += 1
+        _moca_order_counter += 1
         order_number = _counter
+        moca_order_id = _moca_order_counter
         order_id = uuid.uuid4().hex
         order = Order(
             id=order_id,

@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from app.clients.moca_tcp_client import (
@@ -48,7 +50,7 @@ def test_moca_tcp_rejects_large_payload_size():
         decode_header(bytes([CMD_MENU, METHOD_GET, 1, 0, 16, 0, 1]))
 
 
-def test_moca_tcp_clients_send_catalog_and_order_requests(monkeypatch):
+def test_moca_tcp_clients_send_catalog_and_order_requests(monkeypatch, caplog):
     requests = []
     sockets = []
 
@@ -62,8 +64,9 @@ def test_moca_tcp_clients_send_catalog_and_order_requests(monkeypatch):
     catalog_client = MocaTcpCatalogClient("127.0.0.1", 9001, timeout_sec=1.0)
     order_client = MocaTcpOrderClient("127.0.0.1", 9001, timeout_sec=1.0)
 
-    catalog = catalog_client.fetch_catalog()
-    order_id = order_client.create_order([MocaOrderItem(product_id=258, quantity=3)])
+    with caplog.at_level(logging.INFO, logger="web_service"):
+        catalog = catalog_client.fetch_catalog()
+        order_id = order_client.create_order([MocaOrderItem(product_id=258, quantity=3)])
     catalog_client.close()
     order_client.close()
 
@@ -79,6 +82,13 @@ def test_moca_tcp_clients_send_catalog_and_order_requests(monkeypatch):
     assert requests[1][1] == b""
     assert requests[2][0].sequence == 1
     assert requests[2][1] == bytes([1, 1, 2, 3])
+    payload_logs = [record.message for record in caplog.records if "parsed MOCA response payload" in record.message]
+    assert payload_logs
+    assert any("'menu': []" in message for message in payload_logs)
+    assert any("'allergy': []" in message for message in payload_logs)
+    assert any("'status': 'ok', 'order_id': 1001" in message for message in payload_logs)
+    assert all("cmd_type" not in message for message in payload_logs)
+    assert all("payload_size" not in message for message in payload_logs)
 
 
 def test_moca_tcp_catalog_client_sends_menu_option_request(monkeypatch):
@@ -138,7 +148,7 @@ def test_moca_tcp_table_client_sends_table_request(monkeypatch):
     client.close()
 
 
-def test_moca_tcp_table_client_sends_assignment_request(monkeypatch):
+def test_moca_tcp_table_client_sends_assignment_request(monkeypatch, caplog):
     requests = []
 
     def create_connection(address, timeout):
@@ -147,16 +157,22 @@ def test_moca_tcp_table_client_sends_assignment_request(monkeypatch):
     monkeypatch.setattr("socket.create_connection", create_connection)
     client = MocaTcpTableClient("127.0.0.1", 9001, timeout_sec=1.0)
 
-    client.assign_table(1001, "dine_in", 2)
+    with caplog.at_level(logging.INFO, logger="web_service"):
+        client.assign_table(1001, "dine_in", 2)
 
     assert len(requests) == 1
     assert requests[0][0].cmd_type == CMD_TABLE
     assert requests[0][0].method == METHOD_SET
     assert requests[0][1] == encode_table_assignment_request_payload(1001, "dine_in", 2)
+    payload_logs = [record.message for record in caplog.records if "parsed MOCA response payload" in record.message]
+    assert payload_logs
+    assert "'status': 'ok'" in payload_logs[-1]
+    assert "sequence" not in payload_logs[-1]
+    assert "payload_size" not in payload_logs[-1]
     client.close()
 
 
-def test_moca_tcp_table_client_maps_assignment_rejection(monkeypatch):
+def test_moca_tcp_table_client_maps_assignment_rejection(monkeypatch, caplog):
     fake_socket = FakeSocket([], table_assignment_error=True)
 
     def create_connection(address, timeout):
@@ -165,8 +181,14 @@ def test_moca_tcp_table_client_maps_assignment_rejection(monkeypatch):
     monkeypatch.setattr("socket.create_connection", create_connection)
     client = MocaTcpTableClient("127.0.0.1", 9001, timeout_sec=1.0)
 
-    with pytest.raises(MocaTableAssignmentRejected):
-        client.assign_table(1001, "dine_in", 2)
+    with caplog.at_level(logging.INFO, logger="web_service"):
+        with pytest.raises(MocaTableAssignmentRejected):
+            client.assign_table(1001, "dine_in", 2)
+    payload_logs = [record.message for record in caplog.records if "parsed MOCA response payload" in record.message]
+    assert payload_logs
+    assert "'status': 'error'" in payload_logs[-1]
+    assert "'error_code': 5" in payload_logs[-1]
+    assert "'message': 'table occupied'" in payload_logs[-1]
     client.close()
 
 

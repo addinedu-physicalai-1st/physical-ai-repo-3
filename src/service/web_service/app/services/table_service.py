@@ -1,22 +1,14 @@
 import threading
 
-from app.clients.moca_shared import get_table_client
-from app.clients.moca_tcp_client import MocaTableClientError
 from app.data.seed import INITIAL_TABLE_STATUS
 from app.models.table import Table, TableStatus
 
 _lock = threading.Lock()
 _status: list[TableStatus] = []
-_table_client = get_table_client()
 
 
 class TableServiceUnavailable(RuntimeError):
     pass
-
-
-def set_table_client(client) -> None:
-    global _table_client
-    _table_client = client
 
 
 def reset() -> None:
@@ -26,10 +18,8 @@ def reset() -> None:
 
 
 def list_tables() -> list[Table]:
-    try:
-        return [Table.model_validate(table) for table in _table_client.fetch_tables()]
-    except MocaTableClientError as exc:
-        raise TableServiceUnavailable(str(exc)) from exc
+    with _lock:
+        return [Table(id=index + 1, status=status) for index, status in enumerate(_status)]
 
 
 def get_status(table_no: int) -> TableStatus | None:

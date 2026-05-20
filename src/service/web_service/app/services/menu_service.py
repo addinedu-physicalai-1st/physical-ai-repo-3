@@ -1,25 +1,14 @@
-from typing import Any, Protocol
+from typing import Any
 
-from app.clients.moca_shared import get_catalog_client, MocaTcpCatalogClient
-from app.clients.moca_tcp_client import MocaCatalogClientError
+from app.data.seed import DUMMY_CATALOG
 from app.models.menu import AllergyInfo, MenuItem
-
-_catalog_client = get_catalog_client()
 
 class MenuServiceUnavailable(RuntimeError):
     pass
 
 
-def set_catalog_client(client) -> None:
-    global _catalog_client
-    _catalog_client = client
-
-
 def fetch_catalog() -> dict[str, Any]:
-    try:
-        return _catalog_client.fetch_catalog()
-    except MocaCatalogClientError as exc:
-        raise MenuServiceUnavailable(str(exc)) from exc
+    return DUMMY_CATALOG
 
 
 def list_menu() -> list[MenuItem]:
