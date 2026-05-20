@@ -85,11 +85,17 @@ class RapportTrackerNode(Node):
         # hysteresis: ON/OFF 둘 다 연속 카운트 임계 (10Hz @ 5프레임 ≈ 0.5초)
         self.declare_parameter('abort_on_count', 5)
         self.declare_parameter('abort_off_count', 5)
+        # 2026-05-20 — confidence-weighted EMA 파라미터 (spec §5)
+        self.declare_parameter('ema_alpha_base', 0.5)
+        self.declare_parameter('conf_min_gate', 0.3)
 
         in_topic = self.get_parameter('input_topic').value
         out_topic = self.get_parameter('output_topic').value
         self._abort_on_count = int(self.get_parameter('abort_on_count').value)
         self._abort_off_count = int(self.get_parameter('abort_off_count').value)
+        self._ema_alpha_base = float(self.get_parameter('ema_alpha_base').value)
+        self._conf_min_gate = float(self.get_parameter('conf_min_gate').value)
+        self._ema = EMAState()
 
         self.sub = self.create_subscription(
             EmotionState, in_topic, self._on_emotion, 10
@@ -104,7 +110,8 @@ class RapportTrackerNode(Node):
         self._last_event_type = None
         self.get_logger().info(
             f"rapport_tracker: {in_topic} -> {out_topic}, "
-            f"hysteresis on={self._abort_on_count} off={self._abort_off_count}"
+            f"hysteresis on={self._abort_on_count} off={self._abort_off_count}, "
+            f"EMA α_base={self._ema_alpha_base} gate={self._conf_min_gate}"
         )
 
     def _on_emotion(self, msg: EmotionState):
@@ -113,10 +120,24 @@ class RapportTrackerNode(Node):
         event.header.frame_id = msg.header.frame_id
         event.emotion = msg
 
-        v = msg.valence
-        a = msg.arousal
-
         no_signal = (msg.confidence <= 0.0) or ("no_face" in msg.flags)
+
+        # 2026-05-20 EMA update (spec §3) — smoothed V·A 로 분류
+        self._ema.update(
+            v_now=msg.valence, a_now=msg.arousal, conf=msg.confidence,
+            no_signal=no_signal,
+            alpha_base=self._ema_alpha_base,
+            conf_min_gate=self._conf_min_gate,
+        )
+        # smoothed 가 아직 없으면 (전부 no_signal/low_conf) raw 사용 — cold start fallback
+        v = self._ema.v_smooth if self._ema.v_smooth is not None else msg.valence
+        a = self._ema.a_smooth if self._ema.a_smooth is not None else msg.arousal
+
+        # 2026-05-20 — RapportEvent.emotion.valence/arousal 만 smoothed (spec §6)
+        # confidence/source/flags 는 raw 그대로 (운영자 디버깅)
+        event.emotion.valence = v
+        event.emotion.arousal = a
+
         raw_abort = (
             (not no_signal) and
             (v < ABORT_VALENCE_MAX) and (a > ABORT_AROUSAL_MIN)
