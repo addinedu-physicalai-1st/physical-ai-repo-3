@@ -131,6 +131,22 @@ def emotion_scores_to_va(scores: dict) -> tuple[float, float, float]:
     return float(np.clip(v, -1.0, 1.0)), float(np.clip(a, -1.0, 1.0)), float(top)
 
 
+def select_closest_track(tracks):
+    """가장 큰 bbox area 의 PersonTrack 반환. tracks 빈 list → None.
+
+    bbox 가 inverted (x2<x1 또는 y2<y1) 면 area=0 으로 clamp. 동일 크기 tie 시
+    Python max stable behavior 로 첫 번째 선택.
+
+    spec: docs/superpowers/specs/2026-05-21-track-id-integration-design.md §5.2
+    """
+    if not tracks:
+        return None
+    def _area(t):
+        b = t.bbox
+        return max(0.0, (b[2] - b[0])) * max(0.0, (b[3] - b[1]))
+    return max(tracks, key=_area)
+
+
 class GevaNode(Node):
     """GEVA 노드 — 노트북 웹캠 → 표정 → V·A → /emotion/state."""
 
