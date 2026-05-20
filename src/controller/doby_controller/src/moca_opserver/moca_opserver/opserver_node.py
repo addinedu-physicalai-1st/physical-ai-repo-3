@@ -730,7 +730,10 @@ class OpServerNode(Node):
                 {'type': r['type'], 'weight': round(r['weight'], 2),
                  'v': round(r['v'], 2), 'a': round(r['a'], 2),
                  'conf': round(r['conf'], 2),
-                 'reason': r['reason'], 'ts': round(r['ts'], 3)}
+                 'reason': r['reason'],
+                 'track_id': r.get('track_id'),
+                 'group_id': r.get('group_id'),
+                 'ts': round(r['ts'], 3)}
                 for r in list(self._rapport_events)
             ],
         }
