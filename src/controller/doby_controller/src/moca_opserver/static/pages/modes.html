@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/css/tokens.css?v=20260517r">
   <link rel="stylesheet" href="/static/css/reset.css?v=20260517r">
   <link rel="stylesheet" href="/static/css/layout.css?v=20260517r">
-  <link rel="stylesheet" href="/static/css/components.css?v=20260521a">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260521b">
 </head>
 <body>
   <div class="app-shell">
@@ -233,6 +233,9 @@
             <div class="ev-neut">(아직 이벤트 없음)</div>
           </div>
 
+          <h4 class="card__subtitle">시계열 추이 (최근 1분)</h4>
+          <engagement-timeline id="ea-timeline"></engagement-timeline>
+
           <h4 class="card__subtitle">미니게임 결과</h4>
           <div id="ea-mg-recent">
             <div class="muted">(아직 결과 없음)</div>
@@ -283,7 +286,8 @@
   <script src="/static/components/safety-indicator.js?v=20260517r"></script>
   <script src="/static/components/robot-status.js?v=20260517r"></script>
   <script src="/static/components/header-clock.js?v=20260517r"></script>
-  <script src="/static/js/engaging-analytics.js?v=20260521a"></script>
+  <script src="/static/components/engagement-timeline.js?v=20260521b"></script>
+  <script src="/static/js/engaging-analytics.js?v=20260521b"></script>
 
   <script>
     (function () {

@@ -1064,3 +1064,51 @@ event-feed { display: block; }
 .console-log .log-warn { color: var(--warning); }
 .console-log .log-err  { color: var(--danger); }
 .console-log .log-info { color: var(--text-muted); }
+
+/* engagement-timeline web component (Track C 2026-05-21) */
+engagement-timeline {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  margin: var(--space-3) auto 0;
+}
+.engagement-timeline {
+  display: block;
+  width: 100%;
+  height: 220px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.engagement-timeline .et-axis {
+  stroke: var(--border-strong);
+  stroke-width: 0.5;
+}
+.engagement-timeline .et-grid {
+  stroke: var(--border);
+  stroke-width: 0.3;
+  stroke-dasharray: 2 3;
+}
+.engagement-timeline .et-line-v {
+  stroke: var(--pink-soft);
+  fill: none;
+  stroke-width: 1.5;
+}
+.engagement-timeline .et-line-a {
+  stroke: var(--cyan-accent);
+  fill: none;
+  stroke-width: 1.5;
+}
+.engagement-timeline .et-line-score {
+  stroke: var(--success);
+  fill: none;
+  stroke-width: 2;
+}
+.engagement-timeline .et-marker-up   { fill: var(--success); }
+.engagement-timeline .et-marker-down { fill: var(--warning); }
+.engagement-timeline .et-marker-abort { fill: var(--danger); }
+.engagement-timeline .et-legend {
+  fill: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}

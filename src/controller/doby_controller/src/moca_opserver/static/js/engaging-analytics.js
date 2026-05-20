@@ -164,6 +164,9 @@
           renderEmotion(j.emotion);
           renderRapport(j.rapport);
           renderMinigame(j.minigame);
+          // 2026-05-21 Track C — engagement-timeline 갱신
+          const tl = document.querySelector('engagement-timeline');
+          if (tl && typeof tl.render === 'function') tl.render(j);
         } catch (err) { /* ignore */ }
       };
       this.ws.onclose = () => {
