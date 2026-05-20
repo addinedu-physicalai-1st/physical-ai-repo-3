@@ -1,19 +1,31 @@
 from typing import Any
 
-from app.data.seed import DUMMY_CATALOG
 from app.models.menu import AllergyInfo, MenuItem
+
 
 class MenuServiceUnavailable(RuntimeError):
     pass
 
 
 def fetch_catalog() -> dict[str, Any]:
-    return DUMMY_CATALOG
+    return {
+        "menu": [item.model_dump() for item in list_menu()],
+        "allergy": [item.model_dump() for item in list_allergy()],
+        "surcharges": get_surcharges(),
+    }
 
 
 def list_menu() -> list[MenuItem]:
-    catalog = fetch_catalog()
-    return [MenuItem.model_validate(item) for item in catalog.get("menu", [])]
+    return [
+        MenuItem(id=1, name="아메리카노", emoji="☕", price=3500, hot=True, shot=True, ice=True, milk=False),
+        MenuItem(id=2, name="카페라떼", emoji="☕", price=4500, hot=True, shot=True, ice=True, milk=True),
+        MenuItem(id=3, name="카푸치노", emoji="🫧", price=4500, hot=True, shot=True, ice=False, milk=True),
+        MenuItem(id=4, name="바닐라라떼", emoji="🌼", price=5000, hot=True, shot=True, ice=True, milk=True),
+        MenuItem(id=5, name="카라멜마키아토", emoji="🍮", price=5500, hot=True, shot=True, ice=True, milk=True),
+        MenuItem(id=6, name="말차라떼", emoji="🍵", price=5500, hot=True, shot=False, ice=True, milk=True),
+        MenuItem(id=7, name="딸기스무디", emoji="🍓", price=6000, hot=False, shot=False, ice=True, milk=False),
+        MenuItem(id=8, name="치즈케이크", emoji="🍰", price=7000, hot=False, shot=False, ice=False, milk=False),
+    ]
 
 
 def get_menu(menu_id: int) -> MenuItem | None:
@@ -21,10 +33,15 @@ def get_menu(menu_id: int) -> MenuItem | None:
 
 
 def list_allergy() -> list[AllergyInfo]:
-    catalog = fetch_catalog()
-    return [AllergyInfo.model_validate(item) for item in catalog.get("allergy", [])]
+    return [
+        AllergyInfo(name="유제품", icon="🥛", items=["카페라떼", "카푸치노", "바닐라라떼", "카라멜마키아토", "말차라떼"]),
+        AllergyInfo(name="글루텐", icon="🌾", items=["치즈케이크"]),
+        AllergyInfo(name="견과류", icon="🥜", items=["치즈케이크"]),
+        AllergyInfo(name="계란", icon="🥚", items=["치즈케이크"]),
+        AllergyInfo(name="대두", icon="🌱", items=["말차라떼"]),
+        AllergyInfo(name="과일류", icon="🍓", items=["딸기스무디"]),
+    ]
 
 
 def get_surcharges() -> dict[str, int]:
-    catalog = fetch_catalog()
-    return {str(key): int(value) for key, value in catalog.get("surcharges", {}).items()}
+    return {"shot:추가": 500, "milk:저지방": 300}

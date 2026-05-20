@@ -29,7 +29,6 @@ class OrderCreate(BaseModel):
 
 class Order(BaseModel):
     id: str
-    moca_order_id: int
     order_number: int
     channel: Channel
     receive_type: ReceiveType

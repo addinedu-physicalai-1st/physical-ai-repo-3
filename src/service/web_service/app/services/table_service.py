@@ -1,7 +1,10 @@
 import threading
 
-from app.data.seed import INITIAL_TABLE_STATUS
 from app.models.table import Table, TableStatus
+
+_INITIAL_TABLE_STATUS: list[TableStatus] = [
+    "empty", "occupied", "empty", "occupied",
+]
 
 _lock = threading.Lock()
 _status: list[TableStatus] = []
@@ -14,7 +17,7 @@ class TableServiceUnavailable(RuntimeError):
 def reset() -> None:
     global _status
     with _lock:
-        _status = list(INITIAL_TABLE_STATUS)
+        _status = list(_INITIAL_TABLE_STATUS)
 
 
 def list_tables() -> list[Table]:
