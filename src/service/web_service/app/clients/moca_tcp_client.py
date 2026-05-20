@@ -140,19 +140,6 @@ class MocaTcpBaseClient:
 class MocaTcpCatalogClient(MocaTcpBaseClient):
     """Fetches product catalog data from moca_service over raw TCP."""
 
-    def fetch_catalog(self) -> dict[str, Any]:
-        try:
-            menu_options = self.fetch_menu_options()
-            allergy = self.fetch_allergy()
-            return self._to_legacy_catalog(menu_options, allergy)
-        except MocaCatalogClientError:
-            raise
-        except (OSError, ValueError) as exc:
-            self.close()
-            raise MocaCatalogClientError(
-                f"moca_service catalog request failed: {self.host}:{self.port}: {exc}"
-            ) from exc
-
     def fetch_menu_options(self) -> dict[str, Any]:
         """Fetch menu and option catalog data from moca_service."""
 
@@ -162,9 +149,12 @@ class MocaTcpCatalogClient(MocaTcpBaseClient):
                 METHOD_GET,
                 b"",
             )
-            return self._decode_catalog_response(payload, CMD_MENU)
-        except MocaCatalogClientError:
-            raise
+            menu_options = decode_catalog_payload(payload, CMD_MENU)
+            if "error" in menu_options:
+                message = menu_options.get("message", menu_options.get("error", "menu_options error"))
+                raise MocaCatalogClientError(str(message))
+            self._logger.info("moca_service menu options result: %s", menu_options)
+            return menu_options
         except (OSError, ValueError) as exc:
             self.close()
             raise MocaCatalogClientError(
@@ -180,7 +170,12 @@ class MocaTcpCatalogClient(MocaTcpBaseClient):
                 METHOD_GET,
                 b"",
             )
-            return self._decode_catalog_response(payload, CMD_ALLERGY)
+            allergy = decode_catalog_payload(payload, CMD_ALLERGY)
+            if "error" in allergy:
+                message = allergy.get("message", allergy.get("error", "allergy error"))
+                raise MocaCatalogClientError(str(message))
+            self._logger.info("moca_service allergy result: %s", allergy)
+            return allergy
         except MocaCatalogClientError:
             raise
         except (OSError, ValueError) as exc:
@@ -189,56 +184,6 @@ class MocaTcpCatalogClient(MocaTcpBaseClient):
                 f"moca_service allergy request failed: {self.host}:{self.port}: {exc}"
             ) from exc
 
-    def _decode_catalog_response(self, payload: bytes, catalog_type: int) -> dict[str, Any]:
-        catalog = decode_catalog_payload(payload, catalog_type)
-        if "error" in catalog:
-            message = catalog.get("message", catalog.get("error", "catalog error"))
-            raise MocaCatalogClientError(str(message))
-        return catalog
-
-    def _to_legacy_catalog(self, menu_options: dict[str, Any], allergy: dict[str, Any]) -> dict[str, Any]:
-        menu = []
-        surcharges: dict[str, int] = {}
-        for item in menu_options.get("menu", []):
-            options = item.get("options", [])
-            groups = {
-                str(option.get("option_group", "")): True
-                for option in options
-                if isinstance(option, dict)
-            }
-            option_names_by_group: dict[str, set[str]] = {}
-            for option in options:
-                if not isinstance(option, dict):
-                    continue
-                group = str(option.get("option_group", ""))
-                name = str(option.get("option_name", ""))
-                option_names_by_group.setdefault(group, set()).add(name)
-                price = int(option.get("price", 0))
-                if price > 0:
-                    surcharges[f"{self._legacy_option_key(group)}:{name}"] = price
-
-            menu.append(
-                {
-                    "id": int(item["id"]),
-                    "name": str(item.get("name", "")),
-                    "emoji": str(item.get("image", "")),
-                    "price": int(item["price"]),
-                    "hot": "HOT" in option_names_by_group.get("온도", set()),
-                    "ice": "ICE" in option_names_by_group.get("온도", set()),
-                    "shot": "에스프레소 샷" in groups,
-                    "milk": "우유" in groups,
-                }
-            )
-        return {"menu": menu, "allergy": allergy.get("allergy", []), "surcharges": surcharges}
-
-    def _legacy_option_key(self, group_name: str) -> str:
-        return {
-            "에스프레소 샷": "shot",
-            "우유": "milk",
-            "온도": "temperature",
-        }.get(group_name, group_name)
-
-
 class MocaTcpOrderClient(MocaTcpBaseClient):
     """Creates orders in moca_service using the MOCA raw TCP order payload."""
 
@@ -246,7 +191,9 @@ class MocaTcpOrderClient(MocaTcpBaseClient):
         payload = self.encode_order_request(items)
         try:
             _, response_payload = self.request(CMD_ORDER, METHOD_SET, payload)
-            return self._decode_order_response(response_payload)
+            order_id = self._decode_order_response(response_payload)
+            self._logger.info("moca_service order result: order_id=%s", order_id)
+            return order_id
         except MocaOrderRejected:
             raise
         except MocaOrderClientError:
@@ -275,7 +222,9 @@ class MocaTcpTableClient(MocaTcpBaseClient):
     def fetch_tables(self) -> list[dict]:
         try:
             _, payload = self.request(CMD_TABLE, METHOD_GET, b"")
-            return self._decode_table_response(payload)
+            tables = self._decode_table_response(payload)
+            self._logger.info("moca_service table result: %s", tables)
+            return tables
         except MocaTableClientError:
             raise
         except (OSError, ValueError) as exc:
@@ -296,6 +245,12 @@ class MocaTcpTableClient(MocaTcpBaseClient):
         try:
             _, response_payload = self.request(CMD_TABLE, METHOD_SET, payload)
             self._raise_if_assignment_failed(response_payload)
+            self._logger.info(
+                "moca_service table assignment result: order_id=%s receive_type=%s table_id=%s status=ok",
+                order_id,
+                receive_type,
+                table_id,
+            )
         except (MocaTableAssignmentNotFound, MocaTableAssignmentRejected):
             raise
         except MocaTableClientError:
