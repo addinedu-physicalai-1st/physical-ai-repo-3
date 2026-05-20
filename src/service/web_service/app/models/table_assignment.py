@@ -11,5 +11,10 @@ class TableAssignmentCreate(BaseModel):
     table_id: int | None = None
 
 
+class TableAssignmentRequest(BaseModel):
+    order_id: int = Field(gt=0)
+    receive_type: ReceiveType
+
+
 class TableAssignmentResponse(BaseModel):
     success: bool = True
