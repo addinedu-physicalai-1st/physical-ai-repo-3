@@ -20,6 +20,26 @@
     return 'v-mid';
   }
 
+  function renderCustomerLabel(latest) {
+    const el = $('ea-customer');
+    if (!el) return;
+    if (!latest) {
+      el.textContent = '— 손님 대기 중';
+      el.classList.add('unknown');
+      return;
+    }
+    const tid = latest.track_id;
+    const gid = latest.group_id;
+    if (tid === undefined || tid < 0) {
+      el.textContent = '— 손님 인식 X';
+      el.classList.add('unknown');
+    } else {
+      const group = (gid === undefined || gid < 0) ? 'Solo' : `Group #${gid}`;
+      el.textContent = `🎯 Customer #${tid} · ${group}`;
+      el.classList.remove('unknown');
+    }
+  }
+
   function renderEmotion(emo) {
     const trajEl = $('ea-traj');
     if (!emo || !emo.latest) {
@@ -31,6 +51,7 @@
       $('ea-source').textContent = '—';
       $('ea-cur').setAttribute('r', '0');
       if (trajEl) trajEl.innerHTML = '';
+      renderCustomerLabel(null);
       return;
     }
     const L = emo.latest;
@@ -63,6 +84,7 @@
           + `fill="var(--pink-soft)" opacity="${op.toFixed(2)}"></circle>`;
     });
     if (trajEl) trajEl.innerHTML = svg;
+    renderCustomerLabel(emo.latest);
   }
 
   function renderRapport(rap) {
@@ -86,7 +108,9 @@
     recEl.innerHTML = recent.map(r => {
       const t = new Date(r.ts * 1000).toLocaleTimeString('ko-KR');
       const w = (r.weight >= 0 ? '+' : '') + r.weight.toFixed(2);
-      return `<div class="${cls[r.type] || ''}">[${t}] ${r.type} `
+      const tag = (r.track_id !== undefined && r.track_id >= 0)
+        ? `[#${r.track_id}] ` : '';
+      return `<div class="${cls[r.type] || ''}">[${t}] ${tag}${r.type} `
            + `w=${w} V=${r.v.toFixed(2)} A=${r.a.toFixed(2)} `
            + `· ${r.reason || ''}</div>`;
     }).join('');
@@ -168,23 +192,44 @@
 
   function bindUtter() {
     const btn = $('ea-utter-send');
-    if (!btn) return;
-    btn.addEventListener('click', () => {
-      const text = ($('ea-utter-text').value || '').trim();
-      if (!text) {
-        if (window.toast) toast('발화 텍스트 비어있음', 'warn');
-        return;
-      }
-      const persona = ($('ea-utter-persona').value || '').trim();
-      api.post('/dialog/utter', { text, persona })
-        .then(() => {
-          if (window.toast) toast(`발화 전송: "${text.slice(0, 24)}"`, 'info');
-          $('ea-utter-text').value = '';
-        })
-        .catch((e) => {
-          if (window.toast) toast(`발화 실패 (${e.status || 'NET'})`, 'error');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        const text = ($('ea-utter-text').value || '').trim();
+        if (!text) {
+          if (window.toast) toast('발화 텍스트 비어있음', 'warn');
+          return;
+        }
+        const persona = ($('ea-utter-persona').value || '').trim();
+        const face = ($('ea-utter-face').value || '').trim();
+        api.post('/dialog/utter', { text, persona, face_expression: face })
+          .then(() => {
+            if (window.toast) toast(`발화 전송: "${text.slice(0, 24)}"`, 'info');
+            $('ea-utter-text').value = '';
+          })
+          .catch((e) => {
+            if (window.toast) toast(`발화 실패 (${e.status || 'NET'})`, 'error');
+          });
+      });
+    }
+    // 표정만 적용 — REST POST /api/v1/command (command_type='express')
+    const btnExp = $('ea-expression-apply');
+    if (btnExp) {
+      btnExp.addEventListener('click', () => {
+        const exp = ($('ea-utter-face').value || '').trim();
+        if (!exp) {
+          if (window.toast) toast('표정 미선택', 'warn');
+          return;
+        }
+        api.post('/command', {
+          command_type: 'express',
+          payload: { face_expression: exp },
+        }).then(() => {
+          if (window.toast) toast(`표정 ${exp} 적용 요청 전송`, 'info');
+        }).catch((e) => {
+          if (window.toast) toast(`표정 적용 실패 (${e.status || 'NET'})`, 'error');
         });
-    });
+      });
+    }
   }
 
   function init() {
