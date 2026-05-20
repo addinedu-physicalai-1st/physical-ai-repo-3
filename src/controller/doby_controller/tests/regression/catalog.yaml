@@ -50,3 +50,106 @@ tests:
   added: '2026-05-19'
   last_status: null
   last_run: null
+- id: mode_idle_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_idle_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - idle
+  - mode_manager
+  duration_estimate_sec: 15
+  requires:
+  - package: dobi_npc_bringup
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:25:36'
+- id: mode_serving_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_serving_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - serving
+  - dispatcher
+  duration_estimate_sec: 20
+  requires:
+  - package: dobi_npc_bringup
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:26:00'
+- id: mode_patrol_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_patrol_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - patrol
+  - scheduler
+  - table_occupancy
+  duration_estimate_sec: 25
+  requires:
+  - package: dobi_npc_bringup
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:26:30'
+- id: mode_guiding_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_guiding_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - guiding
+  - person_detector
+  duration_estimate_sec: 25
+  requires:
+  - package: dobi_npc_bringup
+  - package: dobi_npc_emotion
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:33:54'
+  last_fail_reason: ''
+- id: mode_engaging_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_engaging_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - engaging
+  - bt_executor
+  - minigame_runner
+  duration_estimate_sec: 25
+  requires:
+  - package: dobi_npc_bringup
+  - package: dobi_npc_bt
+  - package: dobi_npc_minigame
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:27:55'
+- id: rapport_ema_smoke
+  category: perception
+  file: perception/rapport_ema_smoke.md
+  depth: smoke
+  tags:
+  - rapport
+  - ema
+  - smoothing
+  - perception
+  duration_estimate_sec: 20
+  requires:
+  - package: dobi_npc_emotion
+  policy:
+    blocks: []
+  added: '2026-05-20'
+  last_status: null
+  last_run: null
