@@ -259,6 +259,46 @@ voice_service 가 응답 못 보냄 (network 단절, 컨테이너 hang 등)
 - 환경 잡음이 VAD 임계값을 넘어 발화로 잡히는 경우 무발화 카운트가 갱신될 수 있음 (Phase 7 의 잡음 robust 로직으로 anchor 는 갱신 안 되지만, VAD 임계값 자체가 환경마다 조정 필요).
 - `voice.js` 의 `positiveSpeechThreshold` (현재 0.7), `minSpeechFrames` (현재 8) 를 환경에 맞춰 조정.
 
+merge / pull 직후 moca_service 응답 없음 (TCP timeout 또는 컨테이너 Exit)
+
+- 증상 예시.
+  - `scripts/test_moca_tcp_client.py` 실행 시 `TimeoutError: timed out` 또는 `ConnectionRefusedError: [Errno 111] Connection refused`.
+  - `docker logs moca_service` 에 `invalid STX: 0x20` 같이 protocol 이 어긋난 듯한 경고.
+  - 또는 `pymysql.err.ProgrammingError: (1146, "Table 'business.<테이블명>' doesn't exist")` 후 컨테이너 Exit.
+- 원인 두 가지가 겹쳐 보이는 경우가 많음.
+  1. moca_service / web_service 의 Dockerfile 이 `COPY app ./app` 방식이라 호스트 코드 변경이 자동 반영 안 됨. 옛 이미지가 그대로 떠 있으면 새 protocol / 모듈 구조와 어긋남.
+  2. `moca_db` 는 영구 볼륨 (`moca_db_data`) 을 사용하고, MySQL 의 `/docker-entrypoint-initdb.d/init.sql` 은 데이터 디렉터리가 비어 있을 때만 실행됨. 새 테이블이 추가된 merge 이후에도 옛 스키마가 그대로 남아 부팅 실패.
+- 조치 순서.
+  1. 이미지 재빌드 + 재기동. `--build` 가 빠지면 옛 이미지를 그대로 다시 띄울 뿐임.
+     ```
+     cd src/service
+     docker compose -f docker-compose.operation.yml up -d --build moca_service web_service
+     ```
+  2. `docker logs moca_service` 가 `Table 'business.xxx' doesn't exist` 로 종료되면 DB 스키마가 옛 상태. 아래 두 방법 중 선택.
+
+     (A) 데이터 통째로 리셋하고 init.sql 처음부터 다시 (개발 환경에서 가장 깔끔, 주문 / 시드 데이터 전부 사라짐).
+     ```
+     docker compose -f docker-compose.operation.yml down moca_service moca_db
+     docker volume rm service_moca_db_data
+     docker compose -f docker-compose.operation.yml up -d moca_db moca_service
+     ```
+     볼륨 이름은 compose 프로젝트명에 따라 prefix 가 붙음. `docker volume ls | grep moca_db_data` 로 실제 이름 확인.
+
+     (B) 기존 데이터 보존하고 init.sql 만 멱등 재적용 (init.sql 의 모든 `CREATE TABLE` 이 `IF NOT EXISTS`, `INSERT` 가 `ON DUPLICATE KEY UPDATE` / `INSERT IGNORE` 라 안전).
+     ```
+     docker exec -i moca_db mysql -u business_user -pbusiness_password business \
+       < src/service/moca_db/init.sql
+     docker compose -f docker-compose.operation.yml up -d moca_service
+     ```
+  3. 검증.
+     ```
+     docker exec moca_db mysql -u business_user -pbusiness_password \
+       -e "USE business; SHOW TABLES;"
+     python3 scripts/test_moca_tcp_client.py all
+     ```
+     `SHOW TABLES` 에 `allergy_category / order_item / orders / product / product_allergy / product_option_group / service_metadata / store_table` 이 모두 보이고, 테스트 스크립트가 menu / allergy / tables / order 응답을 전부 출력하면 정상.
+- 참고. moca_service 가 부팅 시 DB 테이블이 없으면 30 회 재시도 후 컨테이너가 종료됨. 이 때문에 컨테이너가 한참 살아있다가 갑자기 Exit 1 로 사라지는 양상으로 보일 수 있음.
+
 ## 디렉토리 구조
 
 ```
