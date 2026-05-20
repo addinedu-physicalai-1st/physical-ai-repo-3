@@ -32,15 +32,14 @@ def create_order(payload: OrderCreate) -> OrderCreateResponse:
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return OrderCreateResponse(
-        order_id=order.id,
-        moca_order_id=order.moca_order_id,
+        order_id=order.order_id,
         order_number=order.order_number,
         total=order.total,
     )
 
 
 @router.get("/{order_id}", response_model=Order)
-def get_order(order_id: str) -> Order:
+def get_order(order_id: int) -> Order:
     order = order_service.get(order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")

@@ -1,11 +1,12 @@
 import threading
-import uuid
-
 from app.models.order import Order, OrderCreate
+from app.protocol.order_protocol import MocaOrderItem
+from app.clients.moca_shared import get_order_client
+from app.clients.order_client import MocaOrderClientError, MocaOrderRejected
 
 
 _lock = threading.Lock()
-_orders: dict[str, Order] = {}
+_orders: dict[int, Order] = {}
 
 class OrderError(Exception):
     pass
@@ -57,16 +58,26 @@ def _calc_total(payload: OrderCreate) -> int:
 
 def create(payload: OrderCreate) -> Order:
     total = _calc_total(payload)
+    items = [
+        MocaOrderItem(product_id=item.menu_id, quantity=item.qty)
+        for item in payload.items
+    ]
+
+    try:
+        order_id = get_order_client().create_order(items)
+    except MocaOrderRejected as exc:
+        raise OrderRejected(str(exc)) from exc
+    except MocaOrderClientError as exc:
+        raise OrderServiceUnavailable(str(exc)) from exc
 
     with _lock:
-        order_id = uuid.uuid4().hex
         order = Order(
-            id=order_id,
+            order_id=order_id,
             order_number=101,
             channel=payload.channel,
-            receive_type=payload.receive_type,
+            receive_type="pending",
             payment=payload.payment,
-            table_no=payload.table_no if payload.receive_type == "dine_in" else None,
+            table_no=None,
             items=payload.items,
             total=total,
         )
@@ -74,6 +85,6 @@ def create(payload: OrderCreate) -> Order:
         return order
 
 
-def get(order_id: str) -> Order | None:
+def get(order_id: int) -> Order | None:
     with _lock:
         return _orders.get(order_id)

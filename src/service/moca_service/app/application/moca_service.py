@@ -64,7 +64,7 @@ class MocaService:
         ):
             return
 
-        if assignment.receive_type != "TAKE_OUT" or assignment.table_id is not None:
+        if assignment.receive_type != "PENDING" or assignment.table_id is not None:
             raise TableAssignmentRejected(f"order {request.order_id} is already assigned")
 
         occupied_table_id: int | None = None

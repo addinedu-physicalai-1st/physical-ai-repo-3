@@ -71,7 +71,7 @@ class OrderRepository:
                         """,
                         (
                             "COUNTER",
-                            "TAKE_OUT",
+                            "PENDING",
                             None,
                             total_price,
                         ),

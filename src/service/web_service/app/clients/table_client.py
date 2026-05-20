@@ -50,16 +50,16 @@ class MocaTcpTableClient(MocaTcpBaseClient):
             raise MocaTableClientError(str(message))
         return tables
 
-    def assign_table(self, order_id: int, receive_type: ReceiveType, table_id: int | None) -> None:
-        payload = encode_table_assignment_request_payload(order_id, receive_type, table_id)
+    def assign_table(self, order_id: int, receive_type: ReceiveType, table_number: int | None) -> None:
+        payload = encode_table_assignment_request_payload(order_id, receive_type, table_number)
         try:
             _, response_payload = self.request(CMD_TABLE, METHOD_SET, payload)
             self._raise_if_assignment_failed(response_payload)
             self._logger.info(
-                "moca_service table assignment result: order_id=%s receive_type=%s table_id=%s status=ok",
+                "moca_service table assignment result: order_id=%s receive_type=%s table_number=%s status=ok",
                 order_id,
                 receive_type,
-                table_id,
+                table_number,
             )
         except (MocaTableAssignmentNotFound, MocaTableAssignmentRejected):
             raise

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from app.models.table import Table
-from app.models.table_assignment import (
+from app.models.table import (
+    Table,
     TableAssignmentCreate,
     TableAssignmentRequest,
     TableAssignmentResponse,
@@ -29,14 +29,14 @@ def get_tables() -> list[Table]:
 @router.post("/tables", response_model=TableAssignmentResponse)
 def create_table_assignment(
     payload: TableAssignmentRequest,
-    table_number: int = Query(..., gt=0),
+    table_number: int | None = Query(None, gt=0),
 ) -> TableAssignmentResponse:
     try:
         table_service.assign(
             TableAssignmentCreate(
                 order_id=payload.order_id,
                 receive_type=payload.receive_type,
-                table_id=table_number,
+                table_number=payload.table_number if payload.table_number is not None else table_number,
             )
         )
     except TableAssignmentNotFound as exc:

@@ -1,7 +1,12 @@
 import threading
 
-from app.models.table import Table, TableStatus
-from app.models.table_assignment import TableAssignmentCreate
+from app.models.table import Table, TableStatus, TableAssignmentCreate
+from app.clients.moca_shared import get_table_client
+from app.clients.table_client import (
+    MocaTableAssignmentNotFound,
+    MocaTableAssignmentRejected,
+    MocaTableClientError,
+)
 
 _INITIAL_TABLE_STATUS: list[TableStatus] = [
     "empty", "occupied", "empty", "occupied",
@@ -38,8 +43,10 @@ def reset() -> None:
 
 
 def list_tables() -> list[Table]:
-    with _lock:
-        return [Table(id=index + 1, status=status) for index, status in enumerate(_status)]
+    try:
+        return [Table(id=int(table["id"]), status=table["status"]) for table in get_table_client().fetch_tables()]
+    except MocaTableClientError as exc:
+        raise TableServiceUnavailable(str(exc)) from exc
 
 
 def get_status(table_no: int) -> TableStatus | None:
@@ -69,12 +76,21 @@ def release(table_no: int) -> bool:
 
 
 def assign(payload: TableAssignmentCreate) -> None:
-    if payload.receive_type == "dine_in" and payload.table_id is None:
-        raise TableAssignmentError("table_id is required for dine_in")
-    if payload.receive_type == "dine_in" and payload.table_id <= 0:
-        raise TableAssignmentError("table_id must be greater than 0 for dine_in")
-    if payload.receive_type == "take_out" and payload.table_id is not None and payload.table_id < 0:
-        raise TableAssignmentError("table_id must be greater than or equal to 0")
+    if payload.receive_type == "dine_in" and payload.table_number is None:
+        raise TableAssignmentError("table_number is required for dine_in")
+    if payload.receive_type == "dine_in" and payload.table_number <= 0:
+        raise TableAssignmentError("table_number must be greater than 0 for dine_in")
+    if payload.receive_type == "take_out" and payload.table_number is not None and payload.table_number < 0:
+        raise TableAssignmentError("table_number must be greater than or equal to 0")
+
+    try:
+        get_table_client().assign_table(payload.order_id, payload.receive_type, payload.table_number)
+    except MocaTableAssignmentNotFound as exc:
+        raise TableAssignmentNotFound(str(exc)) from exc
+    except MocaTableAssignmentRejected as exc:
+        raise TableAssignmentRejected(str(exc)) from exc
+    except MocaTableClientError as exc:
+        raise TableAssignmentServiceUnavailable(str(exc)) from exc
 
 
 reset()
