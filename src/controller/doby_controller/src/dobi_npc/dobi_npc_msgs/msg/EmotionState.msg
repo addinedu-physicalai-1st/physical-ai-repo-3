@@ -16,3 +16,7 @@ string source         # "face" | "voice" | "fused"
 
 # 융합 시 발생한 신호
 string[] flags        # 예: ["mask_smile", "voice_only", "agree", "conflict"]
+
+# 2026-05-21 Track B — 손님 식별 (PersonTrack 의 closest)
+int32 track_id        # BoT-SORT 추적 ID. -1 = unknown (person_tracking 미가동 / no track / stale)
+int32 group_id        # DBSCAN 그룹 ID. -1 = solo / 미할당
