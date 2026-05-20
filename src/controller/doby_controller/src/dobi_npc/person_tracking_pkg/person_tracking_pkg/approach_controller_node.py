@@ -18,7 +18,7 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 
 from geometry_msgs.msg import PoseStamped, Twist
-from std_msgs.msg import Int32
+from std_msgs.msg import Bool, Int32
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 
@@ -56,10 +56,15 @@ class ApproachControllerNode(Node):
         self._prev_tick_t: float = time.time()
         self._d_filtered: float  = 0.0  # EMA 필터링된 미분값
 
+        # /approach/enable 게이트 — default False (BT 가 명시적 True 발행 시에만 cmd_vel 출력)
+        self._enable: bool = False
+
         self._sub_target = self.create_subscription(
             Int32, '/person_tracking/approach_target', self._cb_target, 10)
         self._sub_pose = self.create_subscription(
             PoseStamped, '/customer_pose', self._cb_pose, 10)
+        self._sub_enable = self.create_subscription(
+            Bool, '/approach/enable', self._cb_enable, 10)
         _qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
         self._pub = self.create_publisher(Twist, '/bt/cmd_vel', _qos)
 
@@ -77,7 +82,20 @@ class ApproachControllerNode(Node):
         self._bh = float(msg.pose.position.z)
         self._last_pose_t = time.time()
 
+    def _cb_enable(self, msg: Bool) -> None:
+        if self._enable and not msg.data:
+            # disable 전환 — PD 상태 reset (재진입 race 방지)
+            self._prev_err_x = 0.0
+            self._d_filtered = 0.0
+            self.get_logger().info('[approach_controller] /approach/enable=False (PD reset)')
+        elif not self._enable and msg.data:
+            self.get_logger().info('[approach_controller] /approach/enable=True')
+        self._enable = msg.data
+
     def _tick(self) -> None:
+        if not self._enable:
+            return  # publish skip → twist_mux pose_timeout 후 하위 채널이 권한 확보
+
         now = time.time()
         twist = Twist()
 

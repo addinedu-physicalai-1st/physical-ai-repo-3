@@ -35,7 +35,8 @@ launch 인자:
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.conditions import IfCondition
 from launch_ros.actions import Node
 
 
@@ -49,15 +50,39 @@ def generate_launch_description():
     initial_mode_arg = DeclareLaunchArgument(
         'initial_mode', default_value='idle',
         description='mode_manager 초기 모드 (idle|serving|patrol|guiding|engaging|follow)')
+    use_webcam_arg = DeclareLaunchArgument(
+        'use_webcam', default_value='true',
+        description='노트북 카메라 1단 마스터 (webcam_master) 활성 + '
+                    'person_tracking 입력을 /webcam/image_raw 로 전환. '
+                    'false 시 webcam_master skip + person_tracking 은 /robot_cam/image_raw 구독 '
+                    '(RPi 라이브 모드).')
+    webcam_device_arg = DeclareLaunchArgument(
+        'webcam_device', default_value='/dev/video0',
+        description='webcam_master 가 열 v4l2 device 경로')
 
     return LaunchDescription([
         fullscreen_arg,
         persona_arg,
         initial_mode_arg,
+        use_webcam_arg,
+        webcam_device_arg,
 
+        Node(
+            package='v4l2_camera', executable='v4l2_camera_node',
+            name='webcam_master', output='screen',
+            parameters=[{
+                'image_size': [640, 480],
+                'camera_frame_id': 'webcam_link',
+                'video_device': LaunchConfiguration('webcam_device'),
+                'pixel_format': 'YUYV',
+            }],
+            remappings=[('image_raw', '/webcam/image_raw')],
+            condition=IfCondition(LaunchConfiguration('use_webcam')),
+        ),
         Node(
             package='dobi_npc_emotion', executable='geva_node',
             name='geva_node', output='screen',
+            parameters=[{'input_topic': '/webcam/image_raw'}],
         ),
         Node(
             package='dobi_npc_emotion', executable='rapport_tracker',
@@ -94,8 +119,12 @@ def generate_launch_description():
             package='person_tracking_pkg', executable='person_tracking_node',
             name='person_tracking_node', output='screen',
             parameters=[{
-                'input_topic': '/robot_cam/image_raw',
-                'use_compressed': True,
+                'input_topic': PythonExpression([
+                    "'/webcam/image_raw' if '",
+                    LaunchConfiguration('use_webcam'),
+                    "' == 'true' else '/robot_cam/image_raw'"
+                ]),
+                'use_compressed': False,  # webcam_master 는 compressed 자동 발행 X
                 'publish_visualization': True,
                 'dbscan_eps': 50.0,   # [멀티그룹 테스트용] 프린트 분리 — 실물 시 450.0으로 원복
             }],

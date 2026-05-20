@@ -57,7 +57,7 @@ int main(int argc, char ** argv)
 
   factory.registerNodeType<dobi_npc_bt::DummyAction>("DummyAction");
   factory.registerNodeType<dobi_npc_bt::SafetyCheck>("SafetyCheck", node);
-  factory.registerNodeType<dobi_npc_bt::IdleScan>("IdleScan");
+  factory.registerNodeType<dobi_npc_bt::IdleScan>("IdleScan", node);
   // ROS 노드 핸들이 필요한 노드는 가변 인자 템플릿 등록 (BT 4.x)
   factory.registerNodeType<dobi_npc_bt::Approach>("Approach", node);
   factory.registerNodeType<dobi_npc_bt::IceBreak>("IceBreak", node);

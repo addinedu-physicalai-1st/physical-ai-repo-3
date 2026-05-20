@@ -42,15 +42,20 @@
       <!-- 호객 funnel: 두 알람 모두 FAILURE(=정상) 시에만 진입 -->
       <Sequence name="cafe_funnel">
 
-        <!-- Stage 1: 고객 후보 탐지 (W2: 천장 카메라 통합) -->
+        <!-- Stage 1: 고객 후보 탐지 — person_tracking /tracks 5 frames 안정 -->
+        <!-- Phase 2 W4 후속 (2026-05-20): person_tracking_pkg 통합. 토픽 stale guard 포함 -->
         <IdleScan name="stage1_idle_scan"
+                  stable_frames="5"
+                  msg_timeout_sec="0.5"
                   customer_id="{customer_id}"/>
 
-        <!-- Stage 2: Proxemic 거리 접근 (W2: Nav2 Action Client) -->
+        <!-- Stage 2: bh 안정 SUCCESS / lost 시 FAILURE / /approach/enable 토글 -->
+        <!-- Phase 2 W4 후속 (2026-05-20): Nav2 액션 폐기 → approach_controller PD 게이트 -->
         <Approach name="stage2_approach"
                   customer_id="{customer_id}"
-                  social_distance="1.5"
-                  abort_threshold="1.0"/>
+                  bh_threshold="0.6"
+                  stable_frames="5"
+                  lost_timeout_sec="2.0"/>
 
         <!-- Stage 3: 인사 발화 (W3: 페르소나 phrase pool) -->
         <IceBreak name="stage3_ice_break"
@@ -60,7 +65,7 @@
         <!-- game_type 옵션: 'rps' | 'speed_counter' (직접 선택) /
              'rotate' (cycle 순환) / 'random' (매번 무작위) -->
         <Minigame name="stage4_minigame"
-                  game_type="rotate"
+                  game_type="random"
                   rapport_delta="{rapport_delta}"/>
 
         <!-- Stage 5: 메뉴 제안 (W3: 페르소나별 추천) -->

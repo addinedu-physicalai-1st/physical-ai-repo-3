@@ -4,7 +4,7 @@
 Phase 2 W4. EyeCon v3.5 vision.py + analyzer._classify_emotion 포팅.
 
 파이프라인:
-  1) cv2.VideoCapture(camera_index)로 노트북 웹캠 1프레임 캡처
+  1) /webcam/image_raw (sensor_msgs/Image) 토픽 구독으로 프레임 수신
   2) MediaPipe FaceLandmarker (IMAGE 모드, output_face_blendshapes=True)
   3) Blendshapes 규칙 엔진으로 7감정 점수(softmax)
   4) Russell circumplex 좌표(Posner 2005 근사)로 가중평균 → (V, A)
@@ -16,14 +16,17 @@ Salichs 2014 fusion으로 합쳐진다.
 from __future__ import annotations
 
 import os
+import threading
 import time
 
 import cv2
 import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+from cv_bridge import CvBridge
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from sensor_msgs.msg import Image
 
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python
@@ -134,17 +137,13 @@ class GevaNode(Node):
     def __init__(self):
         super().__init__('geva_node')
 
-        self.declare_parameter('camera_index', 0)
+        self.declare_parameter('input_topic', '/webcam/image_raw')
         self.declare_parameter('publish_rate_hz', 10.0)
         self.declare_parameter('model_path', '')  # 비우면 share/models/face_landmarker.task
         self.declare_parameter('min_detection_confidence', 0.5)
         self.declare_parameter('min_tracking_confidence', 0.5)
-        # 카메라 분리 (2026-05-06): 게임은 카메라 3 (외장 RPC-20F) 별도
-        # 점유 → GEVA 가 카메라 1 (내장) 을 게임 중에도 그대로 보유. 따라서
-        # /geva/suspend|resume 인터페이스 폐기. 단일 카메라로 회귀할 일이
-        # 생기면 git history 의 suspend/resume 패턴 (~2026-05-05) 복원.
 
-        self._camera_index = self.get_parameter('camera_index').value
+        input_topic = self.get_parameter('input_topic').value
         publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
         model_path = self.get_parameter('model_path').value or self._default_model_path()
         min_det = float(self.get_parameter('min_detection_confidence').value)
@@ -156,14 +155,11 @@ class GevaNode(Node):
                 f"`scripts/download_models.sh` 실행 필요."
             )
 
-        self.cap = cv2.VideoCapture(self._camera_index)
-        if not self.cap.isOpened():
-            raise RuntimeError(f"웹캠 열기 실패: index={self._camera_index}")
-        self.get_logger().info(
-            f"웹캠 열림 (index={self._camera_index}) — "
-            f"{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
-            f"{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
-        )
+        self._bridge = CvBridge()
+        self._last_frame = None
+        self._frame_lock = threading.Lock()
+        self._sub = self.create_subscription(Image, input_topic, self._cb_image, 10)
+        self.get_logger().info(f"입력 토픽 구독: {input_topic}")
 
         base_options = mp_python.BaseOptions(model_asset_path=model_path)
         options = mp_vision.FaceLandmarkerOptions(
@@ -191,13 +187,20 @@ class GevaNode(Node):
         share = get_package_share_directory('dobi_npc_emotion')
         return os.path.join(share, 'models', 'face_landmarker.task')
 
+    def _cb_image(self, msg: Image) -> None:
+        try:
+            frame = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
+        except Exception as e:
+            self.get_logger().warning(f"cv_bridge 변환 실패: {e}")
+            return
+        with self._frame_lock:
+            self._last_frame = frame
+
     def _tick(self):
-        if self.cap is None:
-            return
-        ok, frame = self.cap.read()
-        if not ok:
-            self.get_logger().warning("웹캠 read 실패")
-            return
+        with self._frame_lock:
+            frame = self._last_frame
+        if frame is None:
+            return  # 아직 첫 프레임 미수신
         self._frames += 1
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -250,8 +253,6 @@ class GevaNode(Node):
             self._last_log = now
 
     def destroy_node(self):
-        if hasattr(self, 'cap') and self.cap is not None:
-            self.cap.release()
         if hasattr(self, 'landmarker') and self.landmarker is not None:
             self.landmarker.close()
         super().destroy_node()
