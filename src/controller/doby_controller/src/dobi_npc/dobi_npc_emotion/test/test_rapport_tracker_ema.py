@@ -17,3 +17,27 @@ def test_cold_start_adopts_raw():
              no_signal=False, alpha_base=ALPHA, conf_min_gate=GATE)
     assert s.v_smooth == 0.4
     assert s.a_smooth == -0.2
+
+
+def test_sustained_high_conf_reaches_90pct_within_4_frames():
+    """V=0.5 conf=1.0 sustained — α=0.5 EMA 가 4 frame 안에 90% 도달.
+
+    수식: 1 - (1-0.5)^4 = 0.9375 (4 frame 누적 후 v_smooth ≈ 0.469).
+    """
+    s = EMAState()
+    # cold start (frame 0): v_smooth = 0.5
+    s.update(0.5, 0.3, 1.0, False, ALPHA, GATE)
+    # frame 1-3
+    for _ in range(3):
+        s.update(0.5, 0.3, 1.0, False, ALPHA, GATE)
+    # cold start 이미 0.5 라 frame 1-3 도 0.5 (변화 없음)
+    assert abs(s.v_smooth - 0.5) < 1e-6
+
+    # 다른 target 으로 변화 검증 — cold start 후 4 frame 동안 0 → 0.5 추적
+    s2 = EMAState()
+    s2.update(0.0, 0.0, 1.0, False, ALPHA, GATE)   # cold start at 0
+    for _ in range(4):
+        s2.update(0.5, 0.3, 1.0, False, ALPHA, GATE)
+    # 1 - (1-0.5)^4 = 0.9375 → v_smooth ≈ 0.4688
+    assert s2.v_smooth > 0.46
+    assert s2.v_smooth < 0.48
