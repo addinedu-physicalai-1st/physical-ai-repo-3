@@ -19,7 +19,7 @@ abort hysteresis (false positive 방지, Phase 2 W4-D):
 10Hz GEVA 입력 가정 시 5프레임 ≈ 0.5초. 짧은 outlier 흡수 + 빠른 반응 균형.
 
 Phase 후속 확장:
-  - 윈도우 평균 V·A (현재는 카운트 기반)
+  - [x] 윈도우 평균 V·A (2026-05-20 confidence-weighted EMA 도입, spec §3)
   - GEFA(자세) source까지 fusion
   - Salichs 2014 Decision Rule
 """
@@ -58,11 +58,15 @@ class EMAState:
             return  # 자신없는 frame skip
         if self.v_smooth is None:
             # cold start — 첫 valid frame 그대로 채택
-            assert self.a_smooth is None, "EMA state invariant: v/a must be None together"
+            if self.a_smooth is not None:
+                raise RuntimeError(
+                    "EMAState invariant 위반: v_smooth is None 이나 a_smooth 가 set"
+                )
             self.v_smooth = v_now
             self.a_smooth = a_now
             return
-        weight = alpha_base * conf
+        # weight clamp — 미래 source (GEFA 등) 의 conf > 1.0 또는 alpha 잘못된 값 방어
+        weight = min(alpha_base * conf, 1.0)
         self.v_smooth = weight * v_now + (1 - weight) * self.v_smooth
         self.a_smooth = weight * a_now + (1 - weight) * self.a_smooth
 
