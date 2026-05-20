@@ -1,15 +1,15 @@
 from .anomaly import AnomalyPage
-from .dashboard import DashboardPage
+from .device import DeviceManagementPage
 from .map import MapManagementPage
 from .menu import MenuPage
-from .monitoring import MonitoringPage
+from .service import ServiceManagementPage
 from .system_log import SystemLogPage
 
 __all__ = [
     'AnomalyPage',
-    'DashboardPage',
+    'DeviceManagementPage',
     'MapManagementPage',
     'MenuPage',
-    'MonitoringPage',
+    'ServiceManagementPage',
     'SystemLogPage',
 ]

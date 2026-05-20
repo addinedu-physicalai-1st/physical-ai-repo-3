@@ -12,10 +12,10 @@ from PyQt6.QtWidgets import (
 from style import BG, SB_ACT, SB_HV, SIDEBAR
 from gui.pages import (
     AnomalyPage,
-    DashboardPage,
+    DeviceManagementPage,
     MapManagementPage,
     MenuPage,
-    MonitoringPage,
+    ServiceManagementPage,
     SystemLogPage,
 )
 
@@ -26,8 +26,8 @@ class Sidebar(QWidget):
     NAV_ITEMS = [
         ('지도 관리'),
         ('상품 관리'),
-        ('실시간 모니터링'),
-        ('관제 대시보드'),
+        ('서비스 관리'),
+        ('장치 관리'),
         ('시스템 로그'),
         ('이상 감지'),
     ]
@@ -131,8 +131,8 @@ class MainWindow(QMainWindow):
         for page in [
             MapManagementPage(),
             MenuPage(),
-            MonitoringPage(),
-            DashboardPage(),
+            ServiceManagementPage(),
+            DeviceManagementPage(),
             SystemLogPage(),
             AnomalyPage(),
         ]:
