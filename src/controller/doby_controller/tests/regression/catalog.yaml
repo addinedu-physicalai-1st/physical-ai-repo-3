@@ -172,3 +172,22 @@ tests:
   added: '2026-05-21'
   last_status: null
   last_run: null
+- id: engagement_timeline_smoke
+  category: perception
+  file: perception/engagement_timeline_smoke.md
+  depth: smoke
+  tags:
+  - engagement_timeline
+  - opserver
+  - ws_payload
+  - perception
+  duration_estimate_sec: 25
+  requires:
+  - package: dobi_npc_emotion
+  - package: dobi_npc_msgs
+  - package: moca_opserver
+  policy:
+    blocks: []
+  added: '2026-05-21'
+  last_status: null
+  last_run: null
