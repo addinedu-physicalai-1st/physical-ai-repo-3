@@ -54,34 +54,6 @@ class DeviceManagementPage(QWidget):
             grid.addWidget(self._robot_card(*robot), i // 3, i % 3)
         bl.addWidget(wrap_scroll(cards), 1)
 
-        top = QHBoxLayout()
-        top.addWidget(mklbl('제어 대상 로봇:', bold=True))
-        combo = QComboBox()
-        combo.addItems(DEVICE_ROBOT_LIST)
-        combo.setEnabled(True)
-        top.addWidget(combo)
-        top.addStretch()
-        top.addWidget(mkbadge('연결됨', SUCCESS))
-        bl.addLayout(top)
-
-        card, lay = card_frame('모드 전환')
-        row = disabled_row(
-            mkbtn('대기', TEXT2),
-            mkbtn('호객 NPC', ORANGE),
-            mkbtn('서빙', PRIMARY),
-            mkbtn('팔로우', PURPLE),
-        )
-        lay.addLayout(row)
-        bl.addWidget(card)
-
-        scard, sl = card_frame('상태 표시')
-        stats = QGridLayout()
-        for i, (label, value, color) in enumerate(DASHBOARD_STATS):
-            stats.addWidget(mklbl(label, 11, color=TEXT3), 0, i)
-            stats.addWidget(mklbl(value, 16, True, color), 1, i)
-        sl.addLayout(stats)
-        bl.addWidget(scard)
-
     def _robot_card(self, rid, status, battery, signal, task, damage):
         card, lay = card_frame()
         card.setMinimumSize(240, 200)

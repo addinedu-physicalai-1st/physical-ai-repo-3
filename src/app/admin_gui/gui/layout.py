@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
 from style import BG, SB_ACT, SB_HV, SIDEBAR
 from gui.pages import (
     AnomalyPage,
+    DDoobyMonitoringPage,
+    DobyMonitoringPage,
     DeviceManagementPage,
     MapManagementPage,
     MenuPage,
@@ -28,6 +30,8 @@ class Sidebar(QWidget):
         ('상품 관리'),
         ('서비스 관리'),
         ('장치 관리'),
+        ('도비 모니터링'),
+        ('뚜비 모니터링'),
         ('시스템 로그'),
         ('이상 감지'),
     ]
@@ -133,6 +137,8 @@ class MainWindow(QMainWindow):
             MenuPage(),
             ServiceManagementPage(),
             DeviceManagementPage(),
+            DobyMonitoringPage(),
+            DDoobyMonitoringPage(),
             SystemLogPage(),
             AnomalyPage(),
         ]:
