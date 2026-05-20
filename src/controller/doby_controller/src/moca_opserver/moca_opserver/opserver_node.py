@@ -826,6 +826,14 @@ class OpServerNode(Node):
             ],
         }
 
+    def engagement_snapshot(self) -> dict:
+        """Track C — engagement-timeline 의 WS payload 데이터."""
+        return {
+            'score': round(self._engagement_score, 4),
+            'score_history': list(self._engagement_score_history),
+            'rapport_markers': list(self._rapport_marker_history),
+        }
+
     def _battery_ok(self) -> bool:
         if self.battery_pct is None or self.battery_pct < 0:
             return True

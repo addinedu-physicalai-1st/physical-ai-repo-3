@@ -418,23 +418,26 @@ def build_fastapi_app(opserver) -> FastAPI:
 
     @app.post('/api/v1/dialog/utter')
     def post_dialog_utter(payload: dict = Body(...)):
-        """engaging-analytics 강제 발화 (Task 4).
+        """engaging-analytics 강제 발화 — 운영 통합 발화 endpoint.
 
-        body: {text: str, persona?: str}
+        body: {text: str, persona?: str, face_expression?: str}
         → /dialog/router_in 에 UtterRequest publish (operator priority=10, preempt=True).
         """
         text = (payload.get('text') or '').strip()
         if not text:
             _err('INVALID_PAYLOAD', 'text required', 400)
         persona = str(payload.get('persona') or '')
-        ok = opserver.publish_dialog_router_in(text=text, persona=persona)
+        face = str(payload.get('face_expression') or '')
+        ok = opserver.publish_dialog_router_in(
+            text=text, persona=persona, face_expression=face)
         if not ok:
             _err('PUBLISH_FAILED', 'dialog/router_in publish failed', 500)
         opserver.publish_op_event(
             source='operator', event_type='dialog_utter',
-            payload={'text': text, 'persona': persona},
+            payload={'text': text, 'persona': persona, 'face_expression': face},
             outcome='accepted')
-        return _ok({'published': True, 'text': text, 'persona': persona})
+        return _ok({'published': True, 'text': text,
+                    'persona': persona, 'face_expression': face})
 
     @app.post('/api/v1/emergency_stop')
     def post_emergency_stop():
@@ -649,6 +652,7 @@ def build_fastapi_app(opserver) -> FastAPI:
                     'ts': now_iso(),
                     'emotion': opserver.emotion_snapshot(),
                     'rapport': opserver.rapport_snapshot(),
+                    'engagement': opserver.engagement_snapshot(),
                     'minigame': opserver.minigame_snapshot(),
                     'mode': {
                         'current': opserver.current_mode,
