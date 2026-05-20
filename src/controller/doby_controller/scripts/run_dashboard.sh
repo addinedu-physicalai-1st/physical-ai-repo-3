@@ -79,6 +79,13 @@ if [ ! -f "$WS/install/setup.bash" ]; then
     log "★ $WS/install/setup.bash 없음 — 먼저 colcon build" >&2
     exit 1
 fi
+
+# 가상환경 (.doby) 자동 활성화
+if [ -f "$WS/.doby/bin/activate" ]; then
+    log "가상환경 활성화: .doby"
+    # shellcheck source=/dev/null
+    source "$WS/.doby/bin/activate"
+fi
 # ROS setup.bash 가 ${AMENT_TRACE_SETUP_FILES} 같은 unbound var 참조 → set -u 일시 해제.
 set +u
 # shellcheck source=/dev/null
