@@ -1,48 +1,80 @@
+import time
+
+import pymysql
+
 from app.config import configure_logging, load_config
-from app.service import MocaService
-from app.tcp import TcpEndpoint, TcpStatusNotifier, TcpServer
+from app.application.moca_controller import MocaController
+from app.application.moca_service import MocaService
+from app.domain.table_assignment_runtime import TableAssignmentRuntime
+from app.repository.catalog_repo import CatalogRepository, DbConfig
+from app.repository.order_repo import OrderRepository
+from app.repository.table_repo import TableRepository
+from app.transport.tcp_receiver import TcpServer
+from app.transport.tcp_sender import build_moca_tcp_sender
+
+
+def fetch_table_definitions_with_retry(
+    table_repository: TableRepository,
+    logger,
+    *,
+    attempts: int = 30,
+    delay_seconds: float = 2.0,
+):
+    for attempt in range(1, attempts + 1):
+        try:
+            return table_repository.fetch_table_definitions()
+        except pymysql.MySQLError as exc:
+            if attempt == attempts:
+                raise
+            logger.warning(
+                "Waiting for MySQL before loading table definitions (%s/%s): %s",
+                attempt,
+                attempts,
+                exc,
+            )
+            time.sleep(delay_seconds)
 
 
 def main() -> None:
     # config 설정 로드 및 로깅 세팅
     config = load_config()
     logger = configure_logging(config.service_name)
+    tcp_sender = build_moca_tcp_sender(config, logger)
 
-    admin_gui = TcpEndpoint(
-        host=config.admin_gui_host,
-        port=config.admin_gui_port,
-        name="AdminGUI",
-    )
-    web_service = TcpEndpoint(
-        host=config.web_service_host,
-        port=config.web_service_tcp_port,
-        name="WebService",
-    )
-    cooking_controller_bridge = TcpEndpoint(
-        host=config.cooking_controller_bridge_host,
-        port=config.cooking_controller_bridge_port,
-        name="CookingControllerBridge",
-    )
-    serving_controller_bridge = TcpEndpoint(
-        host=config.serving_controller_bridge_host,
-        port=config.serving_controller_bridge_port,
-        name="ServingControllerBridge",
+    # Database Config
+    db_config = DbConfig(
+        host=config.db_host,
+        port=config.db_port,
+        user=config.db_user,
+        password=config.db_password,
+        database=config.db_name,
     )
 
-    status_notifiers = [
-        TcpStatusNotifier(admin_gui, logger),
-        TcpStatusNotifier(web_service, logger),
-        TcpStatusNotifier(cooking_controller_bridge, logger),
-        TcpStatusNotifier(serving_controller_bridge, logger),
-    ]
+    # create Service, Repo
+    catalog_repository = CatalogRepository(db_config)
+    order_repository = OrderRepository(db_config)
+    table_repository = TableRepository(db_config)
+    table_assignment_runtime = TableAssignmentRuntime(
+        fetch_table_definitions_with_retry(table_repository, logger)
+    )
+    service = MocaService(
+        catalog_repository,
+        order_repository,
+        table_assignment_runtime,
+        logger,
+    )
+    controller = MocaController(service, tcp_sender, logger)
 
-    service = MocaService(status_notifiers, logger)
-
+    # TCP server
     with TcpServer(
         config.server_host,
         config.server_port,
-        service.run_health_test,
-        service.handle_status,
+        controller.run_health_test,
+        controller.handle_status,
+        controller.get_catalog,
+        controller.create_order,
+        controller.get_table_assignment,
+        controller.assign_table,
         logger,
         "MocaService",
     ) as server:

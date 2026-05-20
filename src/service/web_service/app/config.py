@@ -18,8 +18,8 @@ class WebServiceConfig:
     http_port: int
     tcp_host: str
     tcp_port: int
-    operation_service_host: str
-    operation_service_port: int
+    moca_service_host: str
+    moca_service_port: int
 
 
 def load_config() -> WebServiceConfig:
@@ -29,16 +29,8 @@ def load_config() -> WebServiceConfig:
         http_port=int(os.getenv("WEB_SERVICE_HTTP_PORT", "8000")),
         tcp_host=os.getenv("WEB_SERVICE_TCP_HOST", "0.0.0.0"),
         tcp_port=int(os.getenv("WEB_SERVICE_TCP_PORT", "9004")),
-        operation_service_host=os.getenv(
-            "WEB_SERVICE_OPERATION_SERVICE_HOST",
-            os.getenv("WEB_SERVICE_BUSINESS_SERVICE_HOST", "business_service"),
-        ),
-        operation_service_port=int(
-            os.getenv(
-                "WEB_SERVICE_OPERATION_SERVICE_PORT",
-                os.getenv("WEB_SERVICE_BUSINESS_SERVICE_PORT", "9001"),
-            )
-        ),
+        moca_service_host=os.getenv("MOCA_SERVICE_HOST", "0.0.0.0"),
+        moca_service_port=int(os.getenv("MOCA_SERVICE_PORT", "9001")),
     )
 
 

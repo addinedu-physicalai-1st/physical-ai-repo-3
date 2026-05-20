@@ -1,20 +1,16 @@
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import configure_logging, load_config
+from app.dependencies import config, logger, status_service
 from app.routers import menu as menu_router
 from app.routers import orders as orders_router
 from app.routers import pages as pages_router
+from app.routers import status as status_router
 from app.routers import tables as tables_router
 from app.servers.tcp_server import TcpServerThread
-from app.services.status_service import StatusService
-
-config = load_config()
-logger = configure_logging(config.service_name)
-status_service = StatusService(config, logger)
 
 
 @asynccontextmanager
@@ -46,20 +42,4 @@ app.include_router(menu_router.router)
 app.include_router(tables_router.router)
 app.include_router(orders_router.router)
 app.include_router(pages_router.router)
-
-
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    logger.info("received HTTP /health request")
-    return {
-        "status": "ok",
-        "service": config.service_name,
-    }
-
-
-@app.get("/api/v1/status")
-def get_status() -> dict[str, Any]:
-    return {
-        "service": config.service_name,
-        **status_service.status_data(),
-    }
+app.include_router(status_router.router)

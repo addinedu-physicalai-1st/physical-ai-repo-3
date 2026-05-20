@@ -666,10 +666,10 @@ async function loadTables()  {
   TABLE_STATUS = tables.map(t => t.status);
 }
 
-function buildOrderPayload(deliveryType, tableNo) {
+function buildOrderPayload(receiveType, tableNo) {
   return {
     channel: 'kiosk',
-    delivery: deliveryType,
+    receive_type: receiveType,
     payment: selectedPayment,
     table_no: tableNo ?? null,
     items: cart.map(ci => ({
@@ -966,7 +966,7 @@ function processPayment() {
 async function selectDelivery(type) {
   if (type === 'pickup') {
     try {
-      const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload('pickup')) });
+      const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload('take_out')) });
       orderNumber = r.order_number;
       document.getElementById('order-number-pickup').textContent = orderNumber;
       showScreen('screen-complete');
@@ -1013,7 +1013,7 @@ function selectTableCell(i, status) {
 async function confirmTable() {
   if (!selectedTable) return;
   try {
-    const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload('serving', selectedTable)) });
+    const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload('dine_in', selectedTable)) });
     orderNumber = r.order_number;
     document.getElementById('order-number-serving').textContent = orderNumber;
     document.getElementById('serving-complete-text').textContent =

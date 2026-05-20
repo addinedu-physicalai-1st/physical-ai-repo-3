@@ -18,6 +18,9 @@ __pycache__/
 .pytest_cache/
 .venv/
 
+#service
+**/tests/
+
 # === IDE ===
 .vscode/
 .idea/
@@ -68,3 +71,6 @@ docs/cabot_README.md
 
 # === src/shared 의 외부 저장소 (각자 자체 git, vcs import로 복원) ===
 src/shared/vic_pinky/
+
+# Antigravity
+.antigravitycli

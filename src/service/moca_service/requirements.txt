@@ -1,1 +1,2 @@
-# Standard-library socket TCP service. No third-party runtime dependencies.
+PyMySQL==1.1.1
+cryptography==42.0.8

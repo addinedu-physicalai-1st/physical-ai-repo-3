@@ -8,21 +8,22 @@ services:
     environment:
       MOCA_SERVICE_NAME: moca_service
       MOCA_SERVICE_PORT: "9001"
-      BUSINESS_SERVICE_DB_HOST: moca_db
-      BUSINESS_SERVICE_DB_PORT: "3306"
-      BUSINESS_SERVICE_ADMIN_GUI_HOST: ${ADMIN_GUI_HOST:-host.docker.internal}
-      BUSINESS_SERVICE_ADMIN_GUI_PORT: ${ADMIN_GUI_PORT:-9000}
-      BUSINESS_SERVICE_WEB_SERVICE_HOST: web_service
-      BUSINESS_SERVICE_WEB_SERVICE_TCP_PORT: "9004"
-      CONTROL_SERVICE_ADMIN_GUI_HOST: ${ADMIN_GUI_HOST:-host.docker.internal}
-      CONTROL_SERVICE_ADMIN_GUI_PORT: ${ADMIN_GUI_PORT:-9000}
-      CONTROL_SERVICE_COOKING_CONTROLLER_BRIDGE_HOST: ${COOKING_CONTROLLER_BRIDGE_HOST:-host.docker.internal}
-      CONTROL_SERVICE_COOKING_CONTROLLER_BRIDGE_PORT: ${COOKING_CONTROLLER_BRIDGE_PORT:-9005}
-      CONTROL_SERVICE_SERVING_CONTROLLER_BRIDGE_HOST: ${SERVING_CONTROLLER_BRIDGE_HOST:-host.docker.internal}
-      CONTROL_SERVICE_SERVING_CONTROLLER_BRIDGE_PORT: ${SERVING_CONTROLLER_BRIDGE_PORT:-9006}
-      CONTROL_SERVICE_VISION_SERVICE_HOST: ${VISION_SERVICE_HOST:-ai-server.local}
-      CONTROL_SERVICE_VISION_SERVICE_TCP_PORT: ${VISION_SERVICE_TCP_PORT:-9003}
-      CONTROL_SERVICE_ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      MOCA_DB_HOST: moca_db
+      MOCA_DB_PORT: "3306"
+      MOCA_DB_USER: business_user
+      MOCA_DB_PASSWORD: business_password
+      MOCA_DB_NAME: business
+      ADMIN_GUI_HOST: ${ADMIN_GUI_HOST:-host.docker.internal}
+      ADMIN_GUI_PORT: ${ADMIN_GUI_PORT:-9000}
+      WEB_SERVICE_HOST: web_service
+      WEB_SERVICE_TCP_PORT: "9004"
+      # todo: 통신 제거
+      COOKING_CONTROLLER_BRIDGE_HOST: ${COOKING_CONTROLLER_BRIDGE_HOST:-host.docker.internal}
+      COOKING_CONTROLLER_BRIDGE_PORT: ${COOKING_CONTROLLER_BRIDGE_PORT:-9005}
+      SERVING_CONTROLLER_BRIDGE_HOST: ${SERVING_CONTROLLER_BRIDGE_HOST:-host.docker.internal}
+      SERVING_CONTROLLER_BRIDGE_PORT: ${SERVING_CONTROLLER_BRIDGE_PORT:-9006}
+      VISION_SERVICE_HOST: ${VISION_SERVICE_HOST:-ai-server.local}
+      VISION_SERVICE_TCP_PORT: ${VISION_SERVICE_TCP_PORT:-9003}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -37,10 +38,11 @@ services:
       - "8000:8000"
       - "9004:9004"
     environment:
+      WEB_SERVICE_NAME: web_service
       WEB_SERVICE_HTTP_PORT: "8000"
       WEB_SERVICE_TCP_PORT: "9004"
-      WEB_SERVICE_BUSINESS_SERVICE_HOST: moca_service
-      WEB_SERVICE_BUSINESS_SERVICE_PORT: "9001"
+      MOCA_SERVICE_HOST: moca_service
+      MOCA_SERVICE_PORT: "9001"
     volumes:
       - ../app/order_vui:/app/ui/order_vui:ro
       - ../app/table_gui:/app/ui/table_gui:ro
@@ -48,6 +50,9 @@ services:
   moca_db:
     image: mysql:8.4
     container_name: moca_db
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
     ports:
       - "3307:3306"
     environment:
@@ -59,7 +64,7 @@ services:
       - moca_db_data:/var/lib/mysql
       - ./moca_db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      test: ["CMD-SHELL", "mysql -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} $${MYSQL_DATABASE} -e 'SELECT 1'"]
       interval: 5s
       timeout: 5s
       retries: 20

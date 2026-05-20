@@ -1,6 +1,6 @@
 # moca — Multi-module Cafe Robot Workspace
 
-> **Dobi Barista** 호객·서빙·팔로우 카페 로봇 통합 ROS2 워크스페이스
+> **Doby Barista** 호객·서빙·팔로우 카페 로봇 통합 ROS2 워크스페이스
 >
 > Vic Pinky Pro 모바일 베이스 + 5-stage funnel BT + Russell V-A 감정 모델 + 노트북 풀스크린 얼굴 표현 + Web Dashboard
 
@@ -221,8 +221,8 @@ bash scripts/record_demo.sh
 ## Phase 진행 상황 (2026-05-17 기준)
 
 **두 트랙 동시 진행:**
-- **학술 트랙 (Phase 0~5, 16주)** — `docs/cafe_npc_implementation_plan.md` SoT
-- **운영 트랙 (M0~M4, 6주)** — `docs/moca_mode_and_opserver_plan.md` SoT (2026-05-16 추가)
+- **학술 트랙 (Phase 0~5)** — `docs/cafe_npc_implementation_plan.md` SoT
+- **운영 트랙 (M0~M4)** — `docs/moca_mode_and_opserver_plan.md` SoT (2026-05-16 추가)
 
 ### 학술 트랙 (Phase 0~5)
 
@@ -256,7 +256,7 @@ bash scripts/record_demo.sh
 1. **신규 합류자** → `CLAUDE.md` (프로젝트 컨텍스트 전체, 본 워크스페이스 첫 읽기)
 2. **학술 배경** → `docs/cafe_npc_paper_master.md` (6-Layer + GEVA/GEFA 약어 매핑)
 3. **시스템 아키텍처** → `docs/cafe_npc_system_architecture.md`
-4. **구현 계획** → `docs/cafe_npc_implementation_plan.md` (Phase 0~5, 16주)
+4. **구현 계획** → `docs/cafe_npc_implementation_plan.md` 
 5. **모드별 SoT**:
    - `docs/cafe_npc_engagement_funnel.md` (모객 5-stage funnel — engaging 모드 BT)
    - `docs/cafe_npc_safety_zone.md` (안전 영역 표준 매핑 — ISO 13482 외)
@@ -282,12 +282,6 @@ bash scripts/record_demo.sh
 14. **회고** → `docs/daily/YYYY-MM-DD_<topic>.md` (시간 역순, 변경 + 발견 + 다음)
 
 ---
-
-## 협업
-
-- **개발** — 공국진 (Stephen, gjkong / skong097 / kong@pinklab.art)
-- **공동 모듈** — 송민규 / 류재상 / 김진우 / 김덕현 / 안순혁 (PinkLAB)
-- **베이스** — PinkLAB Vic Pinky Pro (pinklab.art, fork: `pinklab-art/vic_pinky`)
 
 ### 작업 규칙 요약 (`CLAUDE.md` §7 발췌)
 
