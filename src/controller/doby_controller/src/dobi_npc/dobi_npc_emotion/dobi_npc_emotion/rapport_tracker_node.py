@@ -46,12 +46,19 @@ class EMAState:
     def update(self, v_now: float, a_now: float, conf: float,
                no_signal: bool, alpha_base: float,
                conf_min_gate: float) -> None:
+        """confidence-weighted EMA update.
+
+        no_signal=True (caller 가 conf<=0 또는 'no_face' flag 감지) → state 보존.
+        conf < conf_min_gate → update skip.
+        cold start (v_smooth=None) → raw 채택. 이후 weight=alpha_base*conf EMA.
+        """
         if no_signal:
             return  # 사람 안 보임 — state 보존
         if conf < conf_min_gate:
             return  # 자신없는 frame skip
         if self.v_smooth is None:
             # cold start — 첫 valid frame 그대로 채택
+            assert self.a_smooth is None, "EMA state invariant: v/a must be None together"
             self.v_smooth = v_now
             self.a_smooth = a_now
             return
