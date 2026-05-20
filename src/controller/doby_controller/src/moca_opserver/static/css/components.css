@@ -1032,6 +1032,19 @@ event-feed { display: block; }
 #ea-mg-recent .mg-row .win  { color: var(--success); }
 #ea-mg-recent .mg-row .lose { color: var(--warning); }
 
+.ea-customer-label {
+  margin-left: var(--space-3);
+  padding: 2px var(--space-2);
+  font-size: var(--fs-sm);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--pink-soft);
+  font-family: var(--font-mono);
+}
+.ea-customer-label.unknown {
+  color: var(--text-muted);
+}
+
 /* ────────────────────────────────────────────────
  * debug.html console-log (operator.html line 351 패턴 포팅)
  * ──────────────────────────────────────────────── */
