@@ -1,3 +1,4 @@
+import logging
 import socket
 import threading
 from typing import Any
@@ -12,7 +13,10 @@ from app.protocol.header_protocol import (
     HEADER_SIZE,
     METHOD_GET,
     METHOD_SET,
+    STATUS_ERROR,
+    STATUS_OK,
     MocaHeader,
+    decode_error_payload,
     decode_header,
     encode_frame,
 )
@@ -72,6 +76,7 @@ class MocaTcpBaseClient:
         self._lock = threading.Lock()
         self._sequence = 0
         self._sock: socket.socket | None = None
+        self._logger = logging.getLogger("web_service")
 
     def close(self) -> None:
         with self._lock:
@@ -94,6 +99,10 @@ class MocaTcpBaseClient:
                 raise ValueError(f"moca response sequence mismatch: {header.sequence} != {sequence}")
 
             response_payload = self._read_exact_unlocked(header.payload_size)
+            self._logger.info(
+                "parsed MOCA response payload from moca_service: %s",
+                _parse_received_response_payload(header, response_payload),
+            )
             return header, response_payload
 
     def _next_sequence_unlocked(self) -> int:
@@ -306,3 +315,36 @@ class MocaTcpTableClient(MocaTcpBaseClient):
         if error_code == ERROR_TABLE_ASSIGNMENT_REJECTED:
             raise MocaTableAssignmentRejected(message or "table assignment rejected")
         raise MocaTableClientError(message or "table assignment failed")
+
+
+def _parse_received_response_payload(header: MocaHeader, payload: bytes) -> dict[str, Any]:
+    try:
+        if header.cmd_type in {CMD_MENU, CMD_ALLERGY}:
+            return decode_catalog_payload(payload, header.cmd_type)
+        if header.cmd_type == CMD_ORDER:
+            return _parse_order_response_payload(payload)
+        if header.cmd_type == CMD_TABLE and header.method == METHOD_GET:
+            return {"tables": decode_table_payload(payload)}
+        if header.cmd_type == CMD_TABLE and header.method == METHOD_SET:
+            return _parse_table_assignment_response_payload(payload)
+        raise ValueError(f"unsupported response payload cmd=0x{header.cmd_type:02X}")
+    except Exception as exc:
+        return {"parse_error": str(exc), "raw_payload_hex": payload.hex(" ")}
+
+
+def _parse_order_response_payload(payload: bytes) -> dict[str, Any]:
+    if len(payload) == 5 and payload[0] == STATUS_OK:
+        ok, order_id, _ = decode_order_response_payload(payload)
+        if ok:
+            return {"status": "ok", "order_id": order_id}
+    if payload[:1] == bytes([STATUS_ERROR]):
+        error_code, message = decode_error_payload(payload)
+        return {"status": "error", "error_code": error_code, "message": message}
+    raise ValueError(f"invalid order response payload length: {len(payload)}")
+
+
+def _parse_table_assignment_response_payload(payload: bytes) -> dict[str, Any]:
+    if payload == bytes([STATUS_OK]):
+        return {"status": "ok"}
+    error_code, message = decode_error_payload(payload)
+    return {"status": "error", "error_code": error_code, "message": message}

@@ -138,6 +138,11 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
         payload_bytes = self._read_exact(header.payload_size)
         if payload_bytes is None:
             return
+        server.logger.info(
+            "received MOCA payload from %s: %s",
+            self.client_address,
+            _decode_received_request_payload(header.cmd_type, header.method, payload_bytes),
+        )
 
         if header.cmd_type in {CMD_MENU, CMD_ALLERGY}:
             self._handle_catalog_frame(header.cmd_type, header.sequence, payload_bytes)
@@ -218,3 +223,34 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
                 return None
             chunks.extend(chunk)
         return bytes(chunks)
+
+
+def _decode_received_request_payload(cmd_type: int, method: int, payload: bytes) -> dict:
+    try:
+        if cmd_type in {CMD_MENU, CMD_ALLERGY} and method == METHOD_GET:
+            if payload:
+                raise ValueError(f"catalog request payload must be empty: {len(payload)}")
+            return {}
+        if cmd_type == CMD_ORDER and method == METHOD_SET:
+            request = parse_order_payload(payload)
+            return {
+                "item_count": len(request.items),
+                "items": [
+                    {"product_id": item.product_id, "quantity": item.quantity}
+                    for item in request.items
+                ],
+            }
+        if cmd_type == CMD_TABLE and method == METHOD_GET:
+            if payload:
+                raise ValueError(f"table request payload must be empty: {len(payload)}")
+            return {}
+        if cmd_type == CMD_TABLE and method == METHOD_SET:
+            request = parse_table_assignment_payload(payload)
+            return {
+                "order_id": request.order_id,
+                "receive_type": request.receive_type,
+                "table_number": request.table_number,
+            }
+        raise ValueError(f"unsupported request payload cmd=0x{cmd_type:02X} method=0x{method:02X}")
+    except Exception as exc:
+        return {"decode_error": str(exc), "raw_payload_hex": payload.hex(" ")}
