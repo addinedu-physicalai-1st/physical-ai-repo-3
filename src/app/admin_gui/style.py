@@ -60,7 +60,7 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QComboBox:focus, QTextEdit:focus {{ border-color: {PRIMARY}; }}
 QTableWidget {{
     background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px;
-    gridline-color: {BORDER}; font-size: 13px; outline: none;
+    gridline-color: {BORDER}; font-size: 13px; outline: none; color: {TEXT};
 }}
 QTableWidget::item {{ padding: 6px 12px; border: none; }}
 QTableWidget::item:selected {{ background: {PRIMARY}20; color: {TEXT}; }}
