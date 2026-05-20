@@ -1,39 +1,4 @@
 services:
-  moca_service:
-    build:
-      context: ..
-      dockerfile: service/moca_service/Dockerfile
-    container_name: moca_service
-    ports:
-      - "9001:9001"
-    environment:
-      MOCA_SERVICE_NAME: moca_service
-      MOCA_SERVICE_PORT: "9001"
-      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-1}
-      MOCA_ROS_ENABLED: "true"
-      MOCA_ROS_NODE_NAME: moca_ros_service
-      MOCA_DB_HOST: moca_db
-      MOCA_DB_PORT: "3306"
-      MOCA_DB_USER: business_user
-      MOCA_DB_PASSWORD: business_password
-      MOCA_DB_NAME: business
-      ADMIN_GUI_HOST: ${ADMIN_GUI_HOST:-host.docker.internal}
-      ADMIN_GUI_PORT: ${ADMIN_GUI_PORT:-9000}
-      WEB_SERVICE_HOST: web_service
-      WEB_SERVICE_TCP_PORT: "9004"
-      # todo: 통신 제거
-      COOKING_CONTROLLER_BRIDGE_HOST: ${COOKING_CONTROLLER_BRIDGE_HOST:-host.docker.internal}
-      COOKING_CONTROLLER_BRIDGE_PORT: ${COOKING_CONTROLLER_BRIDGE_PORT:-9005}
-      SERVING_CONTROLLER_BRIDGE_HOST: ${SERVING_CONTROLLER_BRIDGE_HOST:-host.docker.internal}
-      SERVING_CONTROLLER_BRIDGE_PORT: ${SERVING_CONTROLLER_BRIDGE_PORT:-9006}
-      VISION_SERVICE_HOST: ${VISION_SERVICE_HOST:-ai-server.local}
-      VISION_SERVICE_TCP_PORT: ${VISION_SERVICE_TCP_PORT:-9003}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      moca_db:
-        condition: service_healthy
-
   web_service:
     build:
       context: ./web_service
@@ -45,8 +10,10 @@ services:
       WEB_SERVICE_NAME: web_service
       WEB_SERVICE_HTTP_PORT: "8000"
       WEB_SERVICE_TCP_PORT: "9004"
-      MOCA_SERVICE_HOST: moca_service
+      MOCA_SERVICE_HOST: host.docker.internal
       MOCA_SERVICE_PORT: "9001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ../app/order_vui:/app/ui/order_vui:ro
       - ../app/table_gui:/app/ui/table_gui:ro

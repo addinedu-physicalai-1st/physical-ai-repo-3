@@ -9,7 +9,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ros_ws
-COPY controller/controller_status_msgs ./src/controller_status_msgs
+COPY service/moca_service/controller_status_msgs ./src/controller_status_msgs
 RUN . /opt/ros/jazzy/setup.sh && colcon build --packages-select controller_status_msgs
 
 WORKDIR /app

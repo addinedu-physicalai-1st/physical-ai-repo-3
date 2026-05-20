@@ -9,6 +9,7 @@
 build/
 install/
 log/
+src/service/moca_service/.ros_ws/
 
 # === Python ===
 __pycache__/
