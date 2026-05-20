@@ -1,1 +1,5 @@
 /doc/
+/device/single_arm_controller/log/
+/device/single_arm_controller/build/
+/device/single_arm_controller/install/
+/device/single_arm_controller/.venv/
