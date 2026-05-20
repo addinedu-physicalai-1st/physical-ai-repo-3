@@ -3,7 +3,8 @@ import time
 import pymysql
 
 from app.config import configure_logging, load_config
-from app.application.moca_controller import MocaController
+from app.application.tcp_controller import MocaTcpController
+from app.application.ros_controller import MocaRosController
 from app.application.moca_service import MocaService
 from app.domain.table_assignment_runtime import TableAssignmentRuntime
 from app.repository.catalog_repo import CatalogRepository, DbConfig
@@ -11,6 +12,7 @@ from app.repository.order_repo import OrderRepository
 from app.repository.table_repo import TableRepository
 from app.transport.tcp_receiver import TcpServer
 from app.transport.tcp_sender import build_moca_tcp_sender
+from app.transport.ros_server import RosServer
 
 
 def fetch_table_definitions_with_retry(
@@ -63,27 +65,38 @@ def main() -> None:
         table_assignment_runtime,
         logger,
     )
-    controller = MocaController(service, tcp_sender, logger)
+    controller = MocaTcpController(service, tcp_sender, logger)
+    ros_server = RosServer(
+        config.ros_node_name,
+        logger,
+        enabled=config.ros_enabled,
+    )
+    ros_controller = MocaRosController(ros_server, logger)
+
+    def handle_health(seq: int) -> None:
+        controller.run_health_test(seq)
+        ros_controller.publish_health_status(seq)
 
     # TCP server
-    with TcpServer(
-        config.server_host,
-        config.server_port,
-        controller.run_health_test,
-        controller.handle_status,
-        controller.get_catalog,
-        controller.create_order,
-        controller.get_table_assignment,
-        controller.assign_table,
-        logger,
-        "MocaService",
-    ) as server:
-        logger.info(
-            "%s TCP listening on %s",
-            config.service_name,
-            server.server_address,
-        )
-        server.serve_forever()
+    with ros_server:
+        with TcpServer(
+            config.server_host,
+            config.server_port,
+            handle_health,
+            controller.handle_status,
+            controller.get_catalog,
+            controller.create_order,
+            controller.get_table_assignment,
+            controller.assign_table,
+            logger,
+            "MocaService",
+        ) as server:
+            logger.info(
+                "%s TCP listening on %s",
+                config.service_name,
+                server.server_address,
+            )
+            server.serve_forever()
 
 
 if __name__ == "__main__":

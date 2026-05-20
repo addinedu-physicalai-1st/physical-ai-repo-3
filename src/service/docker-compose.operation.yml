@@ -1,13 +1,17 @@
 services:
   moca_service:
     build:
-      context: ./moca_service
+      context: ..
+      dockerfile: service/moca_service/Dockerfile
     container_name: moca_service
     ports:
       - "9001:9001"
     environment:
       MOCA_SERVICE_NAME: moca_service
       MOCA_SERVICE_PORT: "9001"
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-1}
+      MOCA_ROS_ENABLED: "true"
+      MOCA_ROS_NODE_NAME: moca_ros_service
       MOCA_DB_HOST: moca_db
       MOCA_DB_PORT: "3306"
       MOCA_DB_USER: business_user

@@ -15,7 +15,7 @@ from app.application.moca_service import MocaService, OrderNotFound, TableAssign
 from app.transport.tcp_sender import TcpSender
 
 
-class MocaController:
+class MocaTcpController:
     def __init__(
         self,
         service: MocaService,
