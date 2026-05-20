@@ -23,7 +23,7 @@ import logging
 import os
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -416,6 +416,26 @@ def build_fastapi_app(opserver) -> FastAPI:
             payload=req.model_dump(), outcome='accepted')
         return _ok({'acknowledged': True})
 
+    @app.post('/api/v1/dialog/utter')
+    def post_dialog_utter(payload: dict = Body(...)):
+        """engaging-analytics 강제 발화 (Task 4).
+
+        body: {text: str, persona?: str}
+        → /dialog/router_in 에 UtterRequest publish (operator priority=10, preempt=True).
+        """
+        text = (payload.get('text') or '').strip()
+        if not text:
+            _err('INVALID_PAYLOAD', 'text required', 400)
+        persona = str(payload.get('persona') or '')
+        ok = opserver.publish_dialog_router_in(text=text, persona=persona)
+        if not ok:
+            _err('PUBLISH_FAILED', 'dialog/router_in publish failed', 500)
+        opserver.publish_op_event(
+            source='operator', event_type='dialog_utter',
+            payload={'text': text, 'persona': persona},
+            outcome='accepted')
+        return _ok({'published': True, 'text': text, 'persona': persona})
+
     @app.post('/api/v1/emergency_stop')
     def post_emergency_stop():
         opserver.publish_operator_command('stop_emergency', {})
@@ -612,6 +632,35 @@ def build_fastapi_app(opserver) -> FastAPI:
             flush=True)
 
     # ---------- WebSocket ----------
+
+    @app.websocket('/ws/v1/engaging')
+    async def ws_engaging(ws: WebSocket):
+        """engaging-analytics 라이브 stream — 5Hz throttle.
+
+        M3 dashboard modes.html engaging 컨텍스트 섹션이 구독.
+        payload: {emotion, rapport, minigame, mode}.
+        operator.html /ws/telemetry 의 dobi_emotion/dobi_rapport/dobi_minigame
+        패턴 포팅.
+        """
+        await ws.accept()
+        try:
+            while True:
+                payload = {
+                    'ts': now_iso(),
+                    'emotion': opserver.emotion_snapshot(),
+                    'rapport': opserver.rapport_snapshot(),
+                    'minigame': opserver.minigame_snapshot(),
+                    'mode': {
+                        'current': opserver.current_mode,
+                        'entered_at': opserver.mode_entered_at,
+                    },
+                }
+                await ws.send_json(payload)
+                await asyncio.sleep(0.2)
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            log.warning(f'ws_engaging error: {e}')
 
     @app.websocket('/ws/dashboard')
     async def ws_dashboard(ws: WebSocket):

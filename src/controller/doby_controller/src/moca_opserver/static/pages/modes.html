@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/css/tokens.css?v=20260517r">
   <link rel="stylesheet" href="/static/css/reset.css?v=20260517r">
   <link rel="stylesheet" href="/static/css/layout.css?v=20260517r">
-  <link rel="stylesheet" href="/static/css/components.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260520a">
 </head>
 <body>
   <div class="app-shell">
@@ -187,6 +187,97 @@
         </section>
 
       </div>
+
+      <!-- 모객 분석 expand 섹션 — engaging 모드 진입 시 auto show
+           (operator.html localhost:8765 → M3 dashboard 마이그레이션 2026-05-20) -->
+      <section class="card engaging-analytics" id="engaging-analytics" hidden>
+        <h3>모객 분석 (V·A · rapport · minigame)
+          <span class="muted" id="ea-source">—</span></h3>
+        <div class="ea-grid">
+          <div class="ea-meta">
+            <div class="ea-row">
+              <span class="label">valence</span>
+              <span class="ea-big v-mid" id="ea-v">—</span>
+            </div>
+            <div class="ea-row">
+              <span class="label">arousal</span>
+              <span class="ea-big v-mid" id="ea-a">—</span>
+            </div>
+            <div class="ea-row">
+              <span class="label">confidence</span>
+              <span id="ea-conf">—</span>
+            </div>
+            <div class="ea-conf-bar"><span id="ea-conf-bar" style="width:0%"></span></div>
+            <div class="ea-row">
+              <span class="label">flags</span>
+              <span id="ea-flags" style="font-size:var(--fs-xs)">—</span>
+            </div>
+          </div>
+          <svg class="circumplex" viewBox="-110 -110 220 220" id="ea-circumplex">
+            <!-- abort zone: V<-0.5, A>+0.4 (좌상). SVG y 반전. -->
+            <rect class="abort-zone" x="-100" y="-100" width="50" height="60"></rect>
+            <line class="axis" x1="-100" y1="0" x2="100" y2="0"></line>
+            <line class="axis" x1="0" y1="-100" x2="0" y2="100"></line>
+            <line class="grid" x1="-100" y1="-50" x2="100" y2="-50"></line>
+            <line class="grid" x1="-100" y1="50" x2="100" y2="50"></line>
+            <line class="grid" x1="-50" y1="-100" x2="-50" y2="100"></line>
+            <line class="grid" x1="50" y1="-100" x2="50" y2="100"></line>
+            <rect x="-100" y="-100" width="200" height="200" fill="none"
+                  stroke="rgba(255,102,179,0.18)" stroke-width="0.5"></rect>
+            <text class="quad-label" x="92" y="-3" text-anchor="end">V+</text>
+            <text class="quad-label" x="-92" y="-3" text-anchor="start">V-</text>
+            <text class="quad-label" x="3" y="-92" text-anchor="start">A+</text>
+            <text class="quad-label" x="3" y="98" text-anchor="start">A-</text>
+            <text class="quad-label" x="-90" y="-85">angry/abort</text>
+            <text class="quad-label" x="55" y="-85">excited</text>
+            <text class="quad-label" x="-90" y="92">sad/bored</text>
+            <text class="quad-label" x="55" y="92">calm/happy</text>
+            <g id="ea-traj"></g>
+            <circle class="cur-pt" id="ea-cur" cx="0" cy="0" r="0"></circle>
+          </svg>
+        </div>
+
+        <h4 class="card__subtitle">라포 이벤트</h4>
+        <div class="ea-rap-counters">
+          <div class="ea-rap-counter up">
+            <div class="num" id="ea-rap-up">0</div>
+            <div class="lbl">engagement_up</div>
+          </div>
+          <div class="ea-rap-counter down">
+            <div class="num" id="ea-rap-down">0</div>
+            <div class="lbl">engagement_down</div>
+          </div>
+          <div class="ea-rap-counter abrt">
+            <div class="num" id="ea-rap-abort">0</div>
+            <div class="lbl">abort_trigger</div>
+          </div>
+          <div class="ea-rap-counter neut">
+            <div class="num" id="ea-rap-neut">0</div>
+            <div class="lbl">neutral_continue</div>
+          </div>
+        </div>
+        <div class="ea-rap-recent" id="ea-rap-recent">
+          <div class="ev-neut">(아직 이벤트 없음)</div>
+        </div>
+
+        <h4 class="card__subtitle">미니게임 결과</h4>
+        <div id="ea-mg-recent">
+          <div class="muted">(아직 결과 없음)</div>
+        </div>
+
+        <h4 class="card__subtitle">강제 발화 (engaging 모드 전용)</h4>
+        <div class="form-row">
+          <input type="text" class="form-input form-input--grow"
+                 id="ea-utter-text" placeholder="강제 발화 텍스트" maxlength="200">
+          <select class="form-select" id="ea-utter-persona">
+            <option value="">(persona 자동)</option>
+            <option value="casual_browser">casual_browser</option>
+            <option value="friendly_child">friendly_child</option>
+            <option value="professional_adult">professional_adult</option>
+          </select>
+          <button class="btn btn--primary" id="ea-utter-send">발송</button>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -201,6 +292,7 @@
   <script src="/static/components/safety-indicator.js?v=20260517r"></script>
   <script src="/static/components/robot-status.js?v=20260517r"></script>
   <script src="/static/components/header-clock.js?v=20260517r"></script>
+  <script src="/static/js/engaging-analytics.js?v=20260520a"></script>
 
   <script>
     (function () {

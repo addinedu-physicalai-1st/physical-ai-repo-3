@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/css/tokens.css?v=20260517r">
   <link rel="stylesheet" href="/static/css/reset.css?v=20260517r">
   <link rel="stylesheet" href="/static/css/layout.css?v=20260517r">
-  <link rel="stylesheet" href="/static/css/components.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260520a">
 </head>
 <body>
   <div class="app-shell">
@@ -165,6 +165,23 @@
             <pre class="json-pre" id="q-order">—</pre>
           </div>
         </div>
+      </section>
+
+      <!-- Console log — operator.html line 351 패턴 포팅 (2026-05-20) -->
+      <section class="card">
+        <h3>Console Log (client-side)</h3>
+        <p class="card__small">
+          브라우저 console.log/warn/error/info 를 페이지에서 표시 (최근 50건).
+          + WS open/close 이벤트 + alarm.
+        </p>
+        <div class="form-row">
+          <span class="card__small" id="console-log-count">0건</span>
+          <button class="btn btn--ghost" id="btn-console-clear">화면 비우기</button>
+          <label class="form-check">
+            <input type="checkbox" id="console-log-pause"><span>일시정지</span>
+          </label>
+        </div>
+        <div class="console-log" id="console-log"></div>
       </section>
 
       <!-- Event raw stream -->
@@ -349,6 +366,44 @@
         streamBuf.length = 0;
         streamRender();
       });
+
+      // ───── Console log (operator.html line 351 패턴 포팅) ─────
+      const LOG_MAX = 50;
+      const logBuf = [];
+      function renderLog() {
+        $('console-log').innerHTML = logBuf.map(r =>
+          `<div class="log-${r.level}">[${r.ts}] ${r.msg}</div>`
+        ).join('');
+        $('console-log-count').textContent = `${logBuf.length}건`;
+      }
+      function pushLog(level, parts) {
+        if ($('console-log-pause').checked) return;
+        const ts = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+        const msg = parts.map(a =>
+          (typeof a === 'object' && a !== null) ? JSON.stringify(a) : String(a)
+        ).join(' ');
+        logBuf.unshift({ ts, level, msg });
+        while (logBuf.length > LOG_MAX) logBuf.pop();
+        renderLog();
+      }
+      // console.* intercept
+      const _origConsole = {};
+      ['log', 'info', 'warn', 'error'].forEach(lv => {
+        _origConsole[lv] = console[lv].bind(console);
+        console[lv] = (...args) => {
+          pushLog({ log: 'info', info: 'info', warn: 'warn', error: 'err' }[lv], args);
+          _origConsole[lv](...args);
+        };
+      });
+      // WS lifecycle
+      wsClient.on('ws:open', () => pushLog('ok', ['ws open /ws/dashboard']));
+      wsClient.on('ws:close', (m) => pushLog('warn', ['ws close code=' + (m.data && m.data.code)]));
+      wsClient.on('alarm', (msg) => pushLog('warn', ['alarm', msg.data || {}]));
+      $('btn-console-clear').addEventListener('click', () => {
+        logBuf.length = 0;
+        renderLog();
+      });
+      renderLog();
     })();
   </script>
 </body>

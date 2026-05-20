@@ -893,3 +893,161 @@ event-feed { display: block; }
   font-size: var(--fs-xs);
   color: var(--pink-soft);
 }
+
+/* ────────────────────────────────────────────────
+ * engaging-analytics — modes.html 하단 expand 섹션
+ * operator.html (localhost:8765) V/A circumplex + rapport + minigame
+ * 포팅 (2026-05-20 → M3 dashboard 통합).
+ * ──────────────────────────────────────────────── */
+.engaging-analytics {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border-strong);
+}
+.engaging-analytics h3 .muted {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: normal;
+  margin-left: var(--space-2);
+}
+.ea-grid {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .ea-grid { grid-template-columns: 1fr; }
+}
+.ea-meta { display: flex; flex-direction: column; gap: var(--space-2); }
+.ea-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: var(--fs-sm);
+}
+.ea-row .label { color: var(--text-muted); }
+.ea-big {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.ea-big.v-pos { color: var(--success); }
+.ea-big.v-neg { color: var(--danger); }
+.ea-big.v-mid { color: var(--text-primary); }
+.ea-conf-bar {
+  width: 100%; height: 8px; background: var(--bg-tertiary);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.ea-conf-bar > span {
+  display: block; height: 100%;
+  background: linear-gradient(90deg,
+    var(--danger) 0%, var(--warning) 50%, var(--success) 100%);
+  transition: width 0.2s;
+}
+.circumplex {
+  width: 100%; max-width: 360px; aspect-ratio: 1; margin: 0 auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.circumplex .axis { stroke: var(--border-strong); stroke-width: 1; }
+.circumplex .grid { stroke: var(--border); stroke-width: 0.5; }
+.circumplex .quad-label {
+  fill: var(--text-muted);
+  font-size: 8px;
+  font-family: var(--font-sans);
+}
+.circumplex .abort-zone {
+  fill: rgba(255, 77, 109, 0.10);
+  stroke: rgba(255, 77, 109, 0.4);
+  stroke-width: 0.5;
+  stroke-dasharray: 1.5 1.5;
+}
+.circumplex .traj-pt { opacity: 0.4; }
+.circumplex .cur-pt {
+  fill: var(--pink-primary);
+  stroke: #fff;
+  stroke-width: 1;
+}
+.ea-rap-counters {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-2);
+}
+.ea-rap-counter {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  text-align: center;
+}
+.ea-rap-counter .num {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+.ea-rap-counter .lbl {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.ea-rap-counter.up   .num { color: var(--success); }
+.ea-rap-counter.down .num { color: var(--warning); }
+.ea-rap-counter.abrt .num { color: var(--danger); }
+.ea-rap-counter.neut .num { color: var(--text-muted); }
+.ea-rap-recent {
+  max-height: 120px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  background: var(--bg-primary);
+}
+.ea-rap-recent > div {
+  padding: 2px 0;
+  border-bottom: 1px dotted var(--border);
+}
+.ea-rap-recent > div:last-child { border-bottom: none; }
+.ea-rap-recent .ev-up   { color: var(--success); }
+.ea-rap-recent .ev-down { color: var(--warning); }
+.ea-rap-recent .ev-abrt { color: var(--danger); font-weight: 600; }
+.ea-rap-recent .ev-neut { color: var(--text-muted); }
+#ea-mg-recent {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-size: var(--fs-sm);
+}
+#ea-mg-recent .muted { color: var(--text-muted); }
+#ea-mg-recent .mg-row {
+  display: flex; justify-content: space-between;
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  border-bottom: 1px dotted var(--border);
+}
+#ea-mg-recent .mg-row:last-child { border-bottom: none; }
+#ea-mg-recent .mg-row .game { color: var(--pink-soft); }
+#ea-mg-recent .mg-row .win  { color: var(--success); }
+#ea-mg-recent .mg-row .lose { color: var(--warning); }
+
+/* ────────────────────────────────────────────────
+ * debug.html console-log (operator.html line 351 패턴 포팅)
+ * ──────────────────────────────────────────────── */
+.console-log {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  max-height: 360px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.console-log > div { padding: 2px 0; }
+.console-log .log-ok   { color: var(--success); }
+.console-log .log-warn { color: var(--warning); }
+.console-log .log-err  { color: var(--danger); }
+.console-log .log-info { color: var(--text-muted); }

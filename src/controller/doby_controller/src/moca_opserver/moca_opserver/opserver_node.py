@@ -44,6 +44,7 @@ from nav_msgs.msg import Odometry
 from dobi_npc_msgs.msg import (
     ModeState, PatrolState, TableReport, GuidingState,
     OpEvent, OperatorCommand, RapportEvent, UtterRequest,
+    EmotionState, MinigameResult,
 )
 
 from .completion_watcher import CompletionWatcher
@@ -152,6 +153,17 @@ class OpServerNode(Node):
         self._event_ttl_sec = 3600.0
         self._alarms_acked: set[str] = set()
 
+        # engaging-analytics state (Task 2 — operator.html telemetry 포팅)
+        self._emotion_state: dict | None = None
+        self._emotion_history: deque = deque(maxlen=60)  # 6s @ 10Hz
+        self._rapport_events: deque = deque(maxlen=20)
+        self._rapport_counters: dict[str, int] = {
+            'engagement_up': 0, 'engagement_down': 0,
+            'abort_trigger': 0, 'neutral_continue': 0,
+        }
+        self._last_minigame_result: dict | None = None
+        self._minigame_recent: deque = deque(maxlen=5)
+
         # FastAPI / WS
         self.ws_hub = WsHub()
         self._fastapi_loop: asyncio.AbstractEventLoop | None = None
@@ -177,6 +189,11 @@ class OpServerNode(Node):
             PoseWithCovarianceStamped, '/amcl_pose', self._on_amcl_pose, 10)
         self.create_subscription(
             RapportEvent, '/rapport/event', self._on_rapport, 10)
+        # engaging-analytics (Task 2) — operator.html telemetry 포팅
+        self.create_subscription(
+            EmotionState, '/emotion/state', self._on_emotion_state, 10)
+        self.create_subscription(
+            MinigameResult, '/minigame/result', self._on_minigame_result, 10)
 
         # ROS 발행
         self.pub_op_event = self.create_publisher(
@@ -191,6 +208,9 @@ class OpServerNode(Node):
         # 강제 abort UI 용. 운영 모드에서는 OpServer 가 abort 트리거 발행 X (감정 노드 책임).
         self.pub_rapport = self.create_publisher(
             RapportEvent, '/rapport/event', 10)
+        # engaging-analytics 강제 발화 (Task 4) — /dialog/router_in 직접 발행
+        self.pub_router_in = self.create_publisher(
+            UtterRequest, '/dialog/router_in', 10)
 
         # SetMode 클라이언트 (orchestrator 가 보유)
         self.orchestrator = ModeOrchestrator(self)
@@ -372,6 +392,18 @@ class OpServerNode(Node):
         self._has_amcl_pose = True
 
     def _on_rapport(self, msg: RapportEvent):
+        rec = {
+            'type': msg.event_type,
+            'weight': float(msg.weight),
+            'v': float(msg.emotion.valence),
+            'a': float(msg.emotion.arousal),
+            'conf': float(msg.emotion.confidence),
+            'reason': msg.reason,
+            'ts': time.time(),
+        }
+        self._rapport_events.append(rec)
+        if msg.event_type in self._rapport_counters:
+            self._rapport_counters[msg.event_type] += 1
         if msg.event_type == 'abort_trigger':
             self._append_event('warn', 'rapport',
                                f'abort_trigger weight={msg.weight:.2f}',
@@ -381,6 +413,34 @@ class OpServerNode(Node):
                 'value': float(msg.weight),
                 'severity': 'high',
             })
+
+    def _on_emotion_state(self, msg: EmotionState):
+        rec = {
+            'v': float(msg.valence),
+            'a': float(msg.arousal),
+            'conf': float(msg.confidence),
+            'source': msg.source,
+            'flags': list(msg.flags),
+            'ts': time.time(),
+        }
+        self._emotion_state = rec
+        self._emotion_history.append(
+            (rec['ts'], rec['v'], rec['a'], rec['conf'], rec['source']))
+
+    def _on_minigame_result(self, msg: MinigameResult):
+        rec = {
+            'game_id': msg.game_id,
+            'rounds_played': int(msg.rounds_played),
+            'customer_wins': int(msg.customer_wins),
+            'robot_wins': int(msg.robot_wins),
+            'ties': int(msg.ties),
+            'customer_win_rate': float(msg.customer_win_rate),
+            'duration_sec': float(msg.duration_sec),
+            'completed': bool(msg.completed),
+            'ts': time.time(),
+        }
+        self._last_minigame_result = rec
+        self._minigame_recent.append(rec)
 
     # ---------- timer ----------
 
@@ -554,6 +614,22 @@ class OpServerNode(Node):
         msg.data = table_id
         self.pub_serving_goto.publish(msg)
 
+    def publish_dialog_router_in(self, text: str, persona: str = '') -> bool:
+        """engaging-analytics 강제 발화 (Task 4) — /dialog/router_in 발행.
+
+        teleop_server.publish_utter (web/teleop_server.py:1322) 패턴 포팅 —
+        operator 우선순위 + preempt=True 로 즉시 발화.
+        """
+        msg = UtterRequest()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.text = text
+        msg.source = 'operator'
+        msg.priority = 10
+        msg.preempt = True
+        msg.persona_id = persona or ''
+        self.pub_router_in.publish(msg)
+        return True
+
     def _publish_utter(self, payload: dict) -> None:
         msg = UtterRequest()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -625,6 +701,45 @@ class OpServerNode(Node):
 
     def last_patrol_completed_at(self) -> str:
         return self._last_patrol_completed_at
+
+    # ---------- engaging-analytics snapshots (Task 2) ----------
+
+    def emotion_snapshot(self) -> dict:
+        latest = dict(self._emotion_state) if self._emotion_state else None
+        traj = list(self._emotion_history)
+        return {
+            'latest': latest,
+            'trajectory': [
+                {'t': round(ts, 3), 'v': round(v, 3), 'a': round(a, 3),
+                 'conf': round(c, 3), 'source': s}
+                for (ts, v, a, c, s) in traj
+            ],
+        }
+
+    def rapport_snapshot(self) -> dict:
+        return {
+            'counters': dict(self._rapport_counters),
+            'recent': [
+                {'type': r['type'], 'weight': round(r['weight'], 2),
+                 'v': round(r['v'], 2), 'a': round(r['a'], 2),
+                 'conf': round(r['conf'], 2),
+                 'reason': r['reason'], 'ts': round(r['ts'], 3)}
+                for r in list(self._rapport_events)
+            ],
+        }
+
+    def minigame_snapshot(self) -> dict:
+        latest = (dict(self._last_minigame_result)
+                  if self._last_minigame_result else None)
+        return {
+            'latest': latest,
+            'recent': [
+                {**r, 'ts': round(r['ts'], 3),
+                 'customer_win_rate': round(r['customer_win_rate'], 2),
+                 'duration_sec': round(r['duration_sec'], 1)}
+                for r in list(self._minigame_recent)
+            ],
+        }
 
     def _battery_ok(self) -> bool:
         if self.battery_pct is None or self.battery_pct < 0:
