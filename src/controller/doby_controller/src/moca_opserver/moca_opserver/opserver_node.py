@@ -81,6 +81,44 @@ class OpServerConfig:
         return asdict(self)
 
 
+# ---------- Track C engagement-timeline helpers ----------
+# spec: docs/superpowers/specs/2026-05-21-engagement-timeline-design.md §4
+
+_MARKER_ELIGIBLE_TYPES = frozenset(
+    {'engagement_up', 'engagement_down', 'abort_trigger'})
+
+
+def compute_engagement_ema(prev: float, weight: float, alpha: float) -> float:
+    """RapportEvent.weight 의 EMA — 다음 score 반환.
+
+    score = alpha * weight + (1 - alpha) * prev
+    """
+    return alpha * weight + (1.0 - alpha) * prev
+
+
+def should_reset_engagement_score(last: int, current: int) -> bool:
+    """track_id 변경 시 engagement_score cold start 여부.
+
+    - current == -1: unknown frame — 보존 (False)
+    - last == -1: first valid — 보존 (cold start fallback, False)
+    - 같은 track: False
+    - 다른 valid track: True
+    """
+    if current == -1:
+        return False
+    if last == -1:
+        return False
+    return last != current
+
+
+def is_marker_eligible(event_type: str) -> bool:
+    """rapport_marker_history 에 append 할 event_type 만 True.
+
+    engagement_up / engagement_down / abort_trigger 만 — neutral / no_signal 제외.
+    """
+    return event_type in _MARKER_ELIGIBLE_TYPES
+
+
 # ---------- 메인 노드 ----------
 
 class OpServerNode(Node):
