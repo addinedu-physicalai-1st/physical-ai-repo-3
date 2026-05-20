@@ -2,8 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Channel = Literal["kiosk", "table"]
 ReceiveType = Literal["pending", "dine_in", "take_out"]
+Channel = Literal["kiosk", "table", "voice"]
 Payment = Literal["card", "apple_pay", "samsung_pay"]
 
 
@@ -20,20 +20,21 @@ class OrderItem(BaseModel):
 
 
 class OrderCreate(BaseModel):
-    channel: Channel
-    payment: Payment
-    items: list[OrderItem] = Field(min_length=1)
+      channel: Channel
+      payment: Payment
+      table_no: int | None = None
+      items: list[OrderItem] = Field(min_length=1)
 
 
 class Order(BaseModel):
-    order_id: int
-    order_number: int
-    channel: Channel
-    receive_type: ReceiveType
-    payment: Payment
-    table_no: int | None
-    items: list[OrderItem]
-    total: int
+      order_id: int
+      order_number: int
+      channel: Channel
+      receive_type: ReceiveType
+      payment: Payment
+      table_no: int | None
+      items: list[OrderItem]
+      total: int
 
 
 class OrderCreateResponse(BaseModel):

@@ -1,0 +1,27 @@
+# PoC (poc-moca-voice) 와 동일한 stable wheel 조합.
+# torch 2.12 + cuda 13 wheel 이 자체 cuda 런타임을 가져오므로 nvidia/cuda 베이스 불필요.
+# docker-compose 의 nvidia runtime 으로 GPU device 만 컨테이너에 노출하면 됨.
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+pydantic>=2.7
+
+torch>=2.12
+torchaudio
+transformers>=4.51
+accelerate
+sentencepiece
+protobuf
+
+qwen-asr
+# qwen-tts 는 Dockerfile 에서 --no-deps 로 별도 설치 (qwen-asr 가 요구하는 transformers==4.57.6 과
+# qwen-tts 가 요구하는 transformers==4.57.3 충돌 회피. patch 차이라 4.57.6 한 본 위에서 동작 검증).
+
+# qwen-tts 코어가 실제 import 하는 의존성만 추가 (gradio/flask/sox 같은 데모/cli 의존은 제외).
+onnxruntime
+einops
+
+soundfile
+librosa
+numpy
