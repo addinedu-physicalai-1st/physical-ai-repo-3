@@ -60,3 +60,29 @@ def test_conf_gate_skips_low_confidence():
     # weight = 0.5 * 0.3 = 0.15
     # v_smooth = 0.15*0.6 + 0.85*0.4 = 0.43
     assert abs(s.v_smooth - 0.43) < 1e-6
+
+
+def test_no_signal_preserves_state():
+    """no_signal=True (conf=0 또는 no_face flag) → EMA 변경 없음."""
+    s = EMAState()
+    s.update(0.4, -0.2, 0.9, False, ALPHA, GATE)   # cold start
+    assert s.v_smooth == 0.4
+
+    # no_signal — 새 값 완전 무시
+    s.update(-1.0, 1.0, 0.0, True, ALPHA, GATE)
+    assert s.v_smooth == 0.4
+    assert s.a_smooth == -0.2
+
+    # no_signal 후에도 다음 valid frame 정상 처리
+    s.update(0.6, 0.0, 1.0, False, ALPHA, GATE)
+    # weight = 0.5 * 1.0 = 0.5
+    # v_smooth = 0.5*0.6 + 0.5*0.4 = 0.5
+    assert s.v_smooth == 0.5
+
+
+def test_no_signal_before_cold_start():
+    """첫 frame 부터 no_signal — smoothed 가 None 유지."""
+    s = EMAState()
+    s.update(0.4, -0.2, 0.0, True, ALPHA, GATE)
+    assert s.v_smooth is None
+    assert s.a_smooth is None
