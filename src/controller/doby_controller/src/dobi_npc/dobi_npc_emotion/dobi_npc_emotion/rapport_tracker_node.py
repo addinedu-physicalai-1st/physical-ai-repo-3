@@ -71,6 +71,24 @@ class EMAState:
         self.a_smooth = weight * a_now + (1 - weight) * self.a_smooth
 
 
+def should_reset_ema_on_track_change(last: int, current: int) -> bool:
+    """track_id 변경 시 EMA cold start 여부 판정.
+
+    - last == current: 같은 손님 — reset 안 함
+    - last == -1: 첫 valid track — fallback 채택, reset 안 함 (cold start 가 EMAState 의
+      v_smooth=None 자연 처리)
+    - current == -1: 일시적 unknown (person_tracking 끊김) — EMA 보존
+    - last != current 둘 다 valid: 손님 전환 — reset
+
+    spec: docs/superpowers/specs/2026-05-21-track-id-integration-design.md §6
+    """
+    if current == -1:
+        return False
+    if last == -1:
+        return False
+    return last != current
+
+
 # CLAUDE.md §2 학술 임계값
 ABORT_VALENCE_MAX = -0.5
 ABORT_AROUSAL_MIN = +0.4
@@ -112,6 +130,8 @@ class RapportTrackerNode(Node):
         self._currently_aborting = False
 
         self._last_event_type = None
+        # 2026-05-21 Track B — 손님 전환 감지
+        self._last_track_id: int = -1
         self.get_logger().info(
             f"rapport_tracker: {in_topic} -> {out_topic}, "
             f"hysteresis on={self._abort_on_count} off={self._abort_off_count}, "
@@ -123,6 +143,15 @@ class RapportTrackerNode(Node):
         event.header.stamp = self.get_clock().now().to_msg()
         event.header.frame_id = msg.header.frame_id
         event.emotion = msg
+
+        # 2026-05-21 Track B — track_id 변경 시 EMA cold start
+        if should_reset_ema_on_track_change(self._last_track_id, msg.track_id):
+            self.get_logger().info(
+                f"customer 전환: track_id {self._last_track_id} → {msg.track_id} "
+                f"(EMA cold start)")
+            self._ema = EMAState()
+        if msg.track_id != -1:
+            self._last_track_id = msg.track_id
 
         no_signal = (msg.confidence <= 0.0) or ("no_face" in msg.flags)
 
