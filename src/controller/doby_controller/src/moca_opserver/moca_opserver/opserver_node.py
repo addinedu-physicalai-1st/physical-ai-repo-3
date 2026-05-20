@@ -138,6 +138,8 @@ class OpServerNode(Node):
         self.declare_parameter('business_hours', '09:00-22:00')
         self.declare_parameter('battery_min', 0.20)
         self.declare_parameter('alarm_dwell_sec', 5.0)
+        # 2026-05-21 Track C
+        self.declare_parameter('engagement_score_alpha', 0.1)
 
         self.config = OpServerConfig(
             host=str(self.get_parameter('host').value),
@@ -149,6 +151,9 @@ class OpServerNode(Node):
             battery_min=float(self.get_parameter('battery_min').value),
             alarm_dwell_sec=float(self.get_parameter('alarm_dwell_sec').value),
         )
+        # 2026-05-21 Track C — score EMA alpha
+        self._score_alpha: float = float(
+            self.get_parameter('engagement_score_alpha').value)
 
         # ROS 상태 캐시 (FastAPI thread 가 read-only 접근, 락 불필요한 단순 dict)
         self.current_mode: str = 'idle'
@@ -193,8 +198,14 @@ class OpServerNode(Node):
 
         # engaging-analytics state (Task 2 — operator.html telemetry 포팅)
         self._emotion_state: dict | None = None
-        self._emotion_history: deque = deque(maxlen=60)  # 6s @ 10Hz
+        # 2026-05-21 Track C — engagement-timeline 시간 창 60→600 (1분 @ 10Hz)
+        self._emotion_history: deque = deque(maxlen=600)
         self._rapport_events: deque = deque(maxlen=20)
+        # 2026-05-21 Track C — engagement_score (EMA) + history
+        self._engagement_score: float = 0.0
+        self._engagement_score_history: deque = deque(maxlen=600)
+        self._rapport_marker_history: deque = deque(maxlen=30)
+        self._last_score_track_id: int = -1
         self._rapport_counters: dict[str, int] = {
             'engagement_up': 0, 'engagement_down': 0,
             'abort_trigger': 0, 'neutral_continue': 0,
@@ -442,6 +453,32 @@ class OpServerNode(Node):
             'ts': time.time(),
         }
         self._rapport_events.append(rec)
+
+        # 2026-05-21 Track C — engagement_score EMA + marker history
+        tid = int(msg.emotion.track_id)
+        if should_reset_engagement_score(self._last_score_track_id, tid):
+            self.get_logger().info(
+                f"engagement_score cold start: track_id "
+                f"{self._last_score_track_id} → {tid}")
+            self._engagement_score = 0.0
+        if tid != -1:
+            self._last_score_track_id = tid
+
+        self._engagement_score = compute_engagement_ema(
+            self._engagement_score, float(msg.weight), self._score_alpha)
+
+        now = time.time()
+        self._engagement_score_history.append({
+            'ts': round(now, 3),
+            'score': round(self._engagement_score, 4),
+        })
+        if is_marker_eligible(msg.event_type):
+            self._rapport_marker_history.append({
+                'ts': round(now, 3),
+                'type': msg.event_type,
+                'weight': round(float(msg.weight), 2),
+            })
+
         if msg.event_type in self._rapport_counters:
             self._rapport_counters[msg.event_type] += 1
         if msg.event_type == 'abort_trigger':
