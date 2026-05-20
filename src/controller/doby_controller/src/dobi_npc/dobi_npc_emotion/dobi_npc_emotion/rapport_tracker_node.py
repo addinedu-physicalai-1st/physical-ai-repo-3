@@ -25,11 +25,39 @@ Phase 후속 확장:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 from dobi_npc_msgs.msg import EmotionState, RapportEvent
+
+
+@dataclass
+class EMAState:
+    """V·A 의 confidence-weighted EMA 상태.
+
+    spec: docs/superpowers/specs/2026-05-20-rapport-averaging-window-design.md §3
+    """
+    v_smooth: float | None = None
+    a_smooth: float | None = None
+
+    def update(self, v_now: float, a_now: float, conf: float,
+               no_signal: bool, alpha_base: float,
+               conf_min_gate: float) -> None:
+        if no_signal:
+            return  # 사람 안 보임 — state 보존
+        if conf < conf_min_gate:
+            return  # 자신없는 frame skip
+        if self.v_smooth is None:
+            # cold start — 첫 valid frame 그대로 채택
+            self.v_smooth = v_now
+            self.a_smooth = a_now
+            return
+        weight = alpha_base * conf
+        self.v_smooth = weight * v_now + (1 - weight) * self.v_smooth
+        self.a_smooth = weight * a_now + (1 - weight) * self.a_smooth
 
 
 # CLAUDE.md §2 학술 임계값
