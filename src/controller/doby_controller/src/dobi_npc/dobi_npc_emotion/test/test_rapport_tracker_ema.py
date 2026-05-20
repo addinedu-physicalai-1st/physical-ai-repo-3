@@ -41,3 +41,22 @@ def test_sustained_high_conf_reaches_90pct_within_4_frames():
     # 1 - (1-0.5)^4 = 0.9375 → v_smooth ≈ 0.4688
     assert s2.v_smooth > 0.46
     assert s2.v_smooth < 0.48
+
+
+def test_conf_gate_skips_low_confidence():
+    """conf=0.2 (gate=0.3 미만) frame → EMA update 안 됨."""
+    s = EMAState()
+    # cold start
+    s.update(0.4, -0.2, 0.9, False, ALPHA, GATE)
+    assert s.v_smooth == 0.4
+
+    # low conf frame — 새 값 무시
+    s.update(-0.9, 0.9, 0.2, False, ALPHA, GATE)
+    assert s.v_smooth == 0.4    # 변경 없음
+    assert s.a_smooth == -0.2
+
+    # gate 경계 (conf=0.3) — gate 미만 X (>=0.3 OK)
+    s.update(0.6, 0.0, 0.3, False, ALPHA, GATE)
+    # weight = 0.5 * 0.3 = 0.15
+    # v_smooth = 0.15*0.6 + 0.85*0.4 = 0.43
+    assert abs(s.v_smooth - 0.43) < 1e-6
