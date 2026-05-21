@@ -1,26 +1,28 @@
-# MOCA — 음성 + 자율주행 카페 로봇 통합 서비스
+# MOCA
 
 음성 주문, 상품 제조·서빙·정리, 고객 안내와 호객까지 수행하는 자율주행 카페 로봇 통합 서비스 프로젝트입니다.
 
-이 README 는 음성 주문 흐름 (`web_service` + `voice_service`) 을 처음부터 띄워 보는 방법을 안내합니다. 키오스크 앞에서 "주문할게요" 라고 말해 메뉴를 담고, 폰에서 QR 로 들어와 푸시-투-토크로 주문하는 시나리오까지 따라할 수 있습니다.
+이 README는 음성 주문 흐름 (`web_service` + `voice_service`)을 처음부터 띄워 보는 방법을 안내합니다. 키오스크 앞에서 "주문할게요"라고 말해 메뉴를 담고, 스마트폰으로 QR 코드를 스캔하여 접속한 뒤 푸시-투-토크(PTT)로 주문하는 시나리오까지 따라할 수 있습니다.
 
 ## Core Features
 
-- 음성 기반 주문 시스템 (키오스크 wake word + 폰 푸시-투-토크)
-- 로봇 기반 상품 제조와 서빙 자동화
-- 야외 고객 유치와 인터랙티브 서비스
+- **음성 기반 주문 시스템**: 키오스크 wake word ("주문할게요") 및 폰 푸시-투-토크(Push-to-Talk) 지원
+- **로봇 기반 상품 제조와 서빙 자동화**: 주문 완료 시 자동화 연동
+- **야외 고객 유치와 인터랙티브 서비스**: 인터랙티브 서비스를 통한 고객 경험 향상
 
-## 시스템 구성 (음성 주문 흐름)
+## System Architecture
 
-두 대의 컴퓨터가 필요합니다. 같은 매장 LAN 안에 둡니다.
+MOCA 시스템은 서비스 운영을 담당하는 일반 PC(노트북)와 AI 모델 구동을 위한 GPU 머신(pai-server)의 하이브리드 아키텍처로 구성됩니다. 두 컴퓨터는 동일한 매장 내 Local Area Network(LAN) 상에 있어야 합니다.
 
 ```
 노트북 (kiosk PC, CPU)                pai-server (GPU 머신)
 ┌──────────────────────────────┐     ┌────────────────────────────┐
 │ docker-compose.operation.yml │     │ docker-compose.ai.yml      │
 │   web_service   :8000 HTTPS  │←───→│   voice_service :8010 HTTPS│
-│   moca_service  :9001        │     │     /asr  /llm  /tts       │
-│   moca_db       :3307        │     │   vision_service (별개)    │
+│   moca_db       :3307        │     │     /asr  /llm  /tts       │
+├──────────────────────────────┤     │   vision_service (별개)    │
+│ (Native Host Process)        │     │                            │
+│   moca_service  :9001        │     │                            │
 │ Chromium kiosk mode          │     │                            │
 └──────────────────────────────┘     └────────────────────────────┘
             ↑                                    ↑
@@ -28,328 +30,330 @@
                   https://<노트북IP>:8000/table?no=N
 ```
 
-손님이 보는 페이지는 두 종류입니다.
-
-- 키오스크: `https://<노트북IP>:8000/kiosk` — wake word "주문할게요" 로 시작.
-- 폰 (테이블): `https://<노트북IP>:8000/table?no=N` — QR 로 진입, 푸시-투-토크 버튼.
-
-`voice_service` 는 GPU 가 필요해 별도 머신 (pai-server) 에 둡니다. 키오스크/폰 브라우저가 음성 데이터를 직접 voice_service 에 fetch 합니다.
-
-## 사전 준비
-
-### 하드웨어
-
-- 노트북 1대 (kiosk + 일반 서비스 운영). 매장 LAN.
-- pai-server 1대. NVIDIA GPU 와 Docker 의 NVIDIA Container Toolkit. 같은 LAN.
-- 매장 Wi-Fi 라우터.
-
-### 소프트웨어
-
-노트북 쪽:
-
-- Docker / Docker Compose
-- mkcert (자체 CA 인증서 발급)
-- Chrome 또는 Chromium
-
-pai-server 쪽:
-
-- Docker / Docker Compose
-- NVIDIA Container Toolkit (`nvidia-smi` 가 호스트에서 동작하는 상태)
-
-폰 쪽:
-
-- 안드로이드 또는 iOS, Chrome 또는 Safari
-- 매장 Wi-Fi 에 접속 가능
-
-## 빠른 시작 (요약)
-
-처음 본 사람도 따라할 수 있는 최소 절차입니다. 각 단계 상세 설명은 다음 섹션에 있습니다.
-
-```
-1. mkcert 로 노트북에서 self-signed CA 와 인증서 발급
-2. 인증서 파일을 src/service/certs/ 에 두기
-3. pai-server 에 voice_service 폴더 동기화 + 인증서 동기화
-4. pai-server 에서 docker compose -f docker-compose.ai.yml up -d
-5. 노트북에서 docker compose -f docker-compose.operation.yml up -d
-6. Chrome 으로 https://localhost:8000/kiosk 접속
-```
-
-## 단계별 안내
-
-### 1. 코드 가져오기
-
-```
-git clone <이 레포 URL>
-cd physical-ai-repo-3
-```
-
-### 2. mkcert 로 인증서 발급 (노트북에서)
-
-손님 폰의 브라우저는 마이크 권한을 HTTPS (secure context) 에서만 허용합니다. 운영 단계 전까지는 mkcert 로 발급한 self-signed CA 인증서로 HTTPS 종단을 합니다.
-
-mkcert 설치 (Ubuntu/Debian):
-
-```
-sudo apt install libnss3-tools
-curl -L https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-v1.4.4-linux-amd64 -o mkcert
-chmod +x mkcert && sudo mv mkcert /usr/local/bin/
-```
-
-apt 패키지가 잘 안 들어가면 위처럼 GitHub 릴리즈 바이너리 직접 받습니다.
-
-로컬 CA 등록 (한 번만):
-
-```
-mkcert -install
-```
-
-인증서 발급 (노트북 IP + pai-server IP + localhost 를 한 인증서에 묶음):
-
-```
-mkdir -p src/service/certs
-cd src/service/certs
-mkcert -cert-file cert.pem -key-file key.pem \
-  192.168.0.21 192.168.0.133 localhost 127.0.0.1
-cd -
-```
-
-`192.168.0.21` 자리에 노트북 IP, `192.168.0.133` 자리에 pai-server IP 를 넣습니다. `ifconfig` 또는 `ip a` 로 확인 가능.
-
-발급된 `src/service/certs/cert.pem` 과 `key.pem` 은 `.gitignore` 에 등록되어 commit 되지 않습니다. 절대 외부로 유출하지 마세요.
-
-손님 폰에 rootCA 신뢰 등록도 필요합니다 (아래 "폰 접속 절차" 참고).
-
-### 3. pai-server 에 voice_service 배포
-
-노트북에서 pai-server 로 코드와 인증서를 동기화합니다. pai-server 의 사용자 홈에 `~/voice_service_test` 라는 작업 디렉토리를 둔다고 가정합니다.
-
-```
-# 노트북에서
-rsync -avz src/service/voice_service/ \
-  pai-server:~/voice_service_test/voice_service/
-
-rsync -avz src/service/docker-compose.ai.yml \
-  pai-server:~/voice_service_test/docker-compose.ai.yml
-
-# 인증서도 같이
-rsync -avz src/service/certs/ \
-  pai-server:~/voice_service_test/certs/
-```
-
-pai-server 에 ssh 접속 후 빌드 + 기동:
-
-```
-ssh pai-server
-cd ~/voice_service_test
-docker compose -f docker-compose.ai.yml build voice_service
-docker compose -f docker-compose.ai.yml up -d voice_service
-```
-
-첫 기동 시 Qwen3-ASR / Qwen2.5-3B / Qwen3-TTS 모델을 HuggingFace 에서 약 9GB 다운로드합니다 (10~30 분 소요). 두 번째 기동부터는 `hf_cache` 볼륨에 캐시되어 빨라집니다.
-
-헬스 체크 (모델 로드 완료 확인):
-
-```
-curl -k https://192.168.0.133:8010/health
-```
-
-응답에 `asr_loaded`, `llm_loaded`, `tts_loaded` 가 모두 `true` 면 준비 완료.
-
-### 4. 노트북에서 web_service / moca_service / moca_db 기동
-
-```
-cd src/service
-docker compose -f docker-compose.operation.yml up -d
-```
-
-세 컨테이너가 동시에 뜹니다.
-
-- `web_service` 8000 HTTPS, 9004 TCP (moca 와 통신)
-- `moca_service` 9001
-- `moca_db` 3307 (호스트 노출용)
-
-헬스 체크:
-
-```
-curl -k https://localhost:8000/health
-```
-
-### 5. 키오스크 접속 (노트북에서)
-
-Chrome 으로 다음 URL 접속:
-
-```
-https://localhost:8000/kiosk
-```
-
-첫 접속에서 마이크 권한 허용. "마이크 시작" 버튼을 누르면 wake word 청취 시작. 손님이 "주문할게요" 라고 말하면 메뉴 화면으로 진입합니다.
-
-### 6. 폰 접속 절차
-
-같은 매장 Wi-Fi 에 폰을 연결합니다.
-
-rootCA 설치 (폰마다 한 번만):
-
-1. 노트북에서 mkcert rootCA 파일 경로 확인.
-
-```
-mkcert -CAROOT
-# 예: /home/jin/.local/share/mkcert
-```
-
-2. 노트북에서 임시 HTTP 서버로 rootCA 파일을 공유.
-
-```
-cd $(mkcert -CAROOT)
-python3 -m http.server 8888
-```
-
-3. 폰 Chrome 으로 `http://<노트북IP>:8888/rootCA.pem` 접속 → 파일 다운로드.
-
-4. 폰 설정에서 CA 인증서로 설치.
-
-- 안드로이드 One UI: 설정 → 보안 및 개인 정보 보호 → 자세히 → 자격 증명 저장소 → CA 인증서 설치 → 다운로드 폴더의 파일 선택.
-- iOS: 설정 → 일반 → VPN 및 기기 관리 → 다운로드된 프로파일 → 설치. 그 다음 설정 → 일반 → 정보 → 인증서 신뢰 설정 에서 rootCA 신뢰 켜기.
-
-5. 노트북에서 임시 HTTP 서버 (`python3 -m http.server 8888`) 중지.
-
-6. 폰 Chrome 으로 접속.
-
-```
-https://<노트북IP>:8000/table?no=1
-```
-
-`no=N` 의 N 은 테이블 번호. 기본 시드에서는 1 과 3 만 비어 있고 2, 4 는 점유 상태, 5 이상은 정의되지 않은 상태입니다.
-
-화면 하단의 큰 원형 버튼을 누른 채로 발화 → 떼면 음성 인식 → 카트 추가 → "주문 확인" 으로 진행 → 카운터 안내 화면으로 마무리.
-
-## 자주 보이는 문제
-
-발화 했는데 콘솔에 `Failed to fetch` 또는 `ERR_EMPTY_RESPONSE`
-
-- 페이지가 HTTP 인데 web_service 가 HTTPS 종단 상태일 때 발생.
-- 페이지 URL 이 `https://` 로 시작하는지 확인.
-- `kiosk.html` 의 `API_BASE_URL` 이 `location.origin` 으로 설정되어 있어야 합니다 (Phase 7 fix 완료).
-
-폰에서 자물쇠 깨짐 또는 마이크 권한 요청이 안 뜸
-
-- 폰에 rootCA 가 신뢰 등록되지 않은 상태.
-- 위의 "폰 접속 절차" 의 rootCA 설치 단계를 다시 수행.
-- iOS 의 경우 "인증서 신뢰 설정" 화면에서 rootCA 토글을 켰는지 재확인.
-
-키오스크에서 "주문할게요" 가 인식 안 됨
-
-- 마이크 권한이 허용되어 있는지 (주소창 왼쪽 자물쇠 → 사이트 권한).
-- 콘솔에 `[voice] mic acquired` 와 `[voice] mic + KWS started` 로그가 보이는지.
-- 마이크 입력 음량이 너무 작을 수 있음. 시스템 사운드 설정에서 입력 게인 확인.
-
-ASR 응답이 우리 context 를 그대로 echo (`"메뉴: 아메리카노 ..."` 같은 텍스트)
-
-- Phase 7 fix 로 LLM 시스템 프롬프트의 "ASR context echo 차단" 규칙이 unknown 으로 처리.
-- 손님 화면에는 "다시 말씀해 주세요" TTS 안내. 카트 자동 추가 없음.
-
-voice_service 가 응답 못 보냄 (network 단절, 컨테이너 hang 등)
-
-- 키오스크 콘솔에 `Error: ASR timeout (8000ms)` 또는 `LLM timeout` 메시지.
-- 자동으로 follow-up listening 으로 복귀.
-- "죄송해요, 다시 말씀해 주세요" TTS 안내 (TTS 도 실패하면 무음).
-
-키오스크에서 30 초 침묵 후에도 standby 복귀 안 됨
-
-- 환경 잡음이 VAD 임계값을 넘어 발화로 잡히는 경우 무발화 카운트가 갱신될 수 있음 (Phase 7 의 잡음 robust 로직으로 anchor 는 갱신 안 되지만, VAD 임계값 자체가 환경마다 조정 필요).
-- `voice.js` 의 `positiveSpeechThreshold` (현재 0.7), `minSpeechFrames` (현재 8) 를 환경에 맞춰 조정.
-
-merge / pull 직후 moca_service 응답 없음 (TCP timeout 또는 컨테이너 Exit)
-
-- 증상 예시.
-  - `scripts/test_moca_tcp_client.py` 실행 시 `TimeoutError: timed out` 또는 `ConnectionRefusedError: [Errno 111] Connection refused`.
-  - `docker logs moca_service` 에 `invalid STX: 0x20` 같이 protocol 이 어긋난 듯한 경고.
-  - 또는 `pymysql.err.ProgrammingError: (1146, "Table 'business.<테이블명>' doesn't exist")` 후 컨테이너 Exit.
-- 원인 두 가지가 겹쳐 보이는 경우가 많음.
-  1. moca_service / web_service 의 Dockerfile 이 `COPY app ./app` 방식이라 호스트 코드 변경이 자동 반영 안 됨. 옛 이미지가 그대로 떠 있으면 새 protocol / 모듈 구조와 어긋남.
-  2. `moca_db` 는 영구 볼륨 (`moca_db_data`) 을 사용하고, MySQL 의 `/docker-entrypoint-initdb.d/init.sql` 은 데이터 디렉터리가 비어 있을 때만 실행됨. 새 테이블이 추가된 merge 이후에도 옛 스키마가 그대로 남아 부팅 실패.
-- 조치 순서.
-  1. 이미지 재빌드 + 재기동. `--build` 가 빠지면 옛 이미지를 그대로 다시 띄울 뿐임.
-     ```
-     cd src/service
-     docker compose -f docker-compose.operation.yml up -d --build moca_service web_service
-     ```
-  2. `docker logs moca_service` 가 `Table 'business.xxx' doesn't exist` 로 종료되면 DB 스키마가 옛 상태. 아래 두 방법 중 선택.
-
-     (A) 데이터 통째로 리셋하고 init.sql 처음부터 다시 (개발 환경에서 가장 깔끔, 주문 / 시드 데이터 전부 사라짐).
-     ```
-     docker compose -f docker-compose.operation.yml down moca_service moca_db
-     docker volume rm service_moca_db_data
-     docker compose -f docker-compose.operation.yml up -d moca_db moca_service
-     ```
-     볼륨 이름은 compose 프로젝트명에 따라 prefix 가 붙음. `docker volume ls | grep moca_db_data` 로 실제 이름 확인.
-
-     (B) 기존 데이터 보존하고 init.sql 만 멱등 재적용 (init.sql 의 모든 `CREATE TABLE` 이 `IF NOT EXISTS`, `INSERT` 가 `ON DUPLICATE KEY UPDATE` / `INSERT IGNORE` 라 안전).
-     ```
-     docker exec -i moca_db mysql -u business_user -pbusiness_password business \
-       < src/service/moca_db/init.sql
-     docker compose -f docker-compose.operation.yml up -d moca_service
-     ```
-  3. 검증.
-     ```
-     docker exec moca_db mysql -u business_user -pbusiness_password \
-       -e "USE business; SHOW TABLES;"
-     python3 scripts/test_moca_tcp_client.py all
-     ```
-     `SHOW TABLES` 에 `allergy_category / order_item / orders / product / product_allergy / product_option_group / service_metadata / store_table` 이 모두 보이고, 테스트 스크립트가 menu / allergy / tables / order 응답을 전부 출력하면 정상.
-- 참고. moca_service 가 부팅 시 DB 테이블이 없으면 30 회 재시도 후 컨테이너가 종료됨. 이 때문에 컨테이너가 한참 살아있다가 갑자기 Exit 1 로 사라지는 양상으로 보일 수 있음.
-
-## 디렉토리 구조
+### 접속 시나리오 및 흐름
+- **키오스크**: `https://<노트북IP>:8000/kiosk` — Wake word "주문할게요"로 메뉴 화면 진입.
+- **손님 스마트폰 (테이블)**: `https://<노트북IP>:8000/table?no=N` — QR 코드로 접속하여 원형 버튼을 누른 채로 발화하는 푸시-투-토크(PTT) 인터페이스 제공.
+- **AI 서비스 (voice_service)**: GPU 자원을 필요로 하므로 별도의 GPU 머신(`pai-server`)에서 구동됩니다. 키오스크 및 스마트폰 브라우저는 획득한 음성 데이터를 `voice_service`로 직접 HTTPS fetch 요청을 보냅니다.
+- **MOCA 서비스 (moca_service)**: 로봇의 ROS 제어 환경 등 호스트 측 리소스 연동을 위해 도커 외부(Native Host)의 독립된 백그라운드 프로세스로 구동됩니다.
+
+## Directory Structure
 
 ```
 physical-ai-repo-3/
 ├── src/
-│   ├── service/                              ── 도커 컨테이너 (서버 측)
-│   │   ├── docker-compose.operation.yml      ── 노트북. web/moca/db
-│   │   ├── docker-compose.ai.yml             ── pai-server. voice/vision
+│   ├── service/                              ── 서버 측 서비스 모듈
+│   │   ├── docker-compose.operation.yml      ── 노트북 운영 서비스 (web/db)
+│   │   ├── docker-compose.ai.yml             ── pai-server AI 서비스 (voice)
 │   │   ├── certs/                            ── mkcert 발급물 (git ignore)
-│   │   ├── moca_db/   moca_service/          ── 기존
+│   │   ├── moca_db/                          ── MySQL 초기화 및 스키마
+│   │   ├── moca_service/                     ── 로봇 비즈니스 로직 및 통합 서비스
 │   │   ├── web_service/                      ── REST + 정적 페이지 서빙
 │   │   └── voice_service/                    ── ASR + LLM + TTS (GPU)
-│   └── app/                                  ── 사용자 인터페이스
-│       ├── order_vui/
-│       │   ├── kiosk.html                    ── 키오스크 GUI + 음성
-│       │   ├── audio/                        ── 안내음 wav
-│       │   └── shared/                       ── voice.js, intent_handler.js 등 공용
-│       ├── table_gui/
-│       │   └── table.html                    ── 폰 페이지 (PTT)
-│       └── admin_gui/                        ── 운영자 GUI
+│   ├── app/                                  ── 사용자 인터페이스
+│   │   ├── order_vui/
+│   │   │   ├── kiosk.html                    ── 키오스크 GUI + 음성
+│   │   │   ├── audio/                        ── 안내음 wav
+│   │   │   └── shared/                       ── voice.js, intent_handler.js 등 공용
+│   │   ├── table_gui/
+│   │   │   └── table.html                    ── 폰 페이지 (PTT)
+│   │   └── admin_gui/                        ── 운영자 GUI
+│   └── controller/                           ── 로봇 하드웨어 제어 모듈
+│       └── doby_controller/                  ── Doby 로봇 하드웨어 ROS 제어기
 ├── scripts/                                  ── 진단/헬스 체크 스크립트
 └── technical_research/                       ── 기술 조사 자료
 ```
 
-## 개발자용 정보
+## Installation
 
-코드 수정 후 재기동 가이드:
+### 1. 사전 준비
 
-- `src/app/order_vui/**` 또는 `src/app/table_gui/**` 정적 파일은 web_service 컨테이너에 read-only 마운트되어 있어 브라우저 새로고침 (Ctrl+F5) 만으로 반영.
-- `src/service/web_service/app/**` Python 코드는 web_service 컨테이너 재기동 필요.
+#### 하드웨어 요구사항
+- **노트북 1대**: Kiosk 구동 및 일반 서비스 운영. 매장 LAN에 연결.
+- **pai-server 1대**: NVIDIA GPU 탑재 머신. Docker 및 NVIDIA Container Toolkit이 동작하는 매장 내 동일 LAN 환경.
+- **네트워크**: 매장 Wi-Fi 라우터.
+
+#### 소프트웨어 요구사항
+- **노트북**: Docker, Docker Compose, mkcert (자체 CA 인증서 발급용), Chrome 또는 Chromium 브라우저.
+- **pai-server**: Docker, Docker Compose, NVIDIA Container Toolkit (`nvidia-smi` 동작 상태).
+- **손님 스마트폰**: 안드로이드 또는 iOS, Chrome 또는 Safari 브라우저 (매장 Wi-Fi 접속 필수).
+
+---
+
+### 2. 단계별 설치 및 기동 가이드
+
+#### [Step 1] 코드 가져오기
+```bash
+git clone <이 레포 URL>
+cd physical-ai-repo-3
+```
+
+#### [Step 2] mkcert로 자체 서명 SSL 인증서 발급 (노트북에서 실행)
+모바일 브라우저에서 마이크 권한을 허용하려면 HTTPS(Secure Context) 연결이 필수적입니다. 로컬 개발 및 테스트 운영을 위해 `mkcert`를 사용하여 자체 서명 CA 인증서를 구성합니다.
+
+1. **mkcert 설치 (Ubuntu/Debian 기준)**:
+   ```bash
+   sudo apt install libnss3-tools
+   curl -L https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-v1.4.4-linux-amd64 -o mkcert
+   chmod +x mkcert && sudo mv mkcert /usr/local/bin/
+   ```
+   *apt 패키지 설치가 어려울 경우 GitHub 릴리즈 바이너리를 직접 다운로드하여 적용합니다.*
+
+2. **로컬 CA 등록 (최초 1회)**:
+   ```bash
+   mkcert -install
+   ```
+
+3. **인증서 발급 (노트북 IP, pai-server IP, localhost를 하나의 인증서로 묶음)**:
+   ```bash
+   mkdir -p src/service/certs
+   cd src/service/certs
+   mkcert -cert-file cert.pem -key-file key.pem \
+     192.168.0.21 192.168.0.133 localhost 127.0.0.1
+   cd -
+   ```
+   > [!IMPORTANT]
+   > `192.168.0.21` 자리에는 노트북의 실제 IP, `192.168.0.133` 자리에는 `pai-server`의 실제 IP를 기입하십시오. (`ifconfig` 또는 `ip a`로 확인 가능)
+   > 발급된 `src/service/certs/cert.pem`과 `key.pem`은 `.gitignore`에 등록되어 커밋되지 않으므로, 외부에 유출되지 않도록 주의해야 합니다.
+
+#### [Step 3] pai-server 에 voice_service 배포
+노트북에서 `pai-server`로 코드와 발급받은 인증서를 동기화합니다. (`pai-server`의 사용자 홈에 `~/voice_service_test` 디렉토리를 작업 영역으로 사용한다고 가정합니다.)
+
+1. **노트북에서 동기화 실행**:
+   ```bash
+   rsync -avz src/service/voice_service/ \
+     pai-server:~/voice_service_test/voice_service/
+
+   rsync -avz src/service/docker-compose.ai.yml \
+     pai-server:~/voice_service_test/docker-compose.ai.yml
+
+   rsync -avz src/service/certs/ \
+     pai-server:~/voice_service_test/certs/
+   ```
+
+2. **pai-server에 SSH 접속 후 빌드 및 기동**:
+   ```bash
+   ssh pai-server
+   cd ~/voice_service_test
+   docker compose -f docker-compose.ai.yml build voice_service
+   docker compose -f docker-compose.ai.yml up -d voice_service
+   ```
+   > [!NOTE]
+   > 첫 기동 시 HuggingFace로부터 Qwen3-ASR / Qwen2.5-3B / Qwen3-TTS 등의 AI 모델(약 9GB)을 다운로드하므로 네트워크 환경에 따라 10~30분 가량 소요될 수 있습니다. 이후 기동 시에는 `hf_cache` 볼륨에 캐싱된 모델을 로드하여 빠르게 작동합니다.
+
+3. **AI 서비스 헬스 체크 (모델 로드 완료 여부 확인)**:
+   ```bash
+   curl -k https://192.168.0.133:8010/health
+   ```
+   응답 JSON 내 `asr_loaded`, `llm_loaded`, `tts_loaded` 속성이 모두 `true`가 되면 정상 작동 상태입니다.
+
+#### [Step 4] 노트북에서 web_service / moca_db / moca_service 기동
+1. **Docker 컨테이너 기동 (web_service, moca_db)**:
+   ```bash
+   cd src/service
+   docker compose -f docker-compose.operation.yml up -d
+   ```
+   명령 실행 시 아래의 2개 운영 컨테이너가 기동됩니다:
+   - `web_service`: 8000 (HTTPS 종단), 9004 (TCP, moca와 통신)
+   - `moca_db`: 3307 (외부 DB 조회용)
+
+2. **Native 호스트 서비스 기동 (moca_service)**:
+   `moca_service`는 로봇의 ROS 제어 환경 등과의 연동을 위해 호스트에서 직접 네이티브 실행 스크립트로 기동해야 합니다.
+   ```bash
+   # src/service 디렉토리 내에서 실행
+   ./run_moca_service_native.sh
+   ```
+   *(터미널을 닫은 상태에서도 백그라운드 유지하기 위해 `nohup ./run_moca_service_native.sh > moca_service.log 2>&1 &` 형태로 띄우는 것을 권장합니다.)*
+
+3. **운영 서버 헬스 체크**:
+   ```bash
+   curl -k https://localhost:8000/health
+   ```
+
+#### [Step 5] 키오스크 접속 (노트북에서 실행)
+노트북에서 크롬(Chrome) 브라우저를 열고 아래 URL에 접속합니다.
+```
+https://localhost:8000/kiosk
+```
+최초 접속 시 마이크 권한을 허용하고, 화면의 "마이크 시작" 버튼을 클릭하면 wake word 청취가 활성화됩니다. 손님이 "주문할게요"라고 말하면 메뉴 선택 화면으로 자동 진입합니다.
+
+#### [Step 6] 손님 스마트폰 접속 절차
+손님 스마트폰이 노트북과 동일한 매장 Wi-Fi에 연결되어 있어야 합니다.
+
+1. **스마트폰에 로컬 CA 인증서(rootCA) 신뢰 설정 (기기별 최초 1회)**:
+   - 노트북에서 mkcert rootCA 파일 경로를 확인합니다.
+     ```bash
+     mkcert -CAROOT
+     # 예: /home/jin/.local/share/mkcert
+     ```
+   - 노트북에서 임시 웹 서버를 열어 rootCA를 모바일 기기에 공유합니다.
+     ```bash
+     cd $(mkcert -CAROOT)
+     python3 -m http.server 8888
+     ```
+   - 스마트폰 브라우저로 `http://<노트북IP>:8888/rootCA.pem`에 접속하여 인증서 파일을 다운로드합니다.
+   - 각 기기 OS별 인증서 설치 절차를 수행합니다.
+     - **Android (One UI)**: 설정 → 보안 및 개인 정보 보호 → 자세히 → 자격 증명 저장소 → CA 인증서 설치 → 다운로드한 `rootCA.pem` 선택.
+     - **iOS**: 설정 → 일반 → VPN 및 기기 관리 → 다운로드된 프로파일 설치. 이후 설정 → 일반 → 정보 → 인증서 신뢰 설정 에서 `mkcert` 관련 rootCA의 신뢰 토글을 활성화합니다.
+   - 노트북에서 실행한 임시 파이썬 웹 서버(`Ctrl+C`)를 중지합니다.
+
+2. **서비스 접속**:
+   스마트폰 브라우저에서 아래 주소로 접속합니다.
+   ```
+   https://<노트북IP>:8000/table?no=1
+   ```
+   > [!NOTE]
+   > `no=N` 파라미터는 테이블 번호입니다. 기본 시드 데이터 기준, 1번과 3번 테이블은 비어 있는 상태이고, 2번과 4번은 점유 상태이며, 5번 이상은 정의되지 않은 상태입니다.
+   - 화면 하단의 큰 원형 마이크 버튼을 누르고 있는 동안(Push-to-Talk) 말을 한 뒤 손을 떼면 음성 인식이 이루어지며, 카트 추가 → 주문 확인 단계를 거쳐 최종 완료됩니다.
+
+---
+
+### 3. 설치 및 접속 문제 해결 (Troubleshooting)
+
+- **발화 후 콘솔에 `Failed to fetch` 또는 `ERR_EMPTY_RESPONSE` 발생**:
+  - 원인: 웹 서비스가 HTTPS 프로토콜로 종단되어 있으나 브라우저 페이지에 HTTP로 접속했거나, API 주소 경로가 불일치할 때 발생합니다.
+  - 조치: 주소창의 URL이 `https://`로 시작하는지 확인하고, `kiosk.html`의 `API_BASE_URL` 변수가 `location.origin`으로 일치되어 있는지 확인하십시오.
+- **스마트폰 접속 시 보안 경고가 뜨거나 마이크 권한 요청이 무반응인 현상**:
+  - 원인: 폰에 로컬 CA 인증서가 정상적으로 설치/신뢰 등록되지 않은 상태입니다.
+  - 조치: "Step 6"의 로컬 CA 설치 및 신뢰 설정을 다시 꼼꼼하게 수행해주십시오. 특히 iOS 기기는 프로파일 설치 외에도 **인증서 신뢰 설정**에서 토글 스위치를 수동으로 활성화해야 정상 동작합니다.
+- **키오스크에서 "주문할게요" wake word가 전혀 동작하지 않는 문제**:
+  - 조치: 주소창 좌측의 마이크 권한이 허용 상태인지 확인합니다. 개발자 도구 콘솔에 `[voice] mic acquired`와 `[voice] mic + KWS started` 로그가 잘 표시되는지 확인하십시오. 주변 환경 소음이 크거나 시스템 마이크 입력 볼륨이 너무 작을 경우 마이크 입력 게인을 확인하고 높여줍니다.
+- **AI 서비스(voice_service) 응답이 반환되지 않고 멈추는 경우 (네트워크 지연 등)**:
+  - 증상: 키오스크 개발자 도구 콘솔에 `Error: ASR timeout (8000ms)` 또는 `LLM timeout` 메시지가 발생합니다.
+  - 조치: 타임아웃 발생 시 자동으로 follow-up listening 대기 상태로 복귀하며 "죄송해요, 다시 말씀해 주세요" 라는 TTS 안내가 이루어집니다. 컨테이너 상태나 네트워크 연결을 점검하십시오.
+- **키오스크에서 30초 이상 무발화 상태임에도 대기(Standby) 모드로 복귀하지 않는 문제**:
+  - 원인: 주변의 백그라운드 소음이 VAD 임계값을 초과하여 발화가 계속 지속되는 것으로 잘못 해석되는 현상입니다.
+  - 조치: `src/app/order_vui/shared/voice.js` 파일 내 `positiveSpeechThreshold` (기본값: 0.7) 및 `minSpeechFrames` (기본값: 8) 값을 매장/환경 소음 수준에 맞게 튜닝하십시오.
+
+## Developer Guide
+
+### 1. 단일 로컬 컴퓨터 개발 가동용 명령어 모음 (순차 실행)
+
+```bash
+# [Step 1] doby_controller 빌드 및 실행
+cd /home/robo/projects/final_project/src/controller/doby_controller
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install
+source install/setup.bash
+export ROS_DOMAIN_ID=99
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+ros2 launch dobi_npc_bringup dobi_npc_bringup.launch.py
+
+# [Step 2] operation (web_service, moca_db) 기동
+cd /home/robo/projects/final_project/src/service
+docker compose -f docker-compose.operation.yml up -d
+
+# [Step 3] moca_service 기동
+cd /home/robo/projects/final_project/src/service
+./run_moca_service_native.sh
+
+# [Step 4] order_vui (키오스크 브라우저) 기동
+chromium-browser --kiosk --ignore-certificate-errors https://localhost:8000/kiosk
+
+# [Step 5] admin_gui 기동
+cd /home/robo/projects/final_project/src/app/admin_gui
+./.venv/bin/python main.py
+```
+
+---
+
+### 2. 코드 변경 사항 실시간 반영 및 재기동 가이드
+
+- **정적 웹 자원 (`src/app/order_vui/**`, `src/app/table_gui/**`)**:
+  - `web_service` 컨테이너에 호스트 볼륨으로 실시간 바인딩 마운트(Read-Only)되어 있습니다. 코드 수정 후 브라우저에서 **강제 새로고침(Ctrl + F5)**만 수행하면 변경 내용이 즉시 반영됩니다.
+- **노트북 Python 웹 서비스 코드 (`src/service/web_service/app/**`)**:
+  - 수정 사항을 반영하기 위해 아래 명령으로 서비스를 강제 재기동해야 합니다.
+    ```bash
+    docker compose -f docker-compose.operation.yml up -d --force-recreate web_service
+    ```
+- **pai-server AI 서비스 코드 (`src/service/voice_service/app/**`)**:
+  - 코드 변경 사항을 `pai-server`에 동기화한 뒤 컨테이너를 재빌드하고 재기동해야 합니다.
+    ```bash
+    # [1] 노트북에서 pai-server로 코드 동기화
+    rsync -avz src/service/voice_service/app/ \
+      pai-server:~/voice_service_test/voice_service/app/
+
+    # [2] pai-server SSH 터미널에서 재빌드 및 강제 기동
+    docker compose -f docker-compose.ai.yml build voice_service
+    docker compose -f docker-compose.ai.yml up -d --force-recreate voice_service
+    ```
+
+---
+
+### 3. 데이터베이스 및 스키마 변경 이슈 해결
+
+코드 병합(Merge)이나 깃 풀(Pull) 이후 테이블 정의가 추가되거나 변경되었을 때, Native로 동작하는 `moca_service` 가 정상 동작하지 않거나 DB 통신 에러(`ProgrammingError: Table 'business.xxx' doesn't exist`)가 발생할 수 있습니다.
+
+#### 발생 원인
+1. **Docker 빌드 캐싱**: `web_service`는 빌드 시점에 호스트 코드를 컨테이너 내부로 직접 `COPY`하므로, 소스 코드 변경 시 이미지 재빌드(`--build`) 없이 기동하면 구버전 빌드가 적용되어 오류가 지속될 수 있습니다.
+2. **MySQL 초기화 메커니즘**: `moca_db`는 영구 볼륨(`service_moca_db_data`)을 사용합니다. MySQL의 초기화 스크립트(`/docker-entrypoint-initdb.d/init.sql`)는 **최초 기동 시에 데이터 디렉토리가 비어있을 때만 실행**되므로, 데이터가 이미 있다면 스키마 변경이 자동으로 반영되지 않습니다.
+
+#### 문제 해결 방법 (A 또는 B 방법 중 택일)
+
+- **방법 A: 데이터베이스 전체 초기화 (데이터 유실이 상관없는 개발 환경용)**
+  기존 스토어/주문 데이터를 모두 삭제하고 초기 스키마부터 완전히 새로 설치합니다.
+  ```bash
+  cd src/service
+  # 1. 실행 중인 Native moca_service 프로세스 중지
+  pkill -f "python -m app.main" || true
+  
+  # 2. 운영 컨테이너 중지 및 기존 DB 데이터 볼륨 삭제
+  docker compose -f docker-compose.operation.yml down
+  docker volume rm service_moca_db_data
+  
+  # 3. DB 및 Web 서비스 컨테이너 재생성 및 실행
+  docker compose -f docker-compose.operation.yml up -d moca_db web_service
+  
+  # 4. Native moca_service 재기동
+  ./run_moca_service_native.sh
   ```
-  docker compose -f docker-compose.operation.yml up -d --force-recreate web_service
+  *(참고: 볼륨 이름은 프로젝트 디렉토리명에 따라 다를 수 있으므로 `docker volume ls | grep moca_db_data`로 확인 후 제거하십시오.)*
+
+- **방법 B: 기존 데이터 유지 상태에서 `init.sql` 멱등적 재적용**
+  기존 주문 기록이나 시드 데이터를 유지하면서 변경된 테이블만 추가합니다. (MOCA의 `init.sql`은 `CREATE TABLE IF NOT EXISTS`, `INSERT IGNORE` / `ON DUPLICATE KEY UPDATE` 패턴으로 작성되어 있어 안전하게 수동 재처리가 가능합니다.)
+  ```bash
+  cd src/service
+  # 1. 가동 중인 DB 내부에 직접 init.sql 적용
+  docker exec -i moca_db mysql -u business_user -pbusiness_password business \
+    < src/service/moca_db/init.sql
+  
+  # 2. 실행 중인 Native moca_service 프로세스 재기동
+  pkill -f "python -m app.main" || true
+  ./run_moca_service_native.sh
   ```
-- `src/service/voice_service/app/**` Python 코드는 pai-server 에 동기화 후 voice_service 빌드 + 재기동.
-  ```
-  rsync -avz src/service/voice_service/app/ \
-    pai-server:~/voice_service_test/voice_service/app/
-  # pai-server 에서
-  docker compose -f docker-compose.ai.yml build voice_service
-  docker compose -f docker-compose.ai.yml up -d --force-recreate voice_service
-  ```
 
-메뉴 / 별명 / 알러지 변경 시 수정 위치 (단일 진실: seed.py):
+#### 스키마 적용 여부 검증
+```bash
+# DB 내 테이블 목록 확인
+docker exec moca_db mysql -u business_user -pbusiness_password \
+  -e "USE business; SHOW TABLES;"
 
-- `src/service/web_service/app/data/seed.py` 에서 MenuItem 의 `name`, `aliases`, `price`, `emoji`, 옵션 플래그를 수정.
-- `/api/menu` 응답이 갱신되고, 키오스크 / 폰의 MENU 전역, ASR context (메뉴명 + 별명), LLM 시스템 프롬프트의 "현재 메뉴 [별명]" 블록까지 자동 전파.
-- 별명 인식이 약한 경우만 추가로 `src/service/voice_service/app/llm/prompts.py` 의 `_FEW_SHOTS` 에 학습 예시 한두 줄 추가.
+# MOCA TCP 통신 테스트 스크립트 실행
+python3 scripts/test_moca_tcp_client.py all
+```
+`SHOW TABLES` 결과로 `allergy_category, order_item, orders, product, product_allergy, product_option_group, service_metadata, store_table` 등이 모두 조회되고, TCP 진단 스크립트가 정상적으로 데이터 응답을 출력하면 성공입니다.
+*(참고: `moca_service`는 데이터베이스 연동 실패 시 최대 30회 재시도 후 프로세스가 자동 종료되므로, 시작 후 갑자기 소멸한다면 터미널 로그 및 에러 메시지를 점검해 보십시오.)*
 
-운영 토폴로지 변경 시 (서버 IP 가 바뀔 때):
+---
 
-- mkcert 인증서 재발급 (SAN 갱신).
-- pai-server 의 `docker-compose.ai.yml` 그대로.
-- 노트북의 `docker-compose.operation.yml` 그대로.
-- `src/app/order_vui/kiosk.html` 과 `src/app/table_gui/table.html` 의 `window.VOICE_SERVICE_URL` 에 새 pai-server IP 를 반영.
+### 4. 메뉴 / 별명 / 알레르기 정보 수정 (단일 진실 원칙)
+
+MOCA의 모든 메뉴 정보는 **`src/service/web_service/app/data/seed.py`** 파일에서 통합 관리됩니다. (Single Source of Truth)
+
+- **메뉴 변경 시**: `seed.py` 파일 내 `MenuItem` 객체의 `name`, `aliases` (별칭 목록), `price`, `emoji`, 알레르기 플래그 등을 직접 수정합니다.
+- **자동 전파 경로**: `seed.py` 수정 후 서버가 재구동되면 `/api/menu` API의 응답이 갱신되며, 브라우저 클라이언트의 글로벌 MENU 정보, ASR 컨텍스트(음성 매핑용 단어 사전), LLM 시스템 프롬프트 내부의 `현재 메뉴 [별명]` 리스트까지 자동으로 반영 및 전파됩니다.
+- **ASR 예외 처리**:
+  - 만약 특정 별칭에 대해 음성 인식이 유독 취약한 경우, `src/service/voice_service/app/llm/prompts.py` 내의 `_FEW_SHOTS` 리스트에 실제 고객 발화에 대응하는 Few-Shot 예시 데이터를 1~2개 추가해 줍니다.
+  - ASR 응답이 MOCA 시스템 컨텍스트의 템플릿(예: `"메뉴: 아메리카노 ..."` 같은 프롬프트 echo 형태)을 그대로 흉내 내어 반환하는 예외의 경우, LLM 시스템 프롬프트에 내장된 'ASR context echo 차단' 규칙에 의해 `unknown` 처리되며, 사용자 화면에는 장바구니 오작동을 차단하고 "다시 말씀해 주세요" 라는 안내를 보냅니다.
+
+---
+
+### 5. 운영 환경 토폴로지 변경 가이드 (IP 변경 시)
+
+네트워크 망 변경 등으로 서버들의 IP 주소가 변경될 경우 아래 절차를 차례로 진행합니다.
+
+1. **SSL 인증서 재발급**:
+   - 변경된 노트북 및 `pai-server` IP를 반영하여 `mkcert` 명령어를 다시 실행해 인증서를 갱신합니다. (Installation 가이드 Step 2 참고)
+2. **클라이언트 주소 갱신**:
+   - `src/app/order_vui/kiosk.html` 및 `src/app/table_gui/table.html` 파일 상단에 정의된 `window.VOICE_SERVICE_URL` 변수의 IP 주소를 새로 변경된 `pai-server` IP로 수정합니다.
+3. **배포 및 재실행**:
+   - `docker-compose.ai.yml`과 `docker-compose.operation.yml` 구성 설정은 그대로 유지한 채 서비스를 각각 재기동합니다.
