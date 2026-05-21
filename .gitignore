@@ -82,3 +82,8 @@ src/shared/vic_pinky/
 
 # mkcert 로컬 인증서 (개발 환경, 절대 commit 하지 말 것)
 src/service/certs/
+# clone 직후에도 docker-compose mount 가 깨지지 않도록 빈 디렉토리만 보존
+!src/service/certs/.gitkeep
+
+# docker-compose 환경변수 (HTTPS cert 경로 등 로컬 설정)
+src/service/.env
