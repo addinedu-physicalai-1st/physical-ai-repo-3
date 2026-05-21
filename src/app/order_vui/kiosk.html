@@ -689,6 +689,7 @@ let currentOptionIndex = 0;
 let selectedPayment = null;
 let selectedTable = null;
 let orderNumber = null;
+let orderId = null;
 
 // ─── VOICE ──────────────────────────────────────────
 const VOICE_MAP = {
@@ -731,12 +732,10 @@ async function loadTables()  {
   TABLE_STATUS = tables.map(t => t.status);
 }
 
-function buildOrderPayload(receiveType, tableNo) {
+function buildOrderPayload() {
   return {
     channel: 'kiosk',
-    receive_type: receiveType,
     payment: selectedPayment,
-    table_no: tableNo ?? null,
     items: cart.map(ci => ({
       menu_id: ci.menuId,
       qty: ci.qty,
@@ -1043,26 +1042,34 @@ function selectPayment(type) {
   document.getElementById('pay-samsung').classList.toggle('selected', type==='samsung_pay');
 }
 
-function processPayment() {
+async function processPayment() {
   if (!selectedPayment) { alert('결제 방법을 선택해 주세요.'); return; }
   const overlay = document.createElement('div');
   overlay.className = 'processing-overlay';
   overlay.innerHTML = `<div class="spinner"></div><div class="processing-text">${PAYMENT_LABELS[selectedPayment] || '결제 처리 중...'}</div>`;
   document.getElementById('screen-payment').appendChild(overlay);
-  setTimeout(() => { overlay.remove(); showScreen('screen-delivery'); }, 2000);
+
+  try {
+    const r = await api('/api/orders', { method: 'POST', body: JSON.stringify(buildOrderPayload()) });
+    orderId = r.order_id;
+    orderNumber = r.order_number;
+    setTimeout(() => { overlay.remove(); showScreen('screen-delivery'); }, 2000);
+  } catch (e) {
+    overlay.remove();
+    alert('결제 처리 실패: ' + e.message);
+  }
 }
 
 // ─── DELIVERY ────────────────────────────────────────
 async function selectDelivery(type) {
   if (type === 'pickup') {
     try {
-      const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload('take_out')) });
-      orderNumber = r.order_number;
+      await api('/api/tables', { method: 'POST', body: JSON.stringify({ order_id: orderId, receive_type: 'take_out' }) });
       document.getElementById('order-number-pickup').textContent = orderNumber;
       showScreen('screen-complete');
       startCountdown('bar-pickup', ()=>{ resetSession(); });
     } catch (e) {
-      alert('주문 생성 실패: ' + e.message);
+      alert('테이블 배정 실패: ' + e.message);
     }
   } else {
     try { await loadTables(); } catch (e) { alert('테이블 정보를 불러오지 못했습니다: ' + e.message); return; }
@@ -1103,8 +1110,7 @@ function selectTableCell(i, status) {
 async function confirmTable() {
   if (!selectedTable) return;
   try {
-    const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload('dine_in', selectedTable)) });
-    orderNumber = r.order_number;
+    await api('/api/tables', { method: 'POST', body: JSON.stringify({ order_id: orderId, receive_type: 'dine_in', table_number: selectedTable }) });
     document.getElementById('order-number-serving').textContent = orderNumber;
     document.getElementById('serving-complete-text').textContent =
       `${selectedTable}번 테이블로 서빙하겠습니다.\n상품이 준비되면 곧 서빙하겠습니다.`;
@@ -1116,7 +1122,7 @@ async function confirmTable() {
       alert('해당 테이블은 방금 점유되었습니다. 다른 테이블을 선택해 주세요.');
       try { await loadTables(); renderTableMap(); } catch (_) {}
     } else {
-      alert('주문 생성 실패: ' + e.message);
+      alert('테이블 배정 실패: ' + e.message);
     }
   }
 }
@@ -1134,6 +1140,7 @@ function resetSession() {
   selectedPayment = null;
   selectedTable = null;
   orderNumber = null;
+  orderId = null;
   showScreen('screen-standby');
 }
 
