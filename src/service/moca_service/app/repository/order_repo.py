@@ -63,6 +63,19 @@ class OrderRepository:
         with self.database.connect() as own_conn:
             return self._update_assignment_with_conn(own_conn, order_id, order_source, receive_type, table_id)
 
+    def update_assignment_if_pending(
+        self,
+        order_id: int,
+        order_source: str,
+        receive_type: str,
+        table_id: int | None,
+        conn: Connection | None = None,
+    ) -> bool:
+        if conn is not None:
+            return self._update_assignment_if_pending_with_conn(conn, order_id, order_source, receive_type, table_id)
+        with self.database.connect() as own_conn:
+            return self._update_assignment_if_pending_with_conn(own_conn, order_id, order_source, receive_type, table_id)
+
     def _create_with_conn(
         self,
         conn: Connection,
@@ -133,6 +146,29 @@ class OrderRepository:
                     receive_type = %s,
                     table_id = %s
                 WHERE order_id = %s
+                """,
+                (order_source, receive_type, table_id, order_id),
+            )
+            return cursor.rowcount > 0
+
+    def _update_assignment_if_pending_with_conn(
+        self,
+        conn: Connection,
+        order_id: int,
+        order_source: str,
+        receive_type: str,
+        table_id: int | None,
+    ) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE orders
+                SET order_source = %s,
+                    receive_type = %s,
+                    table_id = %s
+                WHERE order_id = %s
+                  AND receive_type = 'PENDING'
+                  AND table_id IS NULL
                 """,
                 (order_source, receive_type, table_id, order_id),
             )

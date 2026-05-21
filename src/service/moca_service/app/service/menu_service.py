@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from typing import Any
 
-from app.protocol.catalog_protocol import ProductManagementRequest
+from app.service.request_models import ProductManagementRequest
 
 if TYPE_CHECKING:
     from app.repository.catalog_repo import (

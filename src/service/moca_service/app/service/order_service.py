@@ -3,9 +3,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from app.domain.table_assignment_runtime import TableAssignmentRuntime
-from app.protocol.order_protocol import OrderRequest
-from app.protocol.table_protocol import TableAssignmentRequest
 from app.repository.order_repo import OrderItemCreate
+from app.service.request_models import OrderRequest, TableAssignmentRequest
 
 if TYPE_CHECKING:
     from app.repository.catalog_repo import ProductRepository
@@ -131,7 +130,7 @@ class OrderService:
     def get_table_assignment(self):
         return self.table_assignment_runtime.list_tables()
 
-    def assign_table(self, request: TableAssignmentRequest) -> TableAssignmentResult:
+    def determine_receive_type(self, request: TableAssignmentRequest) -> TableAssignmentResult:
         # order 조회
         order = self.order_repository.get(request.order_id)
         if order is None:
@@ -158,13 +157,18 @@ class OrderService:
             if occupied_table_id is None:
                 return TableAssignmentResult.rejected(message)
 
+        latest_order = None
         try:
-            updated = self.order_repository.update_assignment(
-                request.order_id,
-                order_source,
-                receive_type,
-                occupied_table_id,
-            )
+            with self.database.transaction() as conn:
+                updated = self.order_repository.update_assignment_if_pending(
+                    request.order_id,
+                    order_source,
+                    receive_type,
+                    occupied_table_id,
+                    conn,
+                )
+                if not updated:
+                    latest_order = self.order_repository.get(request.order_id, conn)
         except Exception:
             if occupied_table_id is not None:
                 self.table_assignment_runtime.release(occupied_table_id)
@@ -173,7 +177,16 @@ class OrderService:
         if not updated:
             if occupied_table_id is not None:
                 self.table_assignment_runtime.release(occupied_table_id)
-            return TableAssignmentResult.not_found(f"order {request.order_id} not found")
+            if latest_order is None:
+                return TableAssignmentResult.not_found(f"order {request.order_id} not found")
+            latest_table_number = self._table_number_for_table_id(latest_order.table_id)
+            if (
+                latest_order.order_source == order_source
+                and latest_order.receive_type == receive_type
+                and latest_table_number == table_number
+            ):
+                return TableAssignmentResult.ok()
+            return TableAssignmentResult.rejected(f"order {request.order_id} is already assigned")
 
         return TableAssignmentResult.ok()
 
