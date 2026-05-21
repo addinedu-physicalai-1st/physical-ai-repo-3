@@ -3,7 +3,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from app.communication.admin_gui.protocol import (
+from communication.admin_gui.protocol import (
     KIND_ERROR,
     KIND_PUBLISH,
     KIND_REQUEST,
@@ -11,8 +11,8 @@ from app.communication.admin_gui.protocol import (
     AdminGuiFrame,
     chunk_payload,
 )
-from app.communication.admin_gui.publisher import AdminGuiPublisher
-from app.communication.admin_gui.subscriber import AdminGuiSubscriber
+from communication.admin_gui.publisher import AdminGuiPublisher
+from communication.admin_gui.subscriber import AdminGuiSubscriber
 
 PublishHandler = Callable[[AdminGuiFrame, tuple[str, int]], None]
 RequestHandler = Callable[[AdminGuiFrame, tuple[str, int]], bytes]

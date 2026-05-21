@@ -110,8 +110,9 @@ class Sidebar(QWidget):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, realtime=None):
         super().__init__()
+        self.realtime = realtime
         self.setWindowTitle('Robot Service Admin GUI - PyQt6')
         self.setMinimumSize(1280, 780)
         self._build()
@@ -134,8 +135,8 @@ class MainWindow(QMainWindow):
         self.stack.setStyleSheet(f"background:{BG};")
         for page in [
             MapManagementPage(),
-            MenuPage(),
-            ServiceManagementPage(),
+            MenuPage(self.realtime),
+            ServiceManagementPage(self.realtime),
             DeviceManagementPage(),
             DobyMonitoringPage(),
             DDoobyMonitoringPage(),

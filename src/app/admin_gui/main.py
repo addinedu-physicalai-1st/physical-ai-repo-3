@@ -3,30 +3,30 @@
 import logging
 import sys
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
 from gui.layout import MainWindow
+from gui.realtime import AdminGuiRealtimeBridge
 from style import APP_STYLE
-from tcp_api import AdminGuiTcpHealthServer
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 
 def main() -> int:
-    tcp_health_server = AdminGuiTcpHealthServer()
-    tcp_health_server.start()
-
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     app.setStyleSheet(APP_STYLE)
 
-    win = MainWindow()
+    realtime = AdminGuiRealtimeBridge()
+    win = MainWindow(realtime)
     win.show()
+    QTimer.singleShot(0, realtime.start)
     try:
         return app.exec()
     finally:
-        tcp_health_server.stop()
+        realtime.stop()
 
 
 if __name__ == '__main__':

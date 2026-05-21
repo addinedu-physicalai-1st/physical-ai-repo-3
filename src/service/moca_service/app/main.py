@@ -3,6 +3,7 @@ import threading
 
 from app.config import configure_logging, load_config
 from app.communication.admin_gui import create_admin_gui_communication_runtime
+from app.communication.admin_gui.monitor import AdminGuiMonitorPublisher
 from app.communication.web_service import create_web_service_tcp_server
 from app.domain.table_assignment_runtime import StoreTableDefinition, TableAssignmentRuntime
 from app.repository.catalog_repo import (
@@ -93,6 +94,13 @@ def main() -> None:
         peer_name="AdminGUI",
         timeout=config.tcp_timeout_sec,
     )
+    admin_gui_monitor = AdminGuiMonitorPublisher(
+        admin_gui_runtime,
+        menu_service,
+        order_service,
+        logger,
+    )
+    admin_gui_monitor.register()
 
     stop_event = threading.Event()
 
@@ -119,6 +127,7 @@ def main() -> None:
     try:
         stop_event.wait()
     finally:
+        admin_gui_monitor.stop()
         admin_gui_runtime.stop()
         web_service_server.stop()
         logger.info("%s stopped communication servers", config.service_name)

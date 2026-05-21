@@ -9,49 +9,30 @@ from style import BG, CYAN, ERROR, ORANGE, PRIMARY, SUCCESS, TEXT2, TEXT3, WARNI
 
 from gui.common import (
     card_frame,
-    hdivider,
     make_table,
     mkbadge,
     mklbl,
     page_header,
+    set_table_rows,
     wrap_scroll,
 )
 
 
 ORDER_STATUS_SUMMARY = [
-    ('PENDING', '접수 대기', 3, WARNING),
-    ('ACCEPTED', '접수 완료', 4, PRIMARY),
-    ('PREPARING', '제조 중', 5, ORANGE),
-    ('READY', '픽업 대기', 2, CYAN),
-    ('COMPLETED', '완료', 18, SUCCESS),
-    ('CANCELED', '취소', 1, ERROR),
 ]
 
 PAYMENT_STATUS_SUMMARY = [
-    ('PENDING', '결제 대기', 3, WARNING),
-    ('PAID', '결제 완료', 27, SUCCESS),
-    ('CANCELED', '결제 취소', 1, TEXT3),
-    ('REFUNDED', '환불', 2, ERROR),
 ]
 
 RECENT_ORDERS = [
-    ['#1042', 'TABLE', 'DINE_IN', '2번', 'PREPARING', 'PAID', '12,500원', '10:18'],
-    ['#1041', 'COUNTER', 'TAKE_OUT', '-', 'READY', 'PAID', '5,000원', '10:15'],
-    ['#1040', 'TABLE', 'DINE_IN', '4번', 'ACCEPTED', 'PENDING', '18,000원', '10:12'],
-    ['#1039', 'COUNTER', 'PENDING', '-', 'PENDING', 'PENDING', '3,500원', '10:10'],
-    ['#1038', 'TABLE', 'DINE_IN', '1번', 'COMPLETED', 'PAID', '9,000원', '10:03'],
 ]
 
 TABLE_STATUS = [
-    (1, 'occupied', '주문 #1038', '0.000', '0.000'),
-    (2, 'occupied', '주문 #1042', '0.000', '0.000'),
-    (3, 'empty', '대기 가능', '0.000', '0.000'),
-    (4, 'occupied', '주문 #1040', '0.000', '0.000'),
 ]
 
 
 class ServiceManagementPage(QWidget):
-    def __init__(self):
+    def __init__(self, realtime=None):
         super().__init__()
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -70,25 +51,67 @@ class ServiceManagementPage(QWidget):
         content_layout.setSpacing(16)
 
         order_card, order_layout = card_frame('주문 관리')
-        order_layout.addWidget(make_table(
+        self.order_table = make_table(
             ['주문', '채널', '수령', '테이블', '주문 상태', '결제', '금액', '갱신'],
             RECENT_ORDERS,
-        ))
+        )
+        order_layout.addWidget(self.order_table)
         content_layout.addWidget(order_card)
 
         table_card, table_layout = card_frame('테이블 관리')
-        table_grid = QGridLayout()
-        table_grid.setSpacing(12)
-        for i, table in enumerate(TABLE_STATUS):
-            table_grid.addWidget(self._table_card(*table), i // 4, i % 4)
-        table_layout.addLayout(table_grid)
+        self.table_grid = QGridLayout()
+        self.table_grid.setSpacing(12)
+        self._set_table_cards(TABLE_STATUS)
+        table_layout.addLayout(self.table_grid)
         content_layout.addWidget(table_card)
 
         bl.addWidget(wrap_scroll(content), 1)
+        if realtime is not None:
+            realtime.orders_updated.connect(self.update_orders)
+            realtime.tables_updated.connect(self.update_tables)
+
+    def update_orders(self, orders):
+        rows = []
+        for order in orders:
+            table_number = order.get('table_number')
+            rows.append([
+                f"#{order.get('order_id', '')}",
+                order.get('order_source', order.get('channel', '')),
+                order.get('receive_type', ''),
+                f"{table_number}번" if table_number else '-',
+                order.get('order_status', ''),
+                order.get('payment_status', ''),
+                self._format_price(order.get('total_price', order.get('total', 0))),
+                order.get('updated_at', order.get('updated', '')),
+            ])
+        set_table_rows(self.order_table, rows)
+
+    def update_tables(self, tables):
+        self._clear_table_grid()
+        self._set_table_cards(tables)
+
+    def _set_table_cards(self, tables):
+        if not tables:
+            empty_label = mklbl('비어 있음', color=TEXT2)
+            empty_label.setMinimumHeight(96)
+            self.table_grid.addWidget(empty_label, 0, 0)
+            return
+
+        for i, table in enumerate(tables):
+            if isinstance(table, dict):
+                number = table.get('table_number', table.get('id', ''))
+                status = table.get('status', 'empty')
+                order_id = table.get('active_order_id')
+                detail = f"주문 #{order_id}" if order_id else ('대기 가능' if status == 'empty' else '사용 중')
+                pos_x = table.get('pos_x', '0.000')
+                pos_y = table.get('pos_y', '0.000')
+            else:
+                number, status, detail, pos_x, pos_y = table
+            self.table_grid.addWidget(self._table_card(number, status, detail, pos_x, pos_y), i // 4, i % 4)
 
     def _table_card(self, number, status, detail, pos_x, pos_y):
         color = ORANGE if status == 'occupied' else SUCCESS
-        label = '사용 중' if status == 'occupied' else '비어있음'
+        label = '사용 중' if status == 'occupied' else '비어 있음'
 
         card, lay = card_frame()
         card.setMinimumSize(160, 130)
@@ -100,3 +123,13 @@ class ServiceManagementPage(QWidget):
         lay.addWidget(mklbl(detail, color=TEXT2))
         lay.addWidget(mklbl(f'좌표 ({pos_x}, {pos_y})', 11, color=TEXT3))
         return card
+
+    def _clear_table_grid(self):
+        while self.table_grid.count():
+            item = self.table_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _format_price(self, value):
+        return f"{int(value):,}원" if isinstance(value, int) else str(value)

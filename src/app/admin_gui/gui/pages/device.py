@@ -25,11 +25,9 @@ from gui.common import (
 )
 
 
-DEVICE_ROBOT_LIST = ['Doby', 'DDooby']
+DEVICE_ROBOT_LIST = []
 
 DEVICE_ROBOT_STATUS_LIST = [
-    ('Doby', '정상대기', 87, '양호(5G)', '대기 중', '정상'),
-    ('DDooby', '충전중', 54, '보통(4G)', '충전 중', '정상'),
 ]
 
 
@@ -50,8 +48,13 @@ class DeviceManagementPage(QWidget):
         cards = QWidget()
         grid = QGridLayout(cards)
         grid.setSpacing(16)
-        for i, robot in enumerate(DEVICE_ROBOT_STATUS_LIST):
-            grid.addWidget(self._robot_card(*robot), i // 3, i % 3)
+        if DEVICE_ROBOT_STATUS_LIST:
+            for i, robot in enumerate(DEVICE_ROBOT_STATUS_LIST):
+                grid.addWidget(self._robot_card(*robot), i // 3, i % 3)
+        else:
+            empty_label = mklbl('비어 있음', color=TEXT2)
+            empty_label.setMinimumHeight(96)
+            grid.addWidget(empty_label, 0, 0)
         bl.addWidget(wrap_scroll(cards), 1)
 
     def _robot_card(self, rid, status, battery, signal, task, damage):

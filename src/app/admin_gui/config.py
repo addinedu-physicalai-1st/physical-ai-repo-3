@@ -9,6 +9,7 @@ class AdminGuiConfig:
     port: int = 9000
     moca_service_host: str = '127.0.0.1'
     moca_service_port: int = 9001
+    moca_admin_gui_port: int = 9002
     tcp_timeout_sec: float = 3.0
 
 
@@ -28,5 +29,6 @@ def load_config() -> AdminGuiConfig:
         port=_get_int('ADMIN_GUI_PORT', 9000),
         moca_service_host=os.getenv('ADMIN_GUI_MOCA_SERVICE_HOST', '127.0.0.1'),
         moca_service_port=_get_int('ADMIN_GUI_MOCA_SERVICE_PORT', 9001),
+        moca_admin_gui_port=_get_int('ADMIN_GUI_MOCA_ADMIN_GUI_PORT', 9002),
         tcp_timeout_sec=_get_float('ADMIN_GUI_TCP_TIMEOUT_SEC', 3.0),
     )

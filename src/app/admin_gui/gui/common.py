@@ -120,12 +120,27 @@ def make_table(headers, rows=None):
     t.setAlternatingRowColors(True)
     t.setShowGrid(True)
     t.setStyleSheet("alternate-background-color:#F8FAFC;")
-    if rows:
-        t.setRowCount(len(rows))
-        for r, row in enumerate(rows):
-            for c, value in enumerate(row):
-                t.setItem(r, c, QTableWidgetItem(str(value)))
+    set_table_rows(t, rows or [])
     return t
+
+
+def set_table_rows(table, rows):
+    table.clearContents()
+    table.clearSpans()
+    if not rows:
+        table.setRowCount(1)
+        item = QTableWidgetItem('비어 있음')
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        table.setItem(0, 0, item)
+        if table.columnCount() > 1:
+            table.setSpan(0, 0, 1, table.columnCount())
+        return
+
+    table.setRowCount(len(rows))
+    for r, row in enumerate(rows):
+        for c, value in enumerate(row):
+            table.setItem(r, c, QTableWidgetItem(str(value)))
 
 
 def page_header(title, subtitle=''):
@@ -172,4 +187,8 @@ class SimpleTablePage(QWidget):
         root.addWidget(body, 1)
         if toolbar_buttons:
             bl.addLayout(disabled_row(*toolbar_buttons))
-        bl.addWidget(make_table(headers, rows), 1)
+        self.table = make_table(headers, rows)
+        bl.addWidget(self.table, 1)
+
+    def set_rows(self, rows):
+        set_table_rows(self.table, rows)

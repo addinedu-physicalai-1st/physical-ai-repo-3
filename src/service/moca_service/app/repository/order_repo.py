@@ -19,6 +19,18 @@ class OrderRow:
 
 
 @dataclass(frozen=True)
+class RecentOrderRow:
+    order_id: int
+    order_source: str
+    receive_type: str
+    table_number: int | None
+    order_status: str
+    payment_status: str
+    total_price: int
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class OrderItemCreate:
     order_id: int
     product_id: int
@@ -49,6 +61,12 @@ class OrderRepository:
             return self._get_with_conn(conn, order_id)
         with self.database.connect() as own_conn:
             return self._get_with_conn(own_conn, order_id)
+
+    def list_recent(self, limit: int = 20, conn: Connection | None = None) -> list[RecentOrderRow]:
+        if conn is not None:
+            return self._list_recent_with_conn(conn, limit)
+        with self.database.connect() as own_conn:
+            return self._list_recent_with_conn(own_conn, limit)
 
     def update_assignment(
         self,
@@ -129,6 +147,41 @@ class OrderRepository:
                 payment_status=str(row["payment_status"]),
                 total_price=int(row["total_price"]),
             )
+
+    def _list_recent_with_conn(self, conn: Connection, limit: int) -> list[RecentOrderRow]:
+        bounded_limit = max(1, min(int(limit), 100))
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    o.order_id,
+                    o.order_source,
+                    o.receive_type,
+                    st.table_number,
+                    o.order_status,
+                    o.payment_status,
+                    o.total_price,
+                    DATE_FORMAT(o.updated_at, '%%H:%%i:%%s') AS updated_at
+                FROM orders o
+                LEFT JOIN store_table st ON st.table_id = o.table_id
+                ORDER BY o.updated_at DESC, o.order_id DESC
+                LIMIT %s
+                """,
+                (bounded_limit,),
+            )
+            return [
+                RecentOrderRow(
+                    order_id=int(row["order_id"]),
+                    order_source=str(row["order_source"]),
+                    receive_type=str(row["receive_type"]),
+                    table_number=int(row["table_number"]) if row["table_number"] is not None else None,
+                    order_status=str(row["order_status"]),
+                    payment_status=str(row["payment_status"]),
+                    total_price=int(row["total_price"]),
+                    updated_at=str(row["updated_at"]),
+                )
+                for row in cursor.fetchall()
+            ]
 
     def _update_assignment_with_conn(
         self,
