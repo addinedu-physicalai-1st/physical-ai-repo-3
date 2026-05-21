@@ -12,7 +12,7 @@
   <depend>ros_gz_bridge</depend>
   <depend>ros_gz_image</depend>
   <depend>ros_gz_sim</depend>
-  <depend>vicpinky_description</depend>
+  <depend>moca_description</depend>
   <depend>laser_filters</depend>
 
   <test_depend>ament_lint_auto</test_depend>

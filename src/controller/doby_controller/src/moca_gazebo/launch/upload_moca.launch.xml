@@ -1,15 +1,16 @@
 <?xml version='1.0'?>
 <!--
   moca_gazebo/launch/upload_moca.launch.xml
-  vicpinky_description/launch/upload.launch.xml 의 moca-specific 사본.
-  xacro 만 vicpinky_moca.urdf.xacro (riser 추가) 로 교체. 외부 패키지는 그대로.
+  2026-05-21: vicpinky_description 의존 폐기, moca_description 의 robot.urdf.xacro 로 교체.
+  robot_arm_project/vicpinky_ws 의 launch_sim_moca.launch.xml 과 동일한 로봇 형상 사용.
+  body_riser (짙은 핑크 박스) add-on 제거 — moca_description 원본 그대로 spawn.
 -->
 <launch>
     <arg name="prefix" default=""/>
     <arg name="use_sim_time" default="True"/>
 
     <node pkg="robot_state_publisher" exec="robot_state_publisher" name='robot_state_publisher' output='screen' namespace="$(var prefix)">
-        <param name="robot_description" value="$(command 'xacro $(find-pkg-share moca_gazebo)/urdf/vicpinky_moca.urdf.xacro namespace:=$(var prefix)')"/>
+        <param name="robot_description" value="$(command 'xacro $(find-pkg-share moca_description)/urdf/robot.urdf.xacro namespace:=$(var prefix)')"/>
         <param name='use_sim_time' value='$(var use_sim_time)'/>
     </node>
 </launch>
