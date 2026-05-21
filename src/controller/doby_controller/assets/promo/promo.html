@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>MOCA — 매장 홍보 + 미니게임 소개</title>
+<style>
+  /* ───── PinkLAB 디자인 토큰 (인라인 — standalone 동작) ───── */
+  :root {
+    --bg-primary: #0a0612;
+    --bg-secondary: #150b1f;
+    --bg-tertiary: #1f1530;
+    --bg-glass: rgba(40, 20, 60, 0.55);
+    --border: rgba(255, 102, 179, 0.18);
+    --border-strong: rgba(255, 102, 179, 0.4);
+    --text-primary: #ffffff;
+    --text-secondary: #e8d8f5;
+    --text-faint: #8c7ca4;
+    --pink-primary: #ff007a;
+    --pink-soft: #ff66b3;
+    --pink-glow: rgba(255, 0, 122, 0.45);
+    --magenta: #c878ff;
+    --magenta-soft: #e0a8ff;
+    --cyan-accent: #6bc5ff;
+    --danger: #ff4d6d;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.6);
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "Noto Sans KR", "Pretendard Variable", "Pretendard",
+                 sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ───── 무대 ───── */
+  .stage {
+    position: fixed; inset: 0;
+    display: grid; place-items: center;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 20%, rgba(255, 0, 122, 0.18) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at 80% 80%, rgba(200, 120, 255, 0.16) 0%, transparent 60%),
+      var(--bg-primary);
+    overflow: hidden;
+  }
+  .stage::before {
+    content: ''; position: absolute; inset: 0;
+    background-image:
+      radial-gradient(2px 2px at 12% 30%, var(--pink-soft), transparent),
+      radial-gradient(1px 1px at 78% 22%, var(--magenta-soft), transparent),
+      radial-gradient(2px 2px at 45% 85%, var(--cyan-accent), transparent),
+      radial-gradient(1px 1px at 90% 60%, var(--pink-primary), transparent),
+      radial-gradient(2px 2px at 30% 70%, var(--magenta), transparent);
+    background-size: 100% 100%; opacity: 0.7;
+    animation: twinkle 4s ease-in-out infinite alternate;
+  }
+  @keyframes twinkle {
+    from { opacity: 0.35; } to { opacity: 0.85; }
+  }
+
+  /* ───── 슬라이드 공통 ───── */
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 4vh 6vw;
+    opacity: 0;
+    transform: scale(0.96);
+    /* 24s 1 사이클, 6 프레임 → 프레임당 4s (1.5초 페이드 전환 + 2.5초 hold 근사) */
+    animation: slideCycle 24s ease-in-out infinite;
+  }
+  .slide:nth-child(1) { animation-delay:  0s; }
+  .slide:nth-child(2) { animation-delay:  4s; }
+  .slide:nth-child(3) { animation-delay:  8s; }
+  .slide:nth-child(4) { animation-delay: 12s; }
+  .slide:nth-child(5) { animation-delay: 16s; }
+  .slide:nth-child(6) { animation-delay: 20s; }
+
+  @keyframes slideCycle {
+    0%   { opacity: 0; transform: scale(0.96) translateY(8px); }
+    2.5% { opacity: 1; transform: scale(1.00) translateY(0); }
+    14%  { opacity: 1; transform: scale(1.00) translateY(0); }
+    16.6%{ opacity: 0; transform: scale(1.02) translateY(-8px); }
+    100% { opacity: 0; transform: scale(0.96); }
+  }
+
+  /* ───── 헤딩 / 본문 ───── */
+  .headline {
+    font-size: clamp(36px, 5.4vw, 84px);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    text-align: center;
+    line-height: 1.15;
+    margin-bottom: 4vh;
+    color: var(--text-primary);
+    text-shadow: 0 0 30px var(--pink-glow);
+  }
+  .headline .accent {
+    color: var(--pink-primary);
+    text-shadow: 0 0 24px var(--pink-glow), 0 0 8px var(--pink-soft);
+  }
+  .headline .magenta {
+    color: var(--magenta);
+    text-shadow: 0 0 24px rgba(200, 120, 255, 0.45);
+  }
+  .sub {
+    font-size: clamp(20px, 2.4vw, 32px);
+    color: var(--text-secondary);
+    text-align: center;
+    margin-bottom: 5vh;
+    line-height: 1.5;
+  }
+  .card {
+    background: var(--bg-glass);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    padding: clamp(20px, 3vh, 36px) clamp(24px, 4vw, 56px);
+    backdrop-filter: blur(12px);
+    box-shadow: var(--shadow-md), 0 0 40px rgba(255, 0, 122, 0.18);
+    max-width: 1080px;
+  }
+
+  /* ───── 메뉴 그리드 (F1) ───── */
+  .menu-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: clamp(10px, 1.4vw, 18px);
+    max-width: 1100px;
+  }
+  .menu-item {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 18px 22px;
+    display: flex; align-items: center; gap: 14px;
+    font-size: clamp(18px, 1.8vw, 24px);
+    font-weight: 600;
+    color: var(--text-primary);
+    animation: menuPulse 3s ease-in-out infinite;
+  }
+  .menu-item .emoji { font-size: 1.4em; }
+  .menu-item:nth-child(odd)  { animation-delay: 0.0s; }
+  .menu-item:nth-child(even) { animation-delay: 0.5s; }
+  .menu-item.signature {
+    background: linear-gradient(135deg, rgba(255, 0, 122, 0.22), rgba(200, 120, 255, 0.18));
+    border-color: var(--pink-primary);
+    box-shadow: 0 0 18px rgba(255, 0, 122, 0.35);
+  }
+  @keyframes menuPulse {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+  }
+
+  /* ───── 이벤트 강조 (F2, F3) ───── */
+  .benefit-list {
+    display: flex; flex-direction: column; gap: 22px;
+    font-size: clamp(20px, 2.4vw, 32px);
+    color: var(--text-primary);
+  }
+  .benefit-list .row {
+    display: flex; align-items: center; gap: 18px;
+    line-height: 1.4;
+  }
+  .benefit-list .row .badge {
+    display: inline-block; padding: 4px 14px;
+    background: var(--pink-primary); color: white;
+    border-radius: 999px; font-size: 0.75em; font-weight: 700;
+    white-space: nowrap;
+  }
+  .pop {
+    display: inline-block;
+    color: var(--pink-primary);
+    font-weight: 900;
+    font-size: 1.25em;
+    text-shadow: 0 0 18px var(--pink-glow);
+    animation: pop 1.2s ease-in-out infinite;
+  }
+  @keyframes pop {
+    0%, 100% { transform: scale(1); filter: brightness(1.0); }
+    50% { transform: scale(1.12); filter: brightness(1.4); }
+  }
+  .sparkle::before {
+    content: '✨'; margin-right: 0.3em;
+    display: inline-block;
+    animation: sparkle 1.6s ease-in-out infinite;
+  }
+  .sparkle::after {
+    content: '✨'; margin-left: 0.3em;
+    display: inline-block;
+    animation: sparkle 1.6s ease-in-out infinite 0.4s;
+  }
+  @keyframes sparkle {
+    0%, 100% { opacity: 0.3; transform: scale(0.8) rotate(0); }
+    50% { opacity: 1; transform: scale(1.2) rotate(20deg); }
+  }
+
+  /* ───── 게임 슬라이드 (F4-F6) ───── */
+  .game-title {
+    font-size: clamp(40px, 5.6vw, 88px);
+    font-weight: 900;
+    text-align: center;
+    margin-bottom: 3vh;
+    color: var(--pink-primary);
+    text-shadow: 0 0 30px var(--pink-glow);
+    letter-spacing: -0.02em;
+  }
+  .game-tag {
+    font-size: clamp(14px, 1.4vw, 20px);
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--cyan-accent);
+    letter-spacing: 0.2em;
+    margin-bottom: 1vh;
+  }
+  .game-rules {
+    display: flex; flex-direction: column; gap: 18px;
+    font-size: clamp(18px, 2.0vw, 28px);
+    color: var(--text-primary);
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  /* F4 카운트다운 */
+  .countdown {
+    display: flex; gap: 18px; align-items: baseline;
+    justify-content: center;
+    font-size: clamp(48px, 8vw, 120px);
+    font-weight: 900;
+    margin: 2vh 0;
+    color: var(--magenta);
+    text-shadow: 0 0 24px rgba(200, 120, 255, 0.5);
+  }
+  .countdown span {
+    animation: cdShift 2.4s steps(4, end) infinite;
+    display: inline-block;
+  }
+  @keyframes cdShift {
+    0%, 100% { opacity: 1; transform: scale(1); color: var(--magenta); }
+    25%, 49% { opacity: 0.3; transform: scale(0.85); }
+    50%, 99% { opacity: 1; transform: scale(1.1); color: var(--pink-primary); }
+  }
+
+  /* F5 hand cards */
+  .hand-row {
+    display: flex; gap: 24px; justify-content: center; align-items: center;
+    margin: 2vh 0; flex-wrap: wrap;
+  }
+  .hand-card {
+    background: var(--bg-tertiary);
+    border: 2px solid var(--pink-primary);
+    border-radius: var(--radius-lg);
+    padding: 16px 28px;
+    font-size: clamp(48px, 7vw, 96px);
+    font-weight: 900;
+    color: var(--text-primary);
+    box-shadow: 0 0 24px var(--pink-glow);
+    min-width: 140px; text-align: center;
+  }
+  .hand-card.target {
+    background: linear-gradient(135deg, var(--pink-primary), var(--magenta));
+    color: white;
+    transform: scale(1.15);
+    animation: targetPulse 1.6s ease-in-out infinite;
+  }
+  @keyframes targetPulse {
+    0%, 100% { box-shadow: 0 0 20px var(--pink-glow); transform: scale(1.15); }
+    50% { box-shadow: 0 0 40px var(--pink-primary), 0 0 60px var(--pink-soft); transform: scale(1.22); }
+  }
+  .plus-sign { font-size: clamp(40px, 5vw, 72px); color: var(--text-secondary); }
+
+  /* F6 falling items */
+  .ninja-stage {
+    position: relative;
+    width: min(80vw, 600px);
+    height: clamp(140px, 18vh, 220px);
+    margin: 2vh 0;
+  }
+  .falling {
+    position: absolute;
+    font-size: clamp(32px, 4vw, 56px);
+    animation: fall 2.4s linear infinite;
+  }
+  .falling.f1 { left: 12%; animation-delay: 0.0s; }
+  .falling.f2 { left: 38%; animation-delay: 0.7s; }
+  .falling.f3 { left: 64%; animation-delay: 1.3s; }
+  .falling.bomb { left: 86%; animation-delay: 1.8s; color: var(--danger); }
+  @keyframes fall {
+    0% { top: -10%; opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { top: 110%; opacity: 0; transform: rotate(360deg); }
+  }
+  .slash {
+    position: absolute;
+    bottom: 12%; left: 30%;
+    width: 50%; height: 4px;
+    background: linear-gradient(90deg, transparent, var(--pink-primary), white, var(--pink-primary), transparent);
+    border-radius: 2px;
+    box-shadow: 0 0 16px var(--pink-primary);
+    animation: slashSwoop 2.4s ease-in-out infinite;
+    transform-origin: left center;
+  }
+  @keyframes slashSwoop {
+    0% { opacity: 0; transform: rotate(-20deg) scaleX(0); }
+    40% { opacity: 1; transform: rotate(-10deg) scaleX(1); }
+    70% { opacity: 1; transform: rotate(10deg) scaleX(1); }
+    100% { opacity: 0; transform: rotate(20deg) scaleX(0.5); }
+  }
+
+  /* ───── 진행 인디케이터 ───── */
+  .progress {
+    position: fixed; bottom: 3vh; left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 10px;
+    z-index: 10;
+  }
+  .progress .dot {
+    width: 36px; height: 4px;
+    background: var(--text-faint);
+    border-radius: 2px;
+    opacity: 0.4;
+    animation: dotActive 24s ease-in-out infinite;
+  }
+  .progress .dot:nth-child(1) { animation-delay:  0s; }
+  .progress .dot:nth-child(2) { animation-delay:  4s; }
+  .progress .dot:nth-child(3) { animation-delay:  8s; }
+  .progress .dot:nth-child(4) { animation-delay: 12s; }
+  .progress .dot:nth-child(5) { animation-delay: 16s; }
+  .progress .dot:nth-child(6) { animation-delay: 20s; }
+  @keyframes dotActive {
+    0%, 16.6%, 100% { background: var(--pink-primary); opacity: 1; box-shadow: 0 0 12px var(--pink-glow); }
+    17%, 99% { background: var(--text-faint); opacity: 0.4; box-shadow: none; }
+  }
+
+  /* ───── 브랜드 마크 ───── */
+  .brand {
+    position: fixed; top: 3vh; left: 4vw;
+    font-size: clamp(18px, 1.6vw, 24px);
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: var(--pink-primary);
+    text-shadow: 0 0 12px var(--pink-glow);
+    z-index: 10;
+  }
+  .brand::after {
+    content: '·'; margin: 0 0.5em;
+    color: var(--text-faint);
+  }
+  .brand .robot { color: var(--text-secondary); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="brand">MOCA<span class="robot">Robot Catering Service</span></div>
+
+  <!-- ───── F1: 환영 + 메뉴 ───── -->
+  <section class="slide">
+    <h1 class="headline">
+      <span class="accent">로봇 카페 MOCA</span><br>
+      에 오신 것을 환영합니다! ☕✨
+    </h1>
+    <div class="menu-grid">
+      <div class="menu-item signature"><span class="emoji">🍞</span>MOCA 토스트 SET</div>
+      <div class="menu-item signature"><span class="emoji">🍕</span>MOCA 피자 SET</div>
+      <div class="menu-item"><span class="emoji">☕</span>아메리카노</div>
+      <div class="menu-item"><span class="emoji">☕</span>카푸치노</div>
+      <div class="menu-item"><span class="emoji">☕</span>에스프레소</div>
+      <div class="menu-item"><span class="emoji">🌿</span>쌍화차</div>
+      <div class="menu-item"><span class="emoji">🍋</span>유자차</div>
+    </div>
+  </section>
+
+  <!-- ───── F2: 오픈 이벤트 ───── -->
+  <section class="slide">
+    <h1 class="headline">
+      <span class="sparkle"><span class="accent">MOCA 단독 오픈 이벤트</span></span>
+    </h1>
+    <div class="card">
+      <div class="benefit-list">
+        <div class="row">
+          <span class="badge">첫 방문</span>
+          <span>MOCA 토스트 SET 주문 시 <span class="pop">아메리카노 공짜!</span></span>
+        </div>
+        <div class="row">
+          <span class="badge">로봇 따라가기</span>
+          <span>매장 SET 주문 시 <span class="pop">20% 파격 할인!</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── F3: 미니게임 도전 ───── -->
+  <section class="slide">
+    <h1 class="headline">
+      Doby를 <span class="accent">이겨라!</span><br>
+      미니게임 도전? <span class="magenta">🎮</span>
+    </h1>
+    <div class="card">
+      <p class="sub">
+        Doby에게 게임 승리 시<br>
+        <span class="pop">🥤 모든 음료 10% 할인!</span>
+      </p>
+    </div>
+  </section>
+
+  <!-- ───── F4: 가위바위보 ───── -->
+  <section class="slide">
+    <div class="game-tag">GAME 1</div>
+    <h2 class="game-title">✌️ 가위바위보</h2>
+    <div class="countdown"><span>5</span><span>4</span><span>3</span></div>
+    <div class="game-rules">
+      <div>카운트가 끝나면 <strong>가위 / 바위 / 보!</strong></div>
+      <div>🏆 <strong>3판 2선승!</strong> 이기면 추천 메뉴 안내!</div>
+    </div>
+  </section>
+
+  <!-- ───── F5: 스피드 카운터 ───── -->
+  <section class="slide">
+    <div class="game-tag">GAME 2</div>
+    <h2 class="game-title">🖐️ 스피드 카운터</h2>
+    <div class="hand-row">
+      <div class="hand-card">5</div>
+      <div class="plus-sign">+</div>
+      <div class="hand-card">2</div>
+      <div class="plus-sign">=</div>
+      <div class="hand-card target">7</div>
+    </div>
+    <div class="game-rules">
+      <div>양손 손가락 합으로 화면 <strong>숫자</strong>를 만들기!</div>
+      <div>🔥 <strong>5번 연속 정답</strong>이면 우승!</div>
+    </div>
+  </section>
+
+  <!-- ───── F6: 카페 닌자 ───── -->
+  <section class="slide">
+    <div class="game-tag">GAME 3</div>
+    <h2 class="game-title">🥷 카페 닌자</h2>
+    <div class="ninja-stage">
+      <div class="falling f1">🍞</div>
+      <div class="falling f2">☕</div>
+      <div class="falling f3">🍕</div>
+      <div class="falling bomb">💣</div>
+      <div class="slash"></div>
+    </div>
+    <div class="game-rules">
+      <div>☝️ <strong>검지 손가락</strong>으로 떨어지는 메뉴 베기!</div>
+      <div>💣 <strong>폭탄은 절대 피하세요!</strong></div>
+    </div>
+  </section>
+
+  <div class="progress">
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+  </div>
+</div>
+</body>
+</html>
