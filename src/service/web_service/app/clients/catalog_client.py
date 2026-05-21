@@ -1,8 +1,12 @@
 from typing import Any
 
 from app.clients.base_tcp_client import MocaTcpBaseClient
-from app.protocol.catalog_protocol import decode_catalog_payload
-from app.protocol.header_protocol import CMD_ALLERGY, CMD_MENU, METHOD_GET
+from app.protocol.catalog_protocol import (
+    decode_catalog_payload,
+    decode_product_management_payload,
+    encode_product_management_payload,
+)
+from app.protocol.header_protocol import CMD_ALLERGY, CMD_MENU, METHOD_GET, METHOD_SET
 
 
 class MocaCatalogClientError(RuntimeError):
@@ -54,4 +58,36 @@ class MocaTcpCatalogClient(MocaTcpBaseClient):
             self.close()
             raise MocaCatalogClientError(
                 f"moca_service allergy request failed: {self.host}:{self.port}: {exc}"
+            ) from exc
+
+    def manage_product(
+        self,
+        action: str,
+        *,
+        product_id: int | None = None,
+        product: dict[str, Any] | None = None,
+        include_paused: bool = False,
+    ) -> dict[str, Any]:
+        """Manage products in moca_service over CMD_MENU SET."""
+
+        try:
+            request_payload = encode_product_management_payload(
+                action,
+                product_id=product_id,
+                product=product,
+                include_paused=include_paused,
+            )
+            _, response_payload = self.request(CMD_MENU, METHOD_SET, request_payload)
+            result = decode_product_management_payload(response_payload)
+            if "error" in result:
+                message = result.get("message", result.get("error", "product management error"))
+                raise MocaCatalogClientError(str(message))
+            self._logger.info("moca_service product management result: %s", result)
+            return result
+        except MocaCatalogClientError:
+            raise
+        except (OSError, ValueError) as exc:
+            self.close()
+            raise MocaCatalogClientError(
+                f"moca_service product management request failed: {self.host}:{self.port}: {exc}"
             ) from exc

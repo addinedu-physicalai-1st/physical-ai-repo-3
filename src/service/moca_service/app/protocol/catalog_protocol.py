@@ -1,6 +1,8 @@
+import json
 import struct
 from dataclasses import dataclass
 from typing import Any
+from typing import Literal
 
 from app.protocol.header_protocol import (
     STATUS_ERROR,
@@ -32,6 +34,36 @@ class CatalogResponse:
 
     @classmethod
     def error(cls, error_code: int, message: str) -> "CatalogResponse":
+        return cls(error_code=error_code, message=message)
+
+    @property
+    def is_error(self) -> bool:
+        return self.error_code is not None
+
+
+ProductAction = Literal["create", "get", "list", "update", "delete"]
+
+
+@dataclass(frozen=True)
+class ProductManagementRequest:
+    action: ProductAction
+    product_id: int = 0
+    product: dict[str, Any] | None = None
+    include_paused: bool = False
+
+
+@dataclass(frozen=True)
+class ProductManagementResponse:
+    result: dict[str, Any] | None = None
+    error_code: int | None = None
+    message: str = ""
+
+    @classmethod
+    def ok(cls, result: dict[str, Any]) -> "ProductManagementResponse":
+        return cls(result=result)
+
+    @classmethod
+    def error(cls, error_code: int, message: str) -> "ProductManagementResponse":
         return cls(error_code=error_code, message=message)
 
     @property
@@ -109,6 +141,66 @@ def decode_catalog_payload(payload: bytes, cmd_type: int) -> dict[str, Any]:
     if cmd_type == CMD_ALLERGY:
         return {"allergy": decode_allergy_payload(payload)}
     raise ValueError(f"unsupported catalog cmd_type: 0x{cmd_type:02X}")
+
+
+def parse_product_management_payload(payload: bytes) -> ProductManagementRequest:
+    if not payload:
+        raise ValueError("product management payload must not be empty")
+    try:
+        body = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid product management JSON: {exc}") from exc
+    if not isinstance(body, dict):
+        raise ValueError("product management payload must be a JSON object")
+
+    action = str(body.get("action", ""))
+    if action not in {"create", "get", "list", "update", "delete"}:
+        raise ValueError(f"invalid product action={action}")
+
+    product_id = 0
+    if action in {"get", "update", "delete"}:
+        raw_product_id = body.get("product_id")
+        if isinstance(raw_product_id, bool) or not isinstance(raw_product_id, int) or raw_product_id <= 0:
+            raise ValueError("product_id must be a positive int")
+        product_id = raw_product_id
+
+    product = body.get("product")
+    if action in {"create", "update"}:
+        if not isinstance(product, dict):
+            raise ValueError("product must be an object")
+    elif product is not None:
+        raise ValueError("product is only supported for create/update")
+
+    return ProductManagementRequest(
+        action=action,
+        product_id=product_id,
+        product=product,
+        include_paused=bool(body.get("include_paused", False)),
+    )
+
+
+def encode_product_management_response_payload(response: ProductManagementResponse) -> bytes:
+    if response.is_error:
+        if response.error_code is None:
+            raise ValueError("product management response missing error code")
+        return encode_error_payload(response.error_code, response.message)
+    if response.result is None:
+        raise ValueError("product management response missing result")
+    return bytes([STATUS_OK]) + json.dumps(response.result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def decode_product_management_response_payload(payload: bytes) -> dict[str, Any]:
+    if payload[:1] == bytes([STATUS_ERROR]):
+        error_code, message = decode_error_payload(payload)
+        return {"error": error_code, "message": message}
+    if payload[:1] != bytes([STATUS_OK]):
+        raise ValueError(f"invalid product management status: 0x{payload[:1].hex()}")
+    if len(payload) == 1:
+        return {}
+    decoded = json.loads(payload[1:].decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise ValueError("product management response must be a JSON object")
+    return decoded
 
 
 def decode_menu_option_payload(payload: bytes) -> list[dict[str, Any]]:

@@ -20,7 +20,14 @@ from app.protocol.header_protocol import (
     decode_header as decode_moca_header,
     encode_frame as encode_moca_frame,
 )
-from app.protocol.catalog_protocol import CatalogResponse, encode_catalog_response_payload
+from app.protocol.catalog_protocol import (
+    CatalogResponse,
+    ProductManagementRequest,
+    ProductManagementResponse,
+    encode_catalog_response_payload,
+    encode_product_management_response_payload,
+    parse_product_management_payload,
+)
 from app.protocol.order_protocol import (
     OrderRequest,
     OrderResponse,
@@ -38,6 +45,7 @@ from app.protocol.table_protocol import (
 HealthHandler = Callable[[int], None]
 StatusHandler = Callable[[int, tuple[str, int]], None]
 CatalogHandler = Callable[[], CatalogResponse]
+ProductManagementHandler = Callable[[ProductManagementRequest], ProductManagementResponse]
 OrderHandler = Callable[[OrderRequest], OrderResponse]
 TableHandler = Callable[[], TableResponse]
 TableAssignmentHandler = Callable[[TableAssignmentRequest], TableAssignmentResponse]
@@ -54,6 +62,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         on_health: HealthHandler,
         on_status: StatusHandler,
         on_catalog: CatalogHandler,
+        on_product_management: ProductManagementHandler,
         on_order: OrderHandler,
         on_table: TableHandler,
         on_table_assignment: TableAssignmentHandler,
@@ -66,6 +75,7 @@ class TcpServer(socketserver.ThreadingTCPServer):
         self.on_health = on_health
         self.on_status = on_status
         self.on_catalog = on_catalog
+        self.on_product_management = on_product_management
         self.on_order = on_order
         self.on_table = on_table
         self.on_table_assignment = on_table_assignment
@@ -123,6 +133,7 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
 
         if not (
             (header.cmd_type in {CMD_MENU, CMD_ALLERGY} and header.method == METHOD_GET)
+            or (header.cmd_type == CMD_MENU and header.method == METHOD_SET)
             or (header.cmd_type == CMD_ORDER and header.method == METHOD_SET)
             or (header.cmd_type == CMD_TABLE and header.method == METHOD_GET)
             or (header.cmd_type == CMD_TABLE and header.method == METHOD_SET)
@@ -144,8 +155,11 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
             _decode_received_request_payload(header.cmd_type, header.method, payload_bytes),
         )
 
-        if header.cmd_type in {CMD_MENU, CMD_ALLERGY}:
+        if header.cmd_type in {CMD_MENU, CMD_ALLERGY} and header.method == METHOD_GET:
             self._handle_catalog_frame(header.cmd_type, header.sequence, payload_bytes)
+            return
+        if header.cmd_type == CMD_MENU and header.method == METHOD_SET:
+            self._handle_product_management_frame(header.sequence, payload_bytes)
             return
         if header.cmd_type == CMD_ORDER:
             self._handle_order_frame(header.sequence, payload_bytes)
@@ -171,6 +185,19 @@ class TcpRequestHandler(socketserver.BaseRequestHandler):
             response = CatalogResponse.error(0x01, str(exc))
             response_payload = encode_catalog_response_payload(response, cmd_type)
         self.request.sendall(encode_moca_frame(cmd_type, METHOD_GET, sequence, response_payload))
+
+    def _handle_product_management_frame(self, sequence: int, payload: bytes) -> None:
+        server: TcpServer = self.server
+
+        try:
+            request = parse_product_management_payload(payload)
+        except Exception as exc:
+            server.logger.warning("invalid product management tcp payload from %s: %s", self.client_address, exc)
+            return
+
+        response = server.on_product_management(request)
+        response_payload = encode_product_management_response_payload(response)
+        self.request.sendall(encode_moca_frame(CMD_MENU, METHOD_SET, sequence, response_payload))
 
     def _handle_order_frame(self, sequence: int, payload: bytes) -> None:
         server: TcpServer = self.server
@@ -231,6 +258,16 @@ def _decode_received_request_payload(cmd_type: int, method: int, payload: bytes)
             if payload:
                 raise ValueError(f"catalog request payload must be empty: {len(payload)}")
             return {}
+        if cmd_type == CMD_MENU and method == METHOD_SET:
+            request = parse_product_management_payload(payload)
+            decoded: dict = {"action": request.action}
+            if request.product_id:
+                decoded["product_id"] = request.product_id
+            if request.product is not None:
+                decoded["product"] = request.product
+            if request.action == "list":
+                decoded["include_paused"] = request.include_paused
+            return decoded
         if cmd_type == CMD_ORDER and method == METHOD_SET:
             request = parse_order_payload(payload)
             return {

@@ -3,7 +3,7 @@ import socket
 import threading
 from typing import Any
 
-from app.protocol.catalog_protocol import decode_catalog_payload
+from app.protocol.catalog_protocol import decode_catalog_payload, decode_product_management_payload
 from app.protocol.header_protocol import (
     CMD_ALLERGY,
     CMD_MENU,
@@ -117,8 +117,10 @@ class MocaTcpBaseClient:
 
 def _parse_received_response_payload(header: MocaHeader, payload: bytes) -> dict[str, Any]:
     try:
-        if header.cmd_type in {CMD_MENU, CMD_ALLERGY}:
+        if header.cmd_type in {CMD_MENU, CMD_ALLERGY} and header.method == METHOD_GET:
             return decode_catalog_payload(payload, header.cmd_type)
+        if header.cmd_type == CMD_MENU and header.method == METHOD_SET:
+            return decode_product_management_payload(payload)
         if header.cmd_type == CMD_ORDER:
             return _parse_order_response_payload(payload)
         if header.cmd_type == CMD_TABLE and header.method == METHOD_GET:

@@ -1,149 +1,284 @@
-import json
 from dataclasses import dataclass
 from typing import Any
 
-import pymysql
-from pymysql.cursors import DictCursor
+from pymysql.connections import Connection
+
+from app.repository.db import Database, DbConfig
 
 
 @dataclass(frozen=True)
-class DbConfig:
-    host: str
-    port: int
-    user: str
-    password: str
-    database: str
+class ProductRow:
+    product_id: int
+    name: str
+    description: str
+    image_url: str
+    price: int
+    product_type: str
+    menu_status: str
 
 
-class CatalogRepository:
-    def __init__(self, config: DbConfig):
-        self.config = config
+@dataclass(frozen=True)
+class ProductOptionGroupRow:
+    product_option_group_id: int
+    product_id: int
+    name: str
+    options: Any
+    required: bool
+    max_select_count: int
 
-    def fetch_catalog(self) -> dict[str, Any]:
-        with pymysql.connect(
-            host=self.config.host,
-            port=self.config.port,
-            user=self.config.user,
-            password=self.config.password,
-            database=self.config.database,
-            charset="utf8mb4",
-            cursorclass=DictCursor,
-        ) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT
-                        product_id,
-                        name,
-                        image_url,
-                        price,
-                        product_type,
-                        menu_status
-                    FROM product
-                    WHERE menu_status = 'ON_SALE'
-                    ORDER BY product_id
-                    """
+
+@dataclass(frozen=True)
+class AllergyCategoryRow:
+    allergy_category_id: int
+    name: str
+    icon: str
+
+
+@dataclass(frozen=True)
+class ProductAllergyRow:
+    product_id: int
+    allergy_category_id: int
+
+
+class ProductRepository:
+    def __init__(self, database: Database | DbConfig):
+        self.database = database if isinstance(database, Database) else Database(database)
+
+    def list_by_status(self, menu_status: str, conn: Connection | None = None) -> list[ProductRow]:
+        query = """
+            SELECT product_id, name, description, image_url, price, product_type, menu_status
+            FROM product
+            WHERE menu_status = %s
+            ORDER BY product_id
+        """
+        return self._fetch_products(query, (menu_status,), conn)
+
+    def list_products(self, *, include_paused: bool = False, conn: Connection | None = None) -> list[ProductRow]:
+        if include_paused:
+            query = """
+                SELECT product_id, name, description, image_url, price, product_type, menu_status
+                FROM product
+                ORDER BY product_id
+            """
+            return self._fetch_products(query, (), conn)
+        query = """
+            SELECT product_id, name, description, image_url, price, product_type, menu_status
+            FROM product
+            WHERE menu_status <> 'PAUSED'
+            ORDER BY product_id
+        """
+        return self._fetch_products(query, (), conn)
+
+    def get(self, product_id: int, conn: Connection | None = None) -> ProductRow | None:
+        query = """
+            SELECT product_id, name, description, image_url, price, product_type, menu_status
+            FROM product
+            WHERE product_id = %s
+        """
+        products = self._fetch_products(query, (product_id,), conn)
+        return products[0] if products else None
+
+    def create(self, product: dict[str, Any], conn: Connection | None = None) -> ProductRow:
+        if conn is not None:
+            return self._create_with_conn(conn, product)
+        with self.database.connect() as own_conn:
+            return self._create_with_conn(own_conn, product)
+
+    def update(self, product_id: int, product: dict[str, Any], conn: Connection | None = None) -> ProductRow | None:
+        if conn is not None:
+            return self._update_with_conn(conn, product_id, product)
+        with self.database.connect() as own_conn:
+            return self._update_with_conn(own_conn, product_id, product)
+
+    def soft_delete(self, product_id: int, conn: Connection | None = None) -> bool:
+        if conn is not None:
+            return self._soft_delete_with_conn(conn, product_id)
+        with self.database.connect() as own_conn:
+            return self._soft_delete_with_conn(own_conn, product_id)
+
+    def list_by_ids_and_status(
+        self,
+        product_ids: list[int],
+        menu_status: str,
+        conn: Connection | None = None,
+    ) -> list[ProductRow]:
+        if not product_ids:
+            return []
+        placeholders = ", ".join(["%s"] * len(product_ids))
+        query = f"""
+            SELECT product_id, name, description, image_url, price, product_type, menu_status
+            FROM product
+            WHERE menu_status = %s
+              AND product_id IN ({placeholders})
+            ORDER BY product_id
+        """
+        return self._fetch_products(query, [menu_status, *product_ids], conn)
+
+    def _fetch_products(self, query: str, params: list[Any] | tuple[Any, ...], conn: Connection | None) -> list[ProductRow]:
+        if conn is not None:
+            return self._fetch_products_with_conn(conn, query, params)
+        with self.database.connect() as own_conn:
+            return self._fetch_products_with_conn(own_conn, query, params)
+
+    def _fetch_products_with_conn(self, conn: Connection, query: str, params: list[Any] | tuple[Any, ...]) -> list[ProductRow]:
+        with conn.cursor() as cursor:
+            cursor.execute(query, params)
+            return [
+                ProductRow(
+                    product_id=int(row["product_id"]),
+                    name=str(row["name"]),
+                    description=str(row["description"]),
+                    image_url=str(row["image_url"]),
+                    price=int(row["price"]),
+                    product_type=str(row["product_type"]),
+                    menu_status=str(row["menu_status"]),
                 )
-                menu = [
-                    {
-                        "id": int(row["product_id"]),
-                        "name": row["name"],
-                        "image": row["image_url"],
-                        "price": int(row["price"]),
-                        "options": [],
-                    }
-                    for row in cursor.fetchall()
-                ]
-                menu_by_id = {item["id"]: item for item in menu}
+                for row in cursor.fetchall()
+            ]
 
-                cursor.execute(
-                    """
-                    SELECT product_id, name, options
-                    FROM product_option_group
-                    ORDER BY product_id, product_option_group_id
-                    """
+    def _create_with_conn(self, conn: Connection, product: dict[str, Any]) -> ProductRow:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO product (
+                    name,
+                    description,
+                    image_url,
+                    price,
+                    product_type,
+                    menu_status
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    product["name"],
+                    product["description"],
+                    product["image_url"],
+                    product["price"],
+                    product["product_type"],
+                    product["menu_status"],
+                ),
+            )
+            product_id = int(cursor.lastrowid)
+        created = self.get(product_id, conn)
+        if created is None:
+            raise RuntimeError(f"created product {product_id} not found")
+        return created
+
+    def _update_with_conn(self, conn: Connection, product_id: int, product: dict[str, Any]) -> ProductRow | None:
+        if not product:
+            return self.get(product_id, conn)
+        assignments = ", ".join(f"{field} = %s" for field in product)
+        values = [product[field] for field in product]
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                UPDATE product
+                SET {assignments}
+                WHERE product_id = %s
+                """,
+                [*values, product_id],
+            )
+            if cursor.rowcount == 0 and self.get(product_id, conn) is None:
+                return None
+        return self.get(product_id, conn)
+
+    def _soft_delete_with_conn(self, conn: Connection, product_id: int) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE product
+                SET menu_status = 'PAUSED'
+                WHERE product_id = %s
+                """,
+                (product_id,),
+            )
+            return cursor.rowcount > 0 or self.get(product_id, conn) is not None
+
+
+class ProductOptionGroupRepository:
+    def __init__(self, database: Database | DbConfig):
+        self.database = database if isinstance(database, Database) else Database(database)
+
+    def list_all(self, conn: Connection | None = None) -> list[ProductOptionGroupRow]:
+        if conn is not None:
+            return self._list_all_with_conn(conn)
+        with self.database.connect() as own_conn:
+            return self._list_all_with_conn(own_conn)
+
+    def _list_all_with_conn(self, conn: Connection) -> list[ProductOptionGroupRow]:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT product_option_group_id, product_id, name, options, required, max_select_count
+                FROM product_option_group
+                ORDER BY product_id, product_option_group_id
+                """
+            )
+            return [
+                ProductOptionGroupRow(
+                    product_option_group_id=int(row["product_option_group_id"]),
+                    product_id=int(row["product_id"]),
+                    name=str(row["name"]),
+                    options=row["options"],
+                    required=bool(row["required"]),
+                    max_select_count=int(row["max_select_count"]),
                 )
-                surcharges: dict[str, int] = {}
-                for row in cursor.fetchall():
-                    item = menu_by_id.get(int(row["product_id"]))
-                    if item is None:
-                        continue
+                for row in cursor.fetchall()
+            ]
 
-                    group_name = str(row["name"])
-                    options = _decode_options(row["options"])
-                    item["options"].extend(_to_catalog_options(group_name, options))
-                    for option in item["options"]:
-                        if option["option_group"] == group_name and option["price"] > 0:
-                            surcharges[f"{_legacy_option_key(group_name)}:{option['option_name']}"] = int(
-                                option["price"]
-                            )
 
-                cursor.execute(
-                    """
-                    SELECT
-                        ac.name AS allergy_name,
-                        ac.icon,
-                        p.name AS product_name
-                    FROM allergy_category ac
-                    LEFT JOIN product_allergy pa
-                        ON pa.allergy_category_id = ac.allergy_category_id
-                    LEFT JOIN product p
-                        ON p.product_id = pa.product_id
-                        AND p.menu_status = 'ON_SALE'
-                    ORDER BY ac.allergy_category_id, p.product_id
-                    """
+class AllergyCategoryRepository:
+    def __init__(self, database: Database | DbConfig):
+        self.database = database if isinstance(database, Database) else Database(database)
+
+    def list_all(self, conn: Connection | None = None) -> list[AllergyCategoryRow]:
+        if conn is not None:
+            return self._list_all_with_conn(conn)
+        with self.database.connect() as own_conn:
+            return self._list_all_with_conn(own_conn)
+
+    def _list_all_with_conn(self, conn: Connection) -> list[AllergyCategoryRow]:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT allergy_category_id, name, icon
+                FROM allergy_category
+                ORDER BY allergy_category_id
+                """
+            )
+            return [
+                AllergyCategoryRow(
+                    allergy_category_id=int(row["allergy_category_id"]),
+                    name=str(row["name"]),
+                    icon=str(row["icon"]),
                 )
-                allergy_by_name: dict[str, dict[str, Any]] = {}
-                for row in cursor.fetchall():
-                    allergy = allergy_by_name.setdefault(
-                        row["allergy_name"],
-                        {"name": row["allergy_name"], "icon": row["icon"], "items": []},
-                    )
-                    if row["product_name"]:
-                        allergy["items"].append(row["product_name"])
-
-        return {
-            "menu": menu,
-            "allergy": list(allergy_by_name.values()),
-            "surcharges": surcharges,
-        }
+                for row in cursor.fetchall()
+            ]
 
 
-def _decode_options(options: Any) -> list[Any]:
-    if isinstance(options, list):
-        return options
-    if isinstance(options, str):
-        decoded = json.loads(options)
-        return decoded if isinstance(decoded, list) else []
-    return []
+class ProductAllergyRepository:
+    def __init__(self, database: Database | DbConfig):
+        self.database = database if isinstance(database, Database) else Database(database)
 
+    def list_all(self, conn: Connection | None = None) -> list[ProductAllergyRow]:
+        if conn is not None:
+            return self._list_all_with_conn(conn)
+        with self.database.connect() as own_conn:
+            return self._list_all_with_conn(own_conn)
 
-def _to_catalog_options(group_name: str, options: list[Any]) -> list[dict[str, Any]]:
-    default_seen = any(isinstance(option, dict) and bool(option.get("is_default", False)) for option in options)
-    catalog_options = []
-    for index, option in enumerate(options):
-        if isinstance(option, dict):
-            option_name = str(option.get("name", ""))
-            price = int(option.get("price", 0))
-            is_default = bool(option.get("is_default", False)) if default_seen else index == 0
-        else:
-            option_name = str(option)
-            price = 0
-            is_default = index == 0 and not default_seen
-        catalog_options.append(
-            {
-                "option_group": group_name,
-                "option_name": option_name,
-                "price": price,
-                "is_default": is_default,
-            }
-        )
-    return catalog_options
-
-
-def _legacy_option_key(group_name: str) -> str:
-    return {
-        "에스프레소 샷": "shot",
-        "우유": "milk",
-        "온도": "temperature",
-    }.get(group_name, group_name)
+    def _list_all_with_conn(self, conn: Connection) -> list[ProductAllergyRow]:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT product_id, allergy_category_id
+                FROM product_allergy
+                ORDER BY allergy_category_id, product_id
+                """
+            )
+            return [
+                ProductAllergyRow(
+                    product_id=int(row["product_id"]),
+                    allergy_category_id=int(row["allergy_category_id"]),
+                )
+                for row in cursor.fetchall()
+            ]
