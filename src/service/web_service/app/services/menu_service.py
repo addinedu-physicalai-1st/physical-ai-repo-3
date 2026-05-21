@@ -1,5 +1,7 @@
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.models.menu import AllergyInfo, MenuItem
 from app.clients.catalog_client import MocaCatalogClientError
 from app.clients.moca_shared import get_catalog_client
@@ -50,24 +52,41 @@ def delete_product(product_id: int) -> dict[str, Any]:
 
 
 def fetch_catalog() -> dict[str, Any]:
-    return {
-        "menu": [item.model_dump() for item in list_menu()],
-        "allergy": [item.model_dump() for item in list_allergy()],
-        "surcharges": get_surcharges(),
-    }
+    try:
+        raw_menu = _fetch_raw_menu()
+        menu = [_to_menu_item(item) for item in raw_menu]
+        allergy = list_allergy()
+        return {
+            "menu": [item.model_dump() for item in menu],
+            "allergy": [item.model_dump() for item in allergy],
+            "surcharges": _get_surcharges_from_raw_menu(raw_menu),
+        }
+    except MenuServiceUnavailable:
+        raise
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise MenuServiceUnavailable(f"invalid moca_service catalog payload: {exc}") from exc
 
 
 def list_menu() -> list[MenuItem]:
-    return [
-        MenuItem(id=1, name="아메리카노", aliases=["아메", "아아", "따아"], emoji="☕", price=3500, hot=True, shot=True, ice=True, milk=False),
-        MenuItem(id=2, name="카페라떼", aliases=["라떼"], emoji="☕", price=4500, hot=True, shot=True, ice=True, milk=True),
-        MenuItem(id=3, name="카푸치노", aliases=["카푸"], emoji="🫧", price=4500, hot=True, shot=True, ice=False, milk=True),
-        MenuItem(id=4, name="바닐라라떼", aliases=["바닐라"], emoji="🌼", price=5000, hot=True, shot=True, ice=True, milk=True),
-        MenuItem(id=5, name="카라멜마키아토", aliases=["카라멜", "마키아또"], emoji="🍮", price=5500, hot=True, shot=True, ice=True, milk=True),
-        MenuItem(id=6, name="말차라떼", aliases=["말차"], emoji="🍵", price=5500, hot=True, shot=False, ice=True, milk=True),
-        MenuItem(id=7, name="딸기스무디", aliases=["딸기"], emoji="🍓", price=6000, hot=False, shot=False, ice=True, milk=False),
-        MenuItem(id=8, name="치즈케이크", aliases=["치즈"], emoji="🍰", price=7000, hot=False, shot=False, ice=False, milk=False),
-    ]
+    try:
+        return [_to_menu_item(item) for item in _fetch_raw_menu()]
+    except MenuServiceUnavailable:
+        raise
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise MenuServiceUnavailable(f"invalid moca_service menu payload: {exc}") from exc
+
+
+def _fetch_raw_menu() -> list[dict[str, Any]]:
+    try:
+        payload = get_catalog_client().fetch_menu_options()
+        menu = payload.get("menu", [])
+        if not isinstance(menu, list):
+            raise MenuServiceUnavailable("moca_service menu payload must be a list")
+        return menu
+    except MocaCatalogClientError as exc:
+        raise MenuServiceUnavailable(str(exc)) from exc
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise MenuServiceUnavailable(f"invalid moca_service menu payload: {exc}") from exc
 
 
 def get_menu(menu_id: int) -> MenuItem | None:
@@ -75,15 +94,90 @@ def get_menu(menu_id: int) -> MenuItem | None:
 
 
 def list_allergy() -> list[AllergyInfo]:
-    return [
-        AllergyInfo(name="유제품", icon="🥛", items=["카페라떼", "카푸치노", "바닐라라떼", "카라멜마키아토", "말차라떼"]),
-        AllergyInfo(name="글루텐", icon="🌾", items=["치즈케이크"]),
-        AllergyInfo(name="견과류", icon="🥜", items=["치즈케이크"]),
-        AllergyInfo(name="계란", icon="🥚", items=["치즈케이크"]),
-        AllergyInfo(name="대두", icon="🌱", items=["말차라떼"]),
-        AllergyInfo(name="과일류", icon="🍓", items=["딸기스무디"]),
-    ]
+    try:
+        payload = get_catalog_client().fetch_allergy()
+        allergy = payload.get("allergy", [])
+        if not isinstance(allergy, list):
+            raise MenuServiceUnavailable("moca_service allergy payload must be a list")
+        return [AllergyInfo.model_validate(item) for item in allergy]
+    except MocaCatalogClientError as exc:
+        raise MenuServiceUnavailable(str(exc)) from exc
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise MenuServiceUnavailable(f"invalid moca_service allergy payload: {exc}") from exc
 
 
 def get_surcharges() -> dict[str, int]:
-    return {"shot:추가": 500, "milk:저지방": 300}
+    try:
+        return _get_surcharges_from_raw_menu(_fetch_raw_menu())
+    except MenuServiceUnavailable:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise MenuServiceUnavailable(f"invalid moca_service menu payload: {exc}") from exc
+
+
+def _to_menu_item(item: Any) -> MenuItem:
+    if not isinstance(item, dict):
+        raise ValueError("menu item must be an object")
+
+    options = item.get("options", [])
+    if not isinstance(options, list):
+        options = []
+
+    return MenuItem(
+        id=item.get("id"),
+        name=item.get("name", ""),
+        aliases=item.get("aliases", []),
+        emoji=item.get("emoji") or item.get("image") or "",
+        price=item.get("price"),
+        hot=_has_option(options, "temperature", {"hot", "HOT", "핫", "뜨거운", "따뜻한"}),
+        shot=_has_group(options, "shot"),
+        ice=_has_option(options, "temperature", {"ice", "ICE", "아이스", "차가운"})
+        or _has_group(options, "ice"),
+        milk=_has_group(options, "milk"),
+    )
+
+
+def _get_surcharges_from_raw_menu(raw_menu: list[dict[str, Any]]) -> dict[str, int]:
+    surcharges: dict[str, int] = {}
+    for raw_item in raw_menu:
+        if not isinstance(raw_item, dict):
+            continue
+        options = raw_item.get("options", [])
+        if not isinstance(options, list):
+            continue
+        for option in options:
+            if not isinstance(option, dict):
+                continue
+            price = int(option.get("price", 0))
+            if price <= 0:
+                continue
+            key = _legacy_option_key(str(option.get("option_group", "")))
+            surcharges[f"{key}:{option.get('option_name', '')}"] = price
+    return surcharges
+
+
+def _has_group(options: list[Any], legacy_key: str) -> bool:
+    return any(
+        isinstance(option, dict)
+        and _legacy_option_key(str(option.get("option_group", ""))) == legacy_key
+        for option in options
+    )
+
+
+def _has_option(options: list[Any], legacy_key: str, names: set[str]) -> bool:
+    return any(
+        isinstance(option, dict)
+        and _legacy_option_key(str(option.get("option_group", ""))) == legacy_key
+        and str(option.get("option_name", "")) in names
+        for option in options
+    )
+
+
+def _legacy_option_key(group_name: str) -> str:
+    return {
+        "에스프레소 샷": "shot",
+        "샷": "shot",
+        "얼음": "ice",
+        "우유": "milk",
+        "온도": "temperature",
+    }.get(group_name, group_name)
