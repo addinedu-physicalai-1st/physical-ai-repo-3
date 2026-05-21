@@ -46,6 +46,7 @@ class AdminGuiCommunicationRuntime:
         self.subscriber.start()
 
     def stop(self) -> None:
+        self.publisher.close()
         self.subscriber.stop()
 
     def subscribe(self, topic: int, event: int, handler: PublishHandler) -> None:

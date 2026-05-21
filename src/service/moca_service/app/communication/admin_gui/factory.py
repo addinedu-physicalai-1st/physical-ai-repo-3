@@ -1,5 +1,6 @@
 import logging
 
+from app.communication.admin_gui.doby_runtime import AdminGuiDobyRosRuntime
 from app.communication.admin_gui.publisher import AdminGuiPublisher, TcpEndpoint
 from app.communication.admin_gui.runtime import AdminGuiCommunicationRuntime
 from app.communication.admin_gui.subscriber import AdminGuiSubscriber
@@ -39,3 +40,18 @@ def create_admin_gui_communication_runtime(
     )
     runtime_holder["runtime"] = runtime
     return runtime
+
+
+def create_admin_gui_doby_runtime(
+    *,
+    logger: logging.Logger,
+    node_name: str = "moca_admin_gui_doby",
+    enabled: bool = True,
+    setmode_timeout_sec: float = 2.0,
+) -> AdminGuiDobyRosRuntime:
+    return AdminGuiDobyRosRuntime(
+        node_name=node_name,
+        logger=logger,
+        enabled=enabled,
+        setmode_timeout_sec=setmode_timeout_sec,
+    )

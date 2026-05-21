@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
             MenuPage(self.realtime),
             ServiceManagementPage(self.realtime),
             DeviceManagementPage(),
-            DobyMonitoringPage(),
+            DobyMonitoringPage(self.realtime),
             DDoobyMonitoringPage(),
             SystemLogPage(),
             AnomalyPage(),

@@ -17,7 +17,13 @@ class MocaServiceConfig:
     admin_gui_listen_port: int
     admin_gui_host: str
     admin_gui_port: int
+    admin_gui_doby_ros_enabled: bool
+    admin_gui_doby_node_name: str
+    admin_gui_doby_setmode_timeout_sec: float
     tcp_timeout_sec: float
+    doby_controller_ros_enabled: bool
+    doby_controller_node_name: str
+    doby_controller_setmode_timeout_sec: float
 
 
 def load_config() -> MocaServiceConfig:
@@ -34,10 +40,27 @@ def load_config() -> MocaServiceConfig:
         admin_gui_listen_port=int(os.getenv("MOCA_ADMIN_GUI_PORT", "9002")),
         admin_gui_host=os.getenv("ADMIN_GUI_HOST", "127.0.0.1"),
         admin_gui_port=int(os.getenv("ADMIN_GUI_PORT", "9000")),
+        admin_gui_doby_ros_enabled=_env_bool("MOCA_ADMIN_GUI_DOBY_ROS_ENABLED", True),
+        admin_gui_doby_node_name=os.getenv("MOCA_ADMIN_GUI_DOBY_NODE_NAME", "moca_admin_gui_doby"),
+        admin_gui_doby_setmode_timeout_sec=float(
+            os.getenv("MOCA_ADMIN_GUI_DOBY_SETMODE_TIMEOUT_SEC", "2.0")
+        ),
         tcp_timeout_sec=float(os.getenv("MOCA_TCP_TIMEOUT_SEC", "3.0")),
+        doby_controller_ros_enabled=_env_bool("MOCA_DOBY_CONTROLLER_ROS_ENABLED", True),
+        doby_controller_node_name=os.getenv("MOCA_DOBY_CONTROLLER_NODE_NAME", "moca_doby_controller"),
+        doby_controller_setmode_timeout_sec=float(
+            os.getenv("MOCA_DOBY_CONTROLLER_SETMODE_TIMEOUT_SEC", "2.0")
+        ),
     )
 
 
 def configure_logging(service_name: str) -> logging.Logger:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     return logging.getLogger(service_name)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
