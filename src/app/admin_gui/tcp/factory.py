@@ -1,8 +1,8 @@
 import logging
 
-from communication.admin_gui.publisher import AdminGuiPublisher, TcpEndpoint
-from communication.admin_gui.runtime import AdminGuiCommunicationRuntime
-from communication.admin_gui.subscriber import AdminGuiSubscriber
+from tcp.publisher import AdminGuiPublisher, TcpEndpoint
+from tcp.runtime import AdminGuiCommunicationRuntime
+from tcp.subscriber import AdminGuiSubscriber
 
 
 def create_admin_gui_communication_runtime(

@@ -3,7 +3,7 @@ import socket
 import threading
 from dataclasses import dataclass
 
-from communication.admin_gui.protocol import AdminGuiFrame, encode_frame
+from tcp.protocol import AdminGuiFrame, encode_frame
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from communication.admin_gui.protocol import AdminGuiFrame, FRAME_SIZE, decode_frame
+from tcp.protocol import AdminGuiFrame, FRAME_SIZE, decode_frame
 
 FrameHandler = Callable[[AdminGuiFrame, tuple[str, int]], None]
 

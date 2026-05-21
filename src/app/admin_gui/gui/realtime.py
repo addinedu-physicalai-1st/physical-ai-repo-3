@@ -3,8 +3,8 @@ import logging
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from communication.admin_gui import create_admin_gui_communication_runtime
-from communication.admin_gui.protocol import (
+from tcp import create_admin_gui_communication_runtime
+from tcp.protocol import (
     ChunkAssembler,
     EVENT_EMERGENCY_STOP,
     EVENT_SET_MODE,
