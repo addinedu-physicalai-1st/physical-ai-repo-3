@@ -1,3 +1,0 @@
-single_arm_controller:
-  ros__parameters:
-    controller_name: single_arm_controller

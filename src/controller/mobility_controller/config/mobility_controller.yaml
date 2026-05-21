@@ -1,3 +1,0 @@
-mobility_controller:
-  ros__parameters:
-    controller_name: mobility_controller

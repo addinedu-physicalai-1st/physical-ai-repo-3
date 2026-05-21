@@ -1,7 +1,0 @@
-image: mapv5_mocamap.pgm
-mode: trinary
-resolution: 0.050
-origin: [-51.320, -6.624, 0]
-negate: 0
-occupied_thresh: 0.65
-free_thresh: 0.196
