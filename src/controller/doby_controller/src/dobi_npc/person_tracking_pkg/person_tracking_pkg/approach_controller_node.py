@@ -29,18 +29,24 @@ class ApproachControllerNode(Node):
         super().__init__('approach_controller_node')
 
         self.declare_parameter('linear_speed',    0.15)  # 전진 속도 (m/s)
-        self.declare_parameter('angular_gain',    1.2)   # 각속도 P 게인 (Kp)
+        self.declare_parameter('angular_gain',    0.8)   # 각속도 P 게인 Kp (멀 때)
+        self.declare_parameter('kp_near',         0.3)   # 각속도 P 게인 Kp (가까울 때)
+        self.declare_parameter('bh_near',         0.5)   # bh 이상이면 kp_near 적용 (bbox 높이 비율)
         self.declare_parameter('derivative_gain', 0.3)   # 각속도 D 게인 (Kd)
         self.declare_parameter('ema_alpha',       0.3)   # D항 EMA 필터 계수 (0~1, 작을수록 강한 필터)
-        self.declare_parameter('dead_zone',       0.05)  # x 오차 무감대 (정규화)
+        self.declare_parameter('pose_ema_alpha',  0.4)   # cx/cy 자체 EMA 필터 (작을수록 강한 필터)
+        self.declare_parameter('dead_zone',       0.10)  # x 오차 무감대 (정규화)
         self.declare_parameter('close_threshold', 0.72)  # cy 이상이면 전진 정지
         self.declare_parameter('pose_timeout',    1.0)   # 포즈 미수신 정지 (초)
         self.declare_parameter('cmd_rate',        10.0)  # 발행 주파수 (Hz)
 
         self._linear_speed = float(self.get_parameter('linear_speed').value)
         self._kp           = float(self.get_parameter('angular_gain').value)
+        self._kp_near      = float(self.get_parameter('kp_near').value)
+        self._bh_near      = float(self.get_parameter('bh_near').value)
         self._kd           = float(self.get_parameter('derivative_gain').value)
         self._ema_alpha    = float(self.get_parameter('ema_alpha').value)
+        self._pose_ema     = float(self.get_parameter('pose_ema_alpha').value)
         self._dead_zone    = float(self.get_parameter('dead_zone').value)
         self._close_thresh = float(self.get_parameter('close_threshold').value)
         self._pose_timeout = float(self.get_parameter('pose_timeout').value)
@@ -72,8 +78,11 @@ class ApproachControllerNode(Node):
         self._target = msg.data
 
     def _cb_pose(self, msg: PoseStamped) -> None:
-        self._cx = float(msg.pose.position.x)
-        self._cy = float(msg.pose.position.y)
+        raw_cx = float(msg.pose.position.x)
+        raw_cy = float(msg.pose.position.y)
+        # cx/cy에 EMA 필터 적용 — YOLO 탐지 노이즈로 인한 좌우 튀는 값 완화
+        self._cx = self._pose_ema * raw_cx + (1.0 - self._pose_ema) * self._cx
+        self._cy = self._pose_ema * raw_cy + (1.0 - self._pose_ema) * self._cy
         self._bh = float(msg.pose.position.z)
         self._last_pose_t = time.time()
 
@@ -102,7 +111,10 @@ class ApproachControllerNode(Node):
             self._ema_alpha * raw_d + (1.0 - self._ema_alpha) * self._d_filtered
         )
 
-        twist.angular.z = -(self._kp * err_x) - (self._kd * self._d_filtered)
+        # bh 기반 거리 비례 Kp: 가까울수록(bh↑) kp_near 쪽으로 선형 보간
+        t = min(1.0, self._bh / self._bh_near)
+        kp = self._kp + (self._kp_near - self._kp) * t
+        twist.angular.z = -(kp * err_x) - (self._kd * self._d_filtered)
 
         # bbox 높이 비율(bh)이 close_threshold 미만일 때만 전진 (bh 클수록 가까움)
         if self._bh < self._close_thresh:

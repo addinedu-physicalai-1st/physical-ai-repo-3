@@ -96,15 +96,16 @@ def generate_launch_description():
             parameters=[{
                 'input_topic': '/robot_cam/image_raw',
                 'use_compressed': True,
-                'publish_visualization': True,
-                'dbscan_eps': 50.0,   # [멀티그룹 테스트용] 프린트 분리 — 실물 시 450.0으로 원복
+                'yolo_model_path': 'yolo26n.pt',
+                'yolo_device': 'cuda:0',
+                'dbscan_eps': 450.0,
             }],
         ),
         Node(
             package='person_tracking_pkg', executable='group_approach_node',
             name='group_approach_node', output='screen',
             parameters=[{
-                'min_group_size': 1,
+                'min_group_size': 2,
             }],
         ),
         Node(

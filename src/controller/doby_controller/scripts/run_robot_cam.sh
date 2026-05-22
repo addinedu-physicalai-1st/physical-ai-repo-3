@@ -23,7 +23,10 @@ ROBOT_USER="${ROBOT_USER:-vic}"
 ROBOT_PASS="${ROBOT_PASS:-1}"
 ROBOT_DOMAIN_ID="${ROBOT_DOMAIN_ID:-22}"
 
-VIDEO_DEVICE="${VIDEO_DEVICE:-/dev/video0}"
+# HCAM01N 캡처 장치 자동 탐색 — Video Capture 기능이 있는 장치만 선택
+_AUTO_VIDEO=$(sshpass -p "$ROBOT_PASS" ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=keyboard-interactive,password "$ROBOT_USER@$ROBOT_IP" \
+  'for dev in /dev/video*; do info=$(v4l2-ctl -d $dev --info 2>/dev/null); if echo "$info" | grep -q "HCAM01N" && echo "$info" | grep -q "Video Capture"; then echo $dev; break; fi; done' 2>/dev/null)
+VIDEO_DEVICE="${VIDEO_DEVICE:-${_AUTO_VIDEO:-/dev/video0}}"
 # 기본값 YUYV 640x480 — HCAM01N + RPi5 ros-jazzy-v4l2-camera 0.7.1 실측 동작 확인.
 # MJPG 1280x720은 카메라 자체는 30fps OK이나 v4l2_camera_node가 MJPG→rgb8 변환에서
 # cv_bridge "Unrecognized image encoding" 예외 종료 (해당 빌드의 제약).
@@ -91,11 +94,13 @@ SUSPEND_RESULT=$($RSSH "
 " 2>&1 | tail -1)
 echo "        power/control: $SUSPEND_RESULT"
 
-# ── Step 4. v4l2_camera_node 기동 (없을 때) ────────────────
+# ── Step 4. v4l2_camera_node 기동 (기존 프로세스 종료 후 새로 시작) ────────────────
 echo " [INFO] v4l2_camera_node 상태 확인..."
 if $RSSH "pgrep -f '[v]4l2_camera_node' >/dev/null"; then
-    echo " [OK]  v4l2_camera_node 실행 중 (재기동 안 함)"
-else
+    echo " [INFO] 기존 v4l2_camera_node 종료 후 재기동..."
+    $RSSH "pkill -f '[v]4l2_camera_node'; sleep 1"
+fi
+if true; then
     echo " [INFO] v4l2_camera_node 기동..."
     # ros2 run 인라인 — RPi 측 워크스페이스 install 불필요.
     # 'image_size' 는 array<int> 이므로 -p 'image_size:=[1280,720]' 형식.

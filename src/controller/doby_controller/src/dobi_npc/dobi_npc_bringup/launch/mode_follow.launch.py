@@ -34,9 +34,11 @@ def generate_launch_description():
             package='dobi_npc_emotion', executable='person_detector',
             name='person_detector', output='screen',
             parameters=[{
-                # 2026-05-09: input_topic /image_raw 로 변경 (usb_cam 통합 운영).
-                # run_teleop_ui.sh 의 usb_cam 이 /image_raw 발행 → v4l2 device 충돌 회피.
-                'input_topic': '/image_raw',
+                # 2026-05-21: input_topic → /robot_cam/image_raw (SNAP U2 카메라 토픽 일치).
+                # run_robot_cam.sh 의 v4l2_camera_node 가 /robot_cam/image_raw 발행.
+                # use_compressed=True → /robot_cam/image_raw/compressed 구독 (Wi-Fi 대역폭 절감).
+                'input_topic': '/robot_cam/image_raw',
+                'use_compressed': True,
                 # 카메라 320x240 @ 10fps + Wi-Fi compressed drop 환경에서
                 # 검출 빈도 ↑ 위해 score 낮추고 detect_rate 카메라보다 약간 높게.
                 'score_threshold': 0.3,
