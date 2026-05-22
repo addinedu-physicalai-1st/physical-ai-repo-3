@@ -1,0 +1,8 @@
+# Goal (empty - just a trigger)
+---
+# Result
+bool success
+string message
+---
+# Feedback
+string status
