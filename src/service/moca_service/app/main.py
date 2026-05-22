@@ -7,7 +7,9 @@ from app.communication.admin_gui import (
     create_admin_gui_doby_runtime,
 )
 from app.communication.admin_gui.monitor import AdminGuiMonitorPublisher
+from app.communication.controller_ports import DobyModeServingPort, LoggingDDoobyManufacturePort
 from app.communication.doby_controller import create_doby_controller_runtime
+from app.domain.order_orchestration_runtime import OrderOrchestrationRuntime
 from app.communication.web_service import create_web_service_tcp_server
 from app.domain.table_assignment_runtime import StoreTableDefinition, TableAssignmentRuntime
 from app.repository.catalog_repo import (
@@ -118,6 +120,14 @@ def main() -> None:
         enabled=config.doby_controller_ros_enabled,
         setmode_timeout_sec=config.doby_controller_setmode_timeout_sec,
     )
+    order_orchestration_runtime = OrderOrchestrationRuntime(
+        order_repository=order_repository,
+        order_item_repository=order_item_repository,
+        manufacture_port=LoggingDDoobyManufacturePort(logger),
+        serving_port=DobyModeServingPort(doby_controller_runtime, logger),
+        logger=logger,
+        tick_interval_sec=config.order_orchestration_tick_sec,
+    )
 
     stop_event = threading.Event()
 
@@ -132,8 +142,10 @@ def main() -> None:
     admin_gui_runtime.start()
     admin_gui_doby_runtime.start()
     doby_controller_runtime.start()
+    if config.order_orchestration_enabled:
+        order_orchestration_runtime.start()
     logger.info(
-        "%s communication started: web_service=%s:%s admin_gui_subscriber=%s:%s admin_gui_peer=%s:%s admin_gui_doby_ros=%s doby_controller_ros=%s",
+        "%s communication started: web_service=%s:%s admin_gui_subscriber=%s:%s admin_gui_peer=%s:%s admin_gui_doby_ros=%s doby_controller_ros=%s order_orchestration=%s",
         config.service_name,
         config.service_host,
         config.service_port,
@@ -143,11 +155,13 @@ def main() -> None:
         config.admin_gui_port,
         config.admin_gui_doby_ros_enabled,
         config.doby_controller_ros_enabled,
+        config.order_orchestration_enabled,
     )
 
     try:
         stop_event.wait()
     finally:
+        order_orchestration_runtime.stop()
         doby_controller_runtime.stop()
         admin_gui_doby_runtime.stop()
         admin_gui_monitor.stop()

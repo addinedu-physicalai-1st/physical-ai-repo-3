@@ -31,9 +31,25 @@ class RecentOrderRow:
 
 
 @dataclass(frozen=True)
+class ClaimedOrderRow:
+    order_id: int
+    receive_type: str
+    table_number: int | None
+
+
+@dataclass(frozen=True)
 class OrderItemCreate:
     order_id: int
     product_id: int
+    selected_options: list[Any]
+    quantity: int
+    unit_price: int
+
+
+@dataclass(frozen=True)
+class OrderItemRow:
+    product_id: int
+    product_name: str
     selected_options: list[Any]
     quantity: int
     unit_price: int
@@ -90,6 +106,67 @@ class OrderRepository:
             return self._accept_if_pending_with_conn(conn, order_id)
         with self.database.connect() as own_conn:
             return self._accept_if_pending_with_conn(own_conn, order_id)
+
+    def claim_accepted_orders(self, limit: int = 10) -> list[ClaimedOrderRow]:
+        bounded_limit = max(1, min(int(limit), 100))
+        claimed: list[ClaimedOrderRow] = []
+        with self.database.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        o.order_id,
+                        o.receive_type,
+                        st.table_number
+                    FROM orders o
+                    LEFT JOIN store_table st ON st.table_id = o.table_id
+                    WHERE o.order_status = 'ACCEPTED'
+                    ORDER BY o.updated_at ASC, o.order_id ASC
+                    LIMIT %s
+                    """,
+                    (bounded_limit,),
+                )
+                rows = cursor.fetchall()
+
+            for row in rows:
+                order_id = int(row["order_id"])
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE orders
+                        SET order_status = 'PROCESSING'
+                        WHERE order_id = %s
+                          AND order_status = 'ACCEPTED'
+                        """,
+                        (order_id,),
+                    )
+                    if cursor.rowcount > 0:
+                        claimed.append(
+                            ClaimedOrderRow(
+                                order_id=order_id,
+                                receive_type=str(row["receive_type"]),
+                                table_number=(
+                                    int(row["table_number"])
+                                    if row["table_number"] is not None
+                                    else None
+                                ),
+                            )
+                        )
+        return claimed
+
+    def mark_completed(self, order_id: int) -> bool:
+        with self.database.connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE orders
+                    SET order_status = 'COMPLETED'
+                    WHERE order_id = %s
+                      AND order_status = 'PROCESSING'
+                    """,
+                    (order_id,),
+                )
+                return cursor.rowcount > 0
 
     def update_assignment_if_pending(
         self,
@@ -270,6 +347,12 @@ class OrderItemRepository:
         with self.database.connect() as own_conn:
             self._create_many_with_conn(own_conn, items)
 
+    def list_by_order_id(self, order_id: int, conn: Connection | None = None) -> list[OrderItemRow]:
+        if conn is not None:
+            return self._list_by_order_id_with_conn(conn, order_id)
+        with self.database.connect() as own_conn:
+            return self._list_by_order_id_with_conn(own_conn, order_id)
+
     def _create_many_with_conn(self, conn: Connection, items: list[OrderItemCreate]) -> None:
         with conn.cursor() as cursor:
             cursor.executemany(
@@ -293,3 +376,44 @@ class OrderItemRepository:
                     for item in items
                 ],
             )
+
+    def _list_by_order_id_with_conn(self, conn: Connection, order_id: int) -> list[OrderItemRow]:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    oi.product_id,
+                    p.name AS product_name,
+                    oi.selected_options,
+                    oi.quantity,
+                    oi.unit_price
+                FROM order_item oi
+                JOIN product p ON p.product_id = oi.product_id
+                WHERE oi.order_id = %s
+                ORDER BY oi.order_item_id ASC
+                """,
+                (order_id,),
+            )
+            rows = cursor.fetchall()
+        return [
+            OrderItemRow(
+                product_id=int(row["product_id"]),
+                product_name=str(row["product_name"]),
+                selected_options=_decode_json(row["selected_options"]),
+                quantity=int(row["quantity"]),
+                unit_price=int(row["unit_price"]),
+            )
+            for row in rows
+        ]
+
+
+def _decode_json(value: Any) -> list[Any]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return value
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    return decoded if isinstance(decoded, list) else []
