@@ -7,12 +7,22 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(controller_status_msgs REQUIRED)
+find_package(custom_msg REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 
 add_executable(tubi_controller_node src/tubi_controller_node.cpp)
-ament_target_dependencies(tubi_controller_node controller_status_msgs rclcpp std_msgs std_srvs)
+ament_target_dependencies(
+  tubi_controller_node
+  controller_status_msgs
+  custom_msg
+  rclcpp
+  rclcpp_action
+  std_msgs
+  std_srvs
+)
 
 install(TARGETS
   tubi_controller_node

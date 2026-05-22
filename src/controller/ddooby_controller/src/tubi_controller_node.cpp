@@ -13,7 +13,9 @@
 #include <sstream>
 #include <string>
 
+#include "custom_msg/action/manifacture.hpp"
 #include "controller_status_msgs/msg/status.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -21,6 +23,9 @@
 class TubiControllerNode : public rclcpp::Node
 {
 public:
+  using Manifacture = custom_msg::action::Manifacture;
+  using GoalHandleManifacture = rclcpp_action::ServerGoalHandle<Manifacture>;
+
   TubiControllerNode()
   : Node("tubi_controller"), request_id_(0), running_(true), server_fd_(-1)
   {
@@ -46,6 +51,22 @@ public:
         this,
         std::placeholders::_1,
         std::placeholders::_2));
+    manufacture_action_server_ = rclcpp_action::create_server<Manifacture>(
+      this,
+      "ddooby/manifacture",
+      std::bind(
+        &TubiControllerNode::handle_manifacture_goal,
+        this,
+        std::placeholders::_1,
+        std::placeholders::_2),
+      std::bind(
+        &TubiControllerNode::handle_manifacture_cancel,
+        this,
+        std::placeholders::_1),
+      std::bind(
+        &TubiControllerNode::handle_manifacture_accepted,
+        this,
+        std::placeholders::_1));
     server_thread_ = std::thread([this]() { this->run_tcp_server(); });
     RCLCPP_INFO(this->get_logger(), "%s started", controller_name.c_str());
     RCLCPP_INFO(
@@ -59,6 +80,7 @@ public:
       service_listener_host_.c_str(),
       service_listener_port_,
       control_status_topic_.c_str());
+    RCLCPP_INFO(this->get_logger(), "serving manufacture action ddooby/manifacture");
   }
 
   ~TubiControllerNode() override
@@ -78,6 +100,62 @@ private:
   static constexpr unsigned char STATUS_CMD = 0x10;
   static constexpr unsigned char ETX = 0x03;
   static constexpr size_t FRAME_SIZE = 4;
+
+  rclcpp_action::GoalResponse handle_manifacture_goal(
+    const rclcpp_action::GoalUUID &,
+    std::shared_ptr<const Manifacture::Goal> goal)
+  {
+    RCLCPP_INFO(
+      this->get_logger(),
+      "received ddooby/manifacture goal item_count=%zu",
+      goal->items.size());
+    return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+  }
+
+  rclcpp_action::CancelResponse handle_manifacture_cancel(
+    const std::shared_ptr<GoalHandleManifacture>)
+  {
+    RCLCPP_INFO(this->get_logger(), "received ddooby/manifacture cancel request");
+    return rclcpp_action::CancelResponse::ACCEPT;
+  }
+
+  void handle_manifacture_accepted(const std::shared_ptr<GoalHandleManifacture> goal_handle)
+  {
+    std::thread([this, goal_handle]() { this->execute_manifacture(goal_handle); }).detach();
+  }
+
+  void execute_manifacture(const std::shared_ptr<GoalHandleManifacture> goal_handle)
+  {
+    const auto goal = goal_handle->get_goal();
+    std::ostringstream items_payload;
+    items_payload << "[";
+    for (size_t index = 0; index < goal->items.size(); ++index) {
+      const auto & item = goal->items[index];
+      if (index > 0) {
+        items_payload << ",";
+      }
+      items_payload << "{\"name\":\"" << item.name << "\",\"count\":" << item.count << "}";
+    }
+    items_payload << "]";
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "ddooby/manifacture executing items=%s",
+      items_payload.str().c_str());
+
+    auto feedback = std::make_shared<Manifacture::Feedback>();
+    feedback->status = "accepted";
+    goal_handle->publish_feedback(feedback);
+
+    auto result = std::make_shared<Manifacture::Result>();
+    result->success = true;
+    result->message = "manufacture goal accepted";
+    goal_handle->succeed(result);
+    RCLCPP_INFO(
+      this->get_logger(),
+      "ddooby/manifacture succeeded items=%s",
+      items_payload.str().c_str());
+  }
 
   void handle_health_check(
     const std::shared_ptr<std_srvs::srv::Trigger::Request>,
@@ -304,6 +382,7 @@ private:
   rclcpp::Publisher<controller_status_msgs::msg::Status>::SharedPtr status_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr control_service_status_publisher_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr health_service_;
+  rclcpp_action::Server<Manifacture>::SharedPtr manufacture_action_server_;
   std::string control_service_host_;
   int control_service_port_;
   double tcp_timeout_sec_;

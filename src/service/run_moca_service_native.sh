@@ -53,13 +53,20 @@ export MOCA_TCP_TIMEOUT_SEC="${MOCA_TCP_TIMEOUT_SEC:-3.0}"
 export MOCA_DOBY_CONTROLLER_ROS_ENABLED="${MOCA_DOBY_CONTROLLER_ROS_ENABLED:-true}"
 export MOCA_DOBY_CONTROLLER_NODE_NAME="${MOCA_DOBY_CONTROLLER_NODE_NAME:-moca_doby_controller}"
 export MOCA_DOBY_CONTROLLER_SETMODE_TIMEOUT_SEC="${MOCA_DOBY_CONTROLLER_SETMODE_TIMEOUT_SEC:-2.0}"
+export MOCA_DDOOBY_CONTROLLER_ROS_ENABLED="${MOCA_DDOOBY_CONTROLLER_ROS_ENABLED:-true}"
+export MOCA_DDOOBY_CONTROLLER_NODE_NAME="${MOCA_DDOOBY_CONTROLLER_NODE_NAME:-moca_ddooby_controller}"
+export MOCA_DDOOBY_CONTROLLER_ACTION_NAME="${MOCA_DDOOBY_CONTROLLER_ACTION_NAME:-ddooby/manifacture}"
+export MOCA_DDOOBY_CONTROLLER_ACTION_TIMEOUT_SEC="${MOCA_DDOOBY_CONTROLLER_ACTION_TIMEOUT_SEC:-2.0}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-${MOCA_DOBY_CONTROLLER_ROS_DOMAIN_ID:-99}}"
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-${MOCA_DOBY_CONTROLLER_DISCOVERY_RANGE:-LOCALHOST}}"
 
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
+MOCA_ROS_WS="${MOCA_ROS_WS:-${MOCA_SERVICE_DIR}/.ros_ws}"
+MOCA_CUSTOM_MSG_PACKAGE="${MOCA_CUSTOM_MSG_PACKAGE:-${MOCA_SERVICE_DIR}/custom_msg}"
+MOCA_CUSTOM_MSG_SETUP="${MOCA_CUSTOM_MSG_SETUP:-${MOCA_ROS_WS}/install/setup.bash}"
 DOBY_CONTROLLER_SETUP="${DOBY_CONTROLLER_SETUP:-${SCRIPT_DIR}/../controller/doby_controller/install/setup.bash}"
 
-if [[ "${MOCA_DOBY_CONTROLLER_ROS_ENABLED}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+if [[ "${MOCA_DOBY_CONTROLLER_ROS_ENABLED}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]] || [[ "${MOCA_DDOOBY_CONTROLLER_ROS_ENABLED}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
   if [[ -f "${ROS_SETUP}" ]]; then
     set +u
     # shellcheck disable=SC1090
@@ -67,6 +74,24 @@ if [[ "${MOCA_DOBY_CONTROLLER_ROS_ENABLED}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]];
     set -u
   else
     echo "ROS setup not found: ${ROS_SETUP}" >&2
+  fi
+  if [[ -d "${MOCA_CUSTOM_MSG_PACKAGE}" ]]; then
+    echo "Installing custom_msg ROS interfaces into ${MOCA_ROS_WS}"
+    colcon --log-base "${MOCA_ROS_WS}/log" build \
+      --base-paths "${MOCA_CUSTOM_MSG_PACKAGE}" \
+      --build-base "${MOCA_ROS_WS}/build" \
+      --install-base "${MOCA_ROS_WS}/install" \
+      --packages-select custom_msg
+  else
+    echo "custom_msg package not found: ${MOCA_CUSTOM_MSG_PACKAGE}" >&2
+  fi
+  if [[ -f "${MOCA_CUSTOM_MSG_SETUP}" ]]; then
+    set +u
+    # shellcheck disable=SC1090
+    source "${MOCA_CUSTOM_MSG_SETUP}"
+    set -u
+  else
+    echo "custom_msg setup not found: ${MOCA_CUSTOM_MSG_SETUP}" >&2
   fi
   if [[ -f "${DOBY_CONTROLLER_SETUP}" ]]; then
     set +u
@@ -88,6 +113,10 @@ echo "  admin gui peer:      ${ADMIN_GUI_HOST}:${ADMIN_GUI_PORT}"
 echo "  db:                  ${MOCA_DB_HOST}:${MOCA_DB_PORT}/${MOCA_DB_NAME}"
 echo "  doby ros enabled:    ${MOCA_DOBY_CONTROLLER_ROS_ENABLED}"
 echo "  doby ros node:       ${MOCA_DOBY_CONTROLLER_NODE_NAME}"
+echo "  ddooby ros enabled:  ${MOCA_DDOOBY_CONTROLLER_ROS_ENABLED}"
+echo "  ddooby ros node:     ${MOCA_DDOOBY_CONTROLLER_NODE_NAME}"
+echo "  ddooby action:       ${MOCA_DDOOBY_CONTROLLER_ACTION_NAME}"
+echo "  custom_msg ws:       ${MOCA_ROS_WS}"
 echo "  ros domain id:       ${ROS_DOMAIN_ID}"
 echo "  ros discovery range: ${ROS_AUTOMATIC_DISCOVERY_RANGE}"
 echo "  venv:                ${VENV_DIR}"
