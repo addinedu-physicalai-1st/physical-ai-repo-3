@@ -55,7 +55,6 @@ export MOCA_DOBY_CONTROLLER_NODE_NAME="${MOCA_DOBY_CONTROLLER_NODE_NAME:-moca_do
 export MOCA_DOBY_CONTROLLER_SETMODE_TIMEOUT_SEC="${MOCA_DOBY_CONTROLLER_SETMODE_TIMEOUT_SEC:-2.0}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-${MOCA_DOBY_CONTROLLER_ROS_DOMAIN_ID:-99}}"
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-${MOCA_DOBY_CONTROLLER_DISCOVERY_RANGE:-LOCALHOST}}"
-export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-${MOCA_DOBY_CONTROLLER_LOCALHOST_ONLY:-1}}"
 
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
 DOBY_CONTROLLER_SETUP="${DOBY_CONTROLLER_SETUP:-${SCRIPT_DIR}/../controller/doby_controller/install/setup.bash}"
@@ -91,7 +90,6 @@ echo "  doby ros enabled:    ${MOCA_DOBY_CONTROLLER_ROS_ENABLED}"
 echo "  doby ros node:       ${MOCA_DOBY_CONTROLLER_NODE_NAME}"
 echo "  ros domain id:       ${ROS_DOMAIN_ID}"
 echo "  ros discovery range: ${ROS_AUTOMATIC_DISCOVERY_RANGE}"
-echo "  ros localhost only:  ${ROS_LOCALHOST_ONLY}"
 echo "  venv:                ${VENV_DIR}"
 
 exec "${VENV_DIR}/bin/python" -m app.main
