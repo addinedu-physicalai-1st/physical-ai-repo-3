@@ -47,6 +47,7 @@ class CompletionWatcher:
           - orchestrator (ModeOrchestrator)
           - config.completion_dwell_<mode> (float)
           - get_logger(), publish_op_event(...)
+          - send_arm_serve_goal(done_cb)  ← serving 완료 후 arm action 전송
         """
         self.node = node
         # mode → dwell 시작 시각 (None = dwell 비활성)
@@ -61,6 +62,10 @@ class CompletionWatcher:
             mode: 0.0 for mode in _DONE_SIGNALS
         }
         self._retrigger_cooldown_sec = 2.0
+        # arm action 진행 중 플래그 (dwell 재진입 차단)
+        self._arm_running: dict[str, bool] = {
+            mode: False for mode in _DONE_SIGNALS
+        }
 
     # ─────────── 외부 신호 수신 (opserver_node 의 콜백이 호출) ───────────
 
@@ -125,13 +130,40 @@ class CompletionWatcher:
             if self.node.current_mode != mode:
                 self._dwell_start[mode] = None
                 continue
+            # arm action 진행 중이면 tick 무시 (완료 콜백이 idle 트리거)
+            if self._arm_running[mode]:
+                continue
             # 트리거
             self._dwell_start[mode] = None
             self._last_trigger_at[mode] = now
+            self._arm_running[mode] = True
             self.node.get_logger().info(
                 f'CompletionWatcher[{mode}]: dwell {dwell:.1f}s 만료 — '
-                f'SetMode("idle") 호출')
-            self._trigger_idle(mode)
+                f'arm serve 요청')
+            self._trigger_arm_then_idle(mode)
+
+    def _trigger_arm_then_idle(self, completed_mode: str) -> None:
+        """serving 완료 시 arm Serve action 전송 → 완료 후 idle 전환.
+        serving 외 모드는 arm 없이 바로 idle 전환.
+        """
+        if completed_mode != 'serving':
+            self._arm_running[completed_mode] = False
+            self._trigger_idle(completed_mode)
+            return
+
+        def _after_arm(success: bool, msg: str) -> None:
+            self._arm_running[completed_mode] = False
+            self.node.get_logger().info(
+                f'[arm] {"성공" if success else "실패"}: {msg} — idle 전환')
+            self._trigger_idle(completed_mode)
+
+        try:
+            self.node.send_arm_serve_goal(_after_arm)
+        except Exception as e:
+            self.node.get_logger().error(
+                f'[arm] goal send 실패: {e} — idle 전환')
+            self._arm_running[completed_mode] = False
+            self._trigger_idle(completed_mode)
 
     def _trigger_idle(self, completed_mode: str) -> None:
         """orchestrator 로 SetMode('idle', override=True)."""

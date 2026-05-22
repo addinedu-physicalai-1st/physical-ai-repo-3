@@ -34,6 +34,8 @@ from dataclasses import dataclass, field, asdict
 from typing import Any
 
 import rclpy
+from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 
@@ -45,6 +47,8 @@ from dobi_npc_msgs.msg import (
     ModeState, PatrolState, TableReport, GuidingState,
     OpEvent, OperatorCommand, RapportEvent, UtterRequest,
 )
+
+from single_arm_controller_interfaces.action import Pickup, Serve
 
 from .completion_watcher import CompletionWatcher
 from .idle_patrol_timer import IdlePatrolTimer
@@ -196,6 +200,17 @@ class OpServerNode(Node):
         self.orchestrator = ModeOrchestrator(self)
         self.orchestrator.SETMODE_TIMEOUT_SEC = self.config.setmode_timeout_sec
 
+        # single_arm_controller Serve / Pickup action clients
+        self._arm_cb_group = ReentrantCallbackGroup()
+        self._arm_ac = ActionClient(
+            self, Serve, 'serve',
+            callback_group=self._arm_cb_group,
+        )
+        self._pickup_ac = ActionClient(
+            self, Pickup, 'pickup',
+            callback_group=self._arm_cb_group,
+        )
+
         # 자동 idle 복귀 + 5분 idle patrol 타이머
         self.completion_watcher = CompletionWatcher(self)
         self.idle_patrol_timer = IdlePatrolTimer(self)
@@ -244,6 +259,95 @@ class OpServerNode(Node):
         if self._fastapi_loop is None:
             return
         self.ws_hub.broadcast_threadsafe(self._fastapi_loop, msg_type, data)
+
+    # ---------- single_arm_controller Serve action ----------
+
+    def send_arm_serve_goal(self, done_cb) -> None:
+        """Serve action goal 전송. 서버 미가동 시 done_cb(False, 'server_unavailable') 즉시 호출.
+
+        CompletionWatcher 가 serving 완료 후 호출. node 계약의 일부.
+        Args:
+            done_cb: (success: bool, message: str) -> None
+        """
+        if not self._arm_ac.wait_for_server(timeout_sec=1.0):
+            self.get_logger().warn(
+                '[arm] action server not available — skipping, going idle')
+            done_cb(False, 'server_unavailable')
+            return
+
+        goal = Serve.Goal()  # wrist_cam_path/realsense_serial/task 모두 '' → 노드 기본값
+
+        send_future = self._arm_ac.send_goal_async(
+            goal,
+            feedback_callback=self._on_arm_feedback,
+        )
+        send_future.add_done_callback(
+            lambda f: self._on_arm_goal_accepted(f, done_cb))
+
+    def _on_arm_feedback(self, feedback_msg) -> None:
+        self.get_logger().info(
+            f'[arm] feedback: {feedback_msg.feedback.status}')
+
+    def _on_arm_goal_accepted(self, future, done_cb) -> None:
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().warn('[arm] goal rejected')
+            done_cb(False, 'goal_rejected')
+            return
+        self.get_logger().info('[arm] goal accepted, waiting for result...')
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(
+            lambda f: self._on_arm_result(f, done_cb))
+
+    def _on_arm_result(self, future, done_cb) -> None:
+        result = future.result().result
+        self.get_logger().info(
+            f'[arm] result: success={result.success} message="{result.message}"')
+        done_cb(result.success, result.message)
+
+    # ---------- single_arm_controller Pickup action ----------
+
+    def send_arm_pickup_goal(self, done_cb) -> None:
+        """Pickup action goal 전송. 서버 미가동 시 done_cb(False, 'server_unavailable') 즉시 호출.
+
+        Args:
+            done_cb: (success: bool, message: str) -> None
+        """
+        if not self._pickup_ac.wait_for_server(timeout_sec=1.0):
+            self.get_logger().warn(
+                '[pickup] action server not available')
+            done_cb(False, 'server_unavailable')
+            return
+
+        goal = Pickup.Goal()  # Goal 필드 없음 (empty trigger)
+
+        send_future = self._pickup_ac.send_goal_async(
+            goal,
+            feedback_callback=self._on_pickup_feedback,
+        )
+        send_future.add_done_callback(
+            lambda f: self._on_pickup_goal_accepted(f, done_cb))
+
+    def _on_pickup_feedback(self, feedback_msg) -> None:
+        self.get_logger().info(
+            f'[pickup] feedback: {feedback_msg.feedback.status}')
+
+    def _on_pickup_goal_accepted(self, future, done_cb) -> None:
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().warn('[pickup] goal rejected')
+            done_cb(False, 'goal_rejected')
+            return
+        self.get_logger().info('[pickup] goal accepted, waiting for result...')
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(
+            lambda f: self._on_pickup_result(f, done_cb))
+
+    def _on_pickup_result(self, future, done_cb) -> None:
+        result = future.result().result
+        self.get_logger().info(
+            f'[pickup] result: success={result.success} message="{result.message}"')
+        done_cb(result.success, result.message)
 
     # ---------- ROS 콜백 ----------
 

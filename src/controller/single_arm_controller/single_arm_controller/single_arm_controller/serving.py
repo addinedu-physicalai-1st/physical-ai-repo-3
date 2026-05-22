@@ -29,7 +29,9 @@ _WORKER_SCRIPT = str(Path(__file__).parent / 'model_worker.py')
 
 _TASK            = 'pick up cup and place at target zone'
 _CONTROL_HZ      = 30.0
-_EXECUTION_HORIZON = 10
+_RTC_EXECUTION_HORIZON = 11
+_RTC_QUEUE_THRESHOLD = 22
+_RTC_DELAY_OFFSET_STEPS = -3  # +1 step = 33ms more future action at 30Hz
 
 # ── VLM 설정 ────────────────────────────────────────────────────────────────
 _VLM_HOST        = 'http://localhost:11434'   # Ollama 서버 주소
@@ -86,7 +88,8 @@ _TOP_BYTES    = int(np.prod(_TOP_SHAPE))
 _WRIST_BYTES  = int(np.prod(_WRIST_SHAPE))
 _STATE_BYTES  = _STATE_DIM * 4
 _OBS_BYTES    = _TOP_BYTES + _WRIST_BYTES + _STATE_BYTES
-_ACT_BYTES    = _CHUNK_SIZE * _ACTION_DIM * 4
+_ACT_PLANES   = 2  # 0=original policy actions, 1=postprocessed robot actions
+_ACT_BYTES    = _ACT_PLANES * _CHUNK_SIZE * _ACTION_DIM * 4
 
 
 # ── ModelProcess ─────────────────────────────────────────────────────────────
@@ -106,7 +109,8 @@ class ModelProcess:
         self._top_buf   = np.ndarray(_TOP_SHAPE,   dtype=np.uint8,   buffer=self._shm_obs.buf, offset=0)
         self._wrist_buf = np.ndarray(_WRIST_SHAPE, dtype=np.uint8,   buffer=self._shm_obs.buf, offset=_TOP_BYTES)
         self._state_buf = np.ndarray(_STATE_DIM,   dtype=np.float32, buffer=self._shm_obs.buf, offset=_TOP_BYTES + _WRIST_BYTES)
-        self._act_buf   = np.ndarray((_CHUNK_SIZE, _ACTION_DIM), dtype=np.float32, buffer=self._shm_act.buf)
+        self._act_buf   = np.ndarray((_ACT_PLANES, _CHUNK_SIZE, _ACTION_DIM), dtype=np.float32, buffer=self._shm_act.buf)
+        self._lock = threading.Lock()
 
         # Unix domain socket (시그널 전용)
         self._sock_path   = tempfile.mktemp(prefix='smolvla_', suffix='.sock')
@@ -123,6 +127,7 @@ class ModelProcess:
             '--socket-path',  self._sock_path,
             '--shm-obs-name', self._shm_obs.name,
             '--shm-act-name', self._shm_act.name,
+            '--rtc-execution-horizon', str(_RTC_EXECUTION_HORIZON),
         ])
 
         # 모델 로딩 완료까지 대기 (최대 10분)
@@ -149,29 +154,32 @@ class ModelProcess:
         robot_type: str = _ROBOT_TYPE,
         inference_delay: int = 0,
         prev_chunk_left_over: np.ndarray | None = None,
-    ) -> np.ndarray:
-        # shared memory에 관찰값 쓰기 (zero-copy memcpy)
-        np.copyto(self._top_buf,   top_image)
-        np.copyto(self._wrist_buf, wrist_image)
-        np.copyto(self._state_buf, state)
+    ) -> tuple[np.ndarray, np.ndarray]:
+        with self._lock:
+            # shared memory에 관찰값 쓰기
+            np.copyto(self._top_buf,   top_image)
+            np.copyto(self._wrist_buf, wrist_image)
+            np.copyto(self._state_buf, state)
 
-        # GO 신호 + task + delay + prev_chunk
-        task_bytes = task.encode('utf-8')
-        msg = b'G'
-        msg += struct.pack('>I', len(task_bytes)) + task_bytes
-        msg += struct.pack('>I', inference_delay)
-        if prev_chunk_left_over is not None:
-            prev_bytes = prev_chunk_left_over.astype(np.float32).tobytes()
-            msg += struct.pack('?', True)
-            msg += struct.pack('>I', len(prev_bytes)) + prev_bytes
-        else:
-            msg += struct.pack('?', False)
-        self._conn.sendall(msg)
+            # GO 신호 + task + delay + prev original chunk
+            task_bytes = task.encode('utf-8')
+            msg = b'G'
+            msg += struct.pack('>I', len(task_bytes)) + task_bytes
+            msg += struct.pack('>I', inference_delay)
+            if prev_chunk_left_over is not None:
+                prev_bytes = prev_chunk_left_over.astype(np.float32).tobytes()
+                msg += struct.pack('?', True)
+                msg += struct.pack('>I', len(prev_bytes)) + prev_bytes
+            else:
+                msg += struct.pack('?', False)
+            self._conn.sendall(msg)
 
-        # DONE 신호 대기
-        assert self._recv_exact(1) == b'D', "Worker did not send DONE"
+            # DONE 신호 대기
+            assert self._recv_exact(1) == b'D', "Worker did not send DONE"
 
-        return self._act_buf.copy()
+            original = self._act_buf[0].copy()
+            processed = self._act_buf[1].copy()
+            return original, processed
 
     def close(self):
         try:
@@ -469,18 +477,17 @@ class SingleArmControllerNode(Node):
         infer_error = [None]
 
         latest_obs  = {'top': None, 'wrist': None, 'state': None}
-        action_queue = collections.deque()   # 제어 루프가 pop, 인퍼런스 스레드가 replace
+        original_action_queue = collections.deque()    # RTC prev_chunk_left_over용 원본 action
+        processed_action_queue = collections.deque()   # 로봇 실행용 postprocessed action
 
         import math
-        _EXECUTION_HORIZON_CTRL  = 15   # 청크에서 사용할 액션 수 (lerobot execution_horizon)
-        # threshold = horizon: 새 청크 도착 즉시 추론 시작
-        # → 관찰 지연 = 추론 시간(265ms)만, delay_skip이 실제 위치와 일치
-        _INFER_QUEUE_THRESHOLD   = _EXECUTION_HORIZON_CTRL
+        _INFER_QUEUE_THRESHOLD   = _RTC_QUEUE_THRESHOLD
         _INTERPOLATION_MULT      = 5    # lerobot --interpolation_multiplier=5
         _SUB_PERIOD              = period / _INTERPOLATION_MULT  # ~6.67ms
 
         infer_count   = [0]
         infer_skipped = [0]
+        executed_count = [0]
 
         # P95 latency tracker (lerobot과 동일)
         _latency_history: list[float] = []
@@ -494,11 +501,12 @@ class SingleArmControllerNode(Node):
         def _inference_loop():
             while not infer_stop.is_set():
                 with queue_lock:
-                    qsize = len(action_queue)
-                    # 큐 잔여분 저장 (prev_chunk_left_over)
+                    qsize = len(processed_action_queue)
+                    idx_before = executed_count[0]
+                    # RTC prefix는 postprocess 전 original action 공간이어야 한다.
                     prev_left_over = (
-                        np.array(list(action_queue), dtype=np.float32)
-                        if action_queue else None
+                        np.array(list(original_action_queue), dtype=np.float32)
+                        if original_action_queue else None
                     )
 
                 if qsize > _INFER_QUEUE_THRESHOLD:
@@ -519,7 +527,7 @@ class SingleArmControllerNode(Node):
                     delay = math.ceil(p95 / period) if p95 else 0
 
                     t_start = time.perf_counter()
-                    chunk = self._model.get_action_chunk(
+                    original_chunk, processed_chunk = self._model.get_action_chunk(
                         top_image=obs['top'],
                         wrist_image=obs['wrist'],
                         state=obs['state'],
@@ -533,27 +541,45 @@ class SingleArmControllerNode(Node):
                     if len(_latency_history) > 50:
                         _latency_history.pop(0)
 
-                    # delay skip 후 execution_horizon개만 사용
-                    # 추론 시간만큼 skip → 관찰 지연 보정
-                    # threshold=horizon이므로 관찰 지연 ≈ 추론 시간만, skip이 정확히 일치
-                    actual_delay = round(infer_s / period)
-                    actual_delay = max(0, min(actual_delay, len(chunk) - 1))
-                    sliced = chunk[actual_delay : actual_delay + _EXECUTION_HORIZON_CTRL]
-                    new_actions = collections.deque(sliced)
+                    real_delay = round(infer_s / period)
 
                     with queue_lock:
-                        q_before = len(action_queue)
-                        action_queue.clear()
-                        action_queue.extend(new_actions)
+                        q_before = len(processed_action_queue)
+                        consumed_during_infer = max(0, executed_count[0] - idx_before)
+                        if abs(consumed_during_infer - real_delay) <= 1:
+                            base_delay = consumed_during_infer
+                        else:
+                            base_delay = real_delay
+                        actual_delay = base_delay + _RTC_DELAY_OFFSET_STEPS
+                        actual_delay = max(0, min(actual_delay, len(processed_chunk)))
+
+                        # lerobot ActionQueue RTC mode: delay만 제거하고 chunk tail 전체로 replace.
+                        original_action_queue.clear()
+                        processed_action_queue.clear()
+                        queued_original = original_chunk[actual_delay:]
+                        queued_processed = processed_chunk[actual_delay:]
+                        original_action_queue.extend(queued_original)
+                        processed_action_queue.extend(queued_processed)
+                        q_after = len(processed_action_queue)
+
+                        grip_seq = queued_processed[:, 5] if len(queued_processed) else np.array([], dtype=np.float32)
+                        grip_head = ','.join(f'{v:.1f}' for v in grip_seq[:12])
+                        grip_tail = ','.join(f'{v:.1f}' for v in grip_seq[-6:])
+                        grip_min = float(np.min(grip_seq)) if len(grip_seq) else float('nan')
+                        grip_max = float(np.max(grip_seq)) if len(grip_seq) else float('nan')
 
                     infer_count[0] += 1
+                    p95_ms = f'{p95*1000:.0f}ms' if p95 else 'N/A'
                     self.get_logger().info(
                         f'[infer #{infer_count[0]}] '
                         f'infer={infer_s*1000:.0f}ms '
-                        f'p95={p95*1000:.0f}ms' if p95 else '[infer] p95=N/A' + ' '
-                        f'delay={actual_delay} '
+                        f'p95={p95_ms} '
+                        f'delay={actual_delay} base_delay={base_delay} offset={_RTC_DELAY_OFFSET_STEPS} '
+                        f'real_delay={real_delay} consumed={consumed_during_infer} '
                         f'prev_len={len(prev_left_over) if prev_left_over is not None else 0} '
-                        f'queue {q_before}→{len(new_actions)} '
+                        f'queue {q_before}->{q_after} '
+                        f'grip_minmax={grip_min:.1f}/{grip_max:.1f} '
+                        f'grip_head=[{grip_head}] grip_tail=[{grip_tail}] '
                         f'(skip={infer_skipped[0]})'
                     )
                     infer_skipped[0] = 0
@@ -582,7 +608,7 @@ class SingleArmControllerNode(Node):
                 if infer_error[0]:
                     raise infer_error[0]
                 with queue_lock:
-                    if action_queue:
+                    if processed_action_queue:
                         break
                 time.sleep(0.05)
             else:
@@ -662,8 +688,14 @@ class SingleArmControllerNode(Node):
 
                 # ── 다음 액션 실행 (보간 포함, 큐 없으면 홀드) ───────────
                 with queue_lock:
-                    qsize = len(action_queue)
-                    action = action_queue.popleft() if action_queue else None
+                    qsize = len(processed_action_queue)
+                    if processed_action_queue:
+                        action = processed_action_queue.popleft()
+                        if original_action_queue:
+                            original_action_queue.popleft()
+                        executed_count[0] += 1
+                    else:
+                        action = None
 
                 if action is not None:
                     step += 1
@@ -675,7 +707,8 @@ class SingleArmControllerNode(Node):
                             f'[ctrl] step={step} queue={qsize} '
                             f'state=[{",".join(f"{v:.1f}" for v in state[:3])},...] '
                             f'action=[{",".join(f"{v:.1f}" for v in action[:3])},...] '
-                            f'diff=[{",".join(f"{v:.1f}" for v in (action-state)[:3])}]'
+                            f'diff=[{",".join(f"{v:.1f}" for v in (action-state)[:3])}] '
+                            f'grip state={state[5]:.1f} action={action[5]:.1f} diff={action[5]-state[5]:.1f}'
                         )
 
                     # 이전 액션 → 현재 액션 사이를 선형 보간해 150Hz로 전송
