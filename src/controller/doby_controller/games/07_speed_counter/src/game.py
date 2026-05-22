@@ -35,6 +35,7 @@ import cv2
 import time
 import signal
 import atexit
+import numpy as np
 import mediapipe as mp
 from enum import Enum
 
@@ -169,7 +170,10 @@ class SpeedCounterGame:
             max_num_hands=2,  # ★ W2: 두 손
         )
         
-        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+        # WINDOW_KEEPRATIO — fullscreen 시 cv2 가 frame aspect 자동 유지 + letterbox.
+        # (stretch 가 default 라 가로/세로 비율 다른 화면에서 frame 늘어남)
+        cv2.namedWindow(self.window_name,
+                         cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
         self._apply_window_size()
         if self.is_fullscreen:
             cv2.setWindowProperty(
@@ -558,6 +562,7 @@ class SpeedCounterGame:
                 
                 # 화면 표시
                 if self.is_fullscreen:
+                    # WINDOW_KEEPRATIO + WND_PROP_FULLSCREEN → cv2 자동 letterbox
                     cv2.imshow(self.window_name, frame)
                 else:
                     if self.display_scale != 1.0:

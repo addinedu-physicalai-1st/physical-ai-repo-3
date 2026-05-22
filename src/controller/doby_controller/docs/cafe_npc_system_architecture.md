@@ -161,7 +161,7 @@
 ## 4. 패키지 구성
 
 ```
-~/moca/
+~/physical-ai-repo-3/src/controller/doby_controller/   (2026-05-19 이전 `~/moca/`)
 ├── src/
 │   ├── shared/
 │   │   └── vic_pinky/                  PinkLAB 공식 패키지 (자체 git 서브)
@@ -213,12 +213,13 @@
 
 ```bash
 # 빌드
-cd ~/moca
+cd ~/physical-ai-repo-3/src/controller/doby_controller
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 
-# 또는 .bashrc alias
-moca_build       # 깨끗한 셸에서 검증 빌드
+# 또는 scripts/moca_env.sh 를 source 한 후 (2026-05-19 부터, .bashrc 미수정)
+source ~/physical-ai-repo-3/src/controller/doby_controller/scripts/moca_env.sh
+moca_build       # 격리 셸 콜콘 빌드 (robot_arm 자동 source 영향 회피)
 moca_activate    # 빌드 결과 활성화
 moca_clean       # build/install/log 삭제
 ```
@@ -227,7 +228,7 @@ moca_clean       # build/install/log 삭제
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source ~/moca/install/setup.bash
+source ~/physical-ai-repo-3/src/controller/doby_controller/install/setup.bash
 ros2 launch dobi_npc_bringup dev_all.launch.py
 ```
 
@@ -235,9 +236,9 @@ ros2 launch dobi_npc_bringup dev_all.launch.py
 
 ```bash
 # 노트북에서 (RPi bringup도 SSH로 자동 기동, USB 캠 미연결이면 SKIP_CAM=1)
-bash ~/moca/scripts/run_teleop_ui.sh         # 또는 SKIP_CAM=1 bash ...
+bash ~/physical-ai-repo-3/src/controller/doby_controller/scripts/run_teleop_ui.sh         # 또는 SKIP_CAM=1 bash ...
 # teleop으로 안전한 위치 이동 후
-bash ~/moca/scripts/stop_teleop_ui.sh        # bringup은 유지
+bash ~/physical-ai-repo-3/src/controller/doby_controller/scripts/stop_teleop_ui.sh        # bringup은 유지
 ros2 launch dobi_npc_bringup dev_all.launch.py
 ```
 

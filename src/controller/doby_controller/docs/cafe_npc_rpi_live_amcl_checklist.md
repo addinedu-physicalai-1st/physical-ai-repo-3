@@ -61,7 +61,7 @@ ssh vic@192.168.0.138 'cat /opt/ros/jazzy/share/vicpinky_navigation/params/nav2_
 ```bash
 cp maps/mapv5_mocamap.yaml maps/mapv5_mocamap_live.yaml
 # image 필드 → mapv5_mocamap_before_furniture_addition_20260517.pgm 또는 별 PGM
-# launch 시 map:=/home/gjkong/moca/maps/mapv5_mocamap_live.yaml
+# launch 시 map:=/home/gjkong/physical-ai-repo-3/src/controller/doby_controller/maps/mapv5_mocamap_live.yaml
 ```
 
 ---
@@ -89,7 +89,7 @@ README.md 작성:
 cat > ~/backup/moca_daily_<오늘날짜>/README.md <<EOF
 백업 시점: $(date)
 사유: RPi 라이브 진행 (AMCL 검증 + 영상 촬영)
-PC git sha: $(cd ~/moca && git rev-parse HEAD)
+PC git sha: $(cd ~/physical-ai-repo-3/src/controller/doby_controller && git rev-parse HEAD)
 RPi 호스트: vic@192.168.0.138 (DOMAIN=22)
 네트워크: $(ping -c 1 192.168.0.138 | grep ttl)
 EOF
@@ -103,7 +103,7 @@ EOF
 
 ```bash
 # 시뮬 모드 (DOMAIN=99 + LOCALHOST_ONLY=1) 종료
-bash ~/moca/scripts/stop_sim.sh
+bash ~/physical-ai-repo-3/src/controller/doby_controller/scripts/stop_sim.sh
 
 # 라이브 모드 환경
 export ROS_DOMAIN_ID=22
@@ -165,10 +165,10 @@ bringup 토픽 검증 (RPi 또는 PC 양쪽):
 ### 4.2 PC 측 (Nav2 + dashboard)
 
 ```bash
-cd ~/moca
+cd ~/physical-ai-repo-3/src/controller/doby_controller
 # Nav2 stack (DOMAIN=22 + 라이브 map)
 ROS_DOMAIN_ID=22 ros2 launch moca_navigation bringup_launch.xml \
-  map:=/home/gjkong/moca/maps/mapv5_mocamap_live.yaml \
+  map:=/home/gjkong/physical-ai-repo-3/src/controller/doby_controller/maps/mapv5_mocamap_live.yaml \
   use_sim_time:=False
 
 # Dashboard (별 셸)
@@ -276,7 +276,7 @@ curl -X POST http://localhost:8800/api/v1/mode \
 긴급 종료:
 ```bash
 ssh vic@192.168.0.138 'pkill -f vicpinky_bringup'  # RPi 즉시 정지
-bash ~/moca/scripts/stop_moca.sh                   # PC 정지
+bash ~/physical-ai-repo-3/src/controller/doby_controller/scripts/stop_moca.sh                   # PC 정지
 ```
 
 ---
@@ -310,7 +310,7 @@ bash ~/moca/scripts/stop_moca.sh                   # PC 정지
 
 ## 9. 영상 촬영 산출물 위치
 
-- 영상 파일: `~/moca/recordings/rpi_live_<날짜>_<시간>.mp4`
+- 영상 파일: `~/physical-ai-repo-3/src/controller/doby_controller/recordings/rpi_live_<날짜>_<시간>.mp4`
 - 추천 길이: 5~10분 (각 모드 + 전체 시나리오)
 - 사용자 결정: 핸드폰 촬영 vs ffmpeg x11grab vs 둘 다 (split-screen)
 

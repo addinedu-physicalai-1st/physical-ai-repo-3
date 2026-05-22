@@ -1,18 +1,24 @@
-# 운영 모드 전환 — vic_pinky 5상태 FSM (idle/serving/patrol/guiding/engaging)
+# 운영 모드 전환 — vic_pinky 6상태 FSM (2026-05-19 v1.1 확장)
+#   idle / serving / patrol / guiding / engaging / follow
 # 서버: mode_manager_node
 # 클라이언트: moca_opserver(자동 트리거), 운영자 UI, CLI 디버깅
 #
 # 가드: 배터리 < battery_min 또는 safety alarm dwell 내일 때 idle 외 모드 거부.
 # 응답은 비동기 — 실제 전이 결과는 /mode/state 토픽 관찰로 확인.
-# 자세한 사양: docs/moca_5state_fsm_spec.md §3, §6.
+# 자세한 사양: docs/moca_5state_fsm_spec.md §3, §6 (파일명은 v1.0 시점 5-state 명명 유지).
+#
+# ⚠ 2026-05-19 v1.1 시점 UI 통합 상태: 운영자 UI 는 5-state 구현 그대로 — follow 모드 진입은
+# ros2 service call /mode/request 또는 OpServer 자동 트리거로만 가능. UI 측 follow 통합은 향후 트랙.
 
-string requested_mode    # "idle" | "serving" | "patrol" | "guiding" | "engaging"
-                         # legacy alias (M3 종료까지만 지원): "npc" -> engaging, "follow" -> guiding
+string requested_mode    # "idle" | "serving" | "patrol" | "guiding" | "engaging" | "follow"
+                         # legacy alias (M3 종료 2026-07-04 까지만 지원): "npc" -> engaging
+                         # ('follow' alias 는 v1.1 에서 제거 — follow 가 정식 상태로 승격)
 string params            # JSON string. 모드별 페이로드:
                          #   serving:  {"waypoint":"T03","via_pickup":true}
                          #   patrol:   {"sweep_mode":"all"|"priority_only","report_to_opserver":true}
                          #   guiding:  {"target_table":"T02","customer_id":"C-..."}
                          #   engaging: {"persona":"casual_browser"|"friendly_child"|"professional_adult"}
+                         #   follow:   {"target":"<id>"} (현 구현 미사용 — 가장 큰 bbox 자동 추종)
                          #   idle:     "" 또는 "{}"
 ---
 bool success             # 검증 통과 여부 (가드/잘못된 모드명/잘못된 params 시 false)

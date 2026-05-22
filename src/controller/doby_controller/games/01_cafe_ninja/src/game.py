@@ -204,6 +204,11 @@ class CafeNinjaGame:
 
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         self._apply_window_size()
+        if self.is_fullscreen:
+            cv2.setWindowProperty(
+                self.window_name,
+                cv2.WND_PROP_FULLSCREEN,
+                cv2.WINDOW_FULLSCREEN)
         return True
 
     # ----------------------------------------
@@ -636,11 +641,25 @@ def _atexit_cleanup():
 def main():
     global _game_instance
 
+    import argparse
+    parser = argparse.ArgumentParser(description="Cafe Ninja game")
+    parser.add_argument("--auto-play", action="store_true")
+    parser.add_argument("--difficulty", default=None,
+                        choices=["easy", "normal", "hard"])
+    parser.add_argument("--result-json", default=None)
+    parser.add_argument("--auto-exit", type=float, default=None)
+    parser.add_argument("--ready-delay", type=float, default=1.5)
+    parser.add_argument("--fullscreen", action="store_true",
+                        help="cv2 윈도우 풀스크린 (호객 시연용).")
+    parser.add_argument("--camera-index", type=int, default=0)
+    args = parser.parse_args()
+
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
     atexit.register(_atexit_cleanup)
 
     _game_instance = CafeNinjaGame()
+    _game_instance.is_fullscreen = bool(args.fullscreen)
     try:
         _game_instance.run()
     finally:

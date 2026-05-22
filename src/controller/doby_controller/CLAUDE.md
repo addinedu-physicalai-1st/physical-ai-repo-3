@@ -92,9 +92,9 @@
 **`~/cabot/`** 은 본 moca 프로젝트와 **별개의 다른 프로젝트**다. Phase 0-A (2026-05-01) 마이그레이션 이후 일부 자산이 moca 로 옮겨졌지만, **`~/cabot/` 자체는 다른 코드베이스**.
 
 - 코드/스크립트/launch/config 작성 시 **`~/cabot/` 경로를 절대 참조하지 말 것**.
-- 기존 스크립트에 `$HOME/cabot` 같은 잔재가 있으면 **즉시 `$HOME/moca` 로 수정** (예: 2026-05-09 `run_teleop_ui.sh` 의 `WS="$HOME/cabot"` 사고).
-- moca 의 SoT 는 항상 **`~/moca/`** 트리. 같은 파일이 두 곳에 있으면 `~/moca/` 가 권위적.
-- 마이그레이션 참고용으로 일부 docs (`~/moca/docs/cabot_legacy/`) 는 보존되지만, 그 외 cabot 코드는 의존성으로 취급 X.
+- 기존 스크립트에 `$HOME/cabot` 같은 잔재가 있으면 **즉시 워크스페이스 루트로 수정** (2026-05-19 현재 루트: `$HOME/physical-ai-repo-3/src/controller/doby_controller` — 그러나 절대경로 하드코딩보다 §7 SCRIPT_DIR/env 기반 추정 권장. 예: 2026-05-09 `run_teleop_ui.sh` 의 `WS="$HOME/cabot"` 사고).
+- moca 의 SoT 는 항상 **`~/physical-ai-repo-3/src/controller/doby_controller/`** 트리. 같은 파일이 두 곳에 있으면 본 경로가 권위적.
+- 마이그레이션 참고용으로 일부 docs (`~/physical-ai-repo-3/src/controller/doby_controller/docs/cabot_legacy/`) 는 보존되지만, 그 외 cabot 코드는 의존성으로 취급 X.
 
 ---
 
@@ -161,7 +161,7 @@ Salichs 2014 학술 원어 (검증됨):
 ## 3. 워크스페이스 구조
 
 ```
-~/moca/                                  ← 통합 워크스페이스 (다른 팀원 모듈도 추후 합쳐짐)
+~/physical-ai-repo-3/src/controller/doby_controller/   ← 통합 워크스페이스 (다른 팀원 모듈도 추후 합쳐짐 — 2026-05-19 이전 `~/moca/`)
 ├── CLAUDE.md                            ← 본 문서 (프로젝트 컨텍스트)
 ├── README.md                            ← 빌드 가이드
 ├── moca.repos                           ← vcs import용
@@ -198,17 +198,23 @@ Salichs 2014 학술 원어 (검증됨):
 ### 빌드 명령어
 
 ```bash
-# .bashrc에 등록된 alias
-moca_build       # 깨끗한 셸에서 검증 빌드
-moca_activate    # 빌드된 워크스페이스 활성화
+# scripts/moca_env.sh 를 source 하면 아래 함수들이 현재 셸에 로드된다
+# (.bashrc 는 손대지 않는 방식 — 2026-05-19 사용자 결정)
+source ~/physical-ai-repo-3/src/controller/doby_controller/scripts/moca_env.sh
+
+moca_cd          # 워크스페이스 루트로 이동
+moca_build       # 격리 셸 (--noprofile --norc) 에서 colcon 빌드 — robot_arm 자동 source 영향 회피
+moca_activate    # install/setup.bash 활성화
 moca_clean       # build/install/log 삭제
 
-# 직접 호출
-cd ~/moca
+# 직접 호출 (스크립트 source 없이)
+cd ~/physical-ai-repo-3/src/controller/doby_controller
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 source install/setup.bash
 ```
+
+`MOCA_WS_ROOT` 환경변수는 `moca_env.sh` 가 SCRIPT_DIR/.. 기준으로 자동 추정 — 다른 머신/clone 위치에서도 동일 작동 (§7 상대경로 컨벤션 정합).
 
 ### 개발 PC vs 로봇 차이
 
@@ -302,7 +308,7 @@ string current_persona
 
 ### 4.4 vic_pinky 로컬 변경사항 (보존됨)
 
-`~/moca/src/shared/vic_pinky/` 에 다음 변경이 `feature/dobi-npc-base` 브랜치에 보존됨:
+`~/physical-ai-repo-3/src/controller/doby_controller/src/shared/vic_pinky/` 에 다음 변경이 `feature/dobi-npc-base` 브랜치에 보존됨:
 
 - **bringup.py**: `/battery_state` 토픽 발행 추가 (BatteryState, 1Hz, 7S Li-ion 가정)
 - **zlac_driver.py**: `GET_BUS_VOLTAGE` Modbus 레지스터(0x20A1) 추가
@@ -427,7 +433,7 @@ public:
 
 ### 일일 .md 루틴
 - 하루 마지막 코드 작성 후 → 일일 .md 작성
-- 위치: `~/moca/docs/daily/YYYY-MM-DD_<topic>.md`
+- 위치: `~/physical-ai-repo-3/src/controller/doby_controller/docs/daily/YYYY-MM-DD_<topic>.md`
 - 내용: 변경사항 + 회고 + 발견 + 다음 일정
 
 ### ⭐ 일일 백업 루틴 (2026-05-14 부터 적용 — **매우 중요**)
@@ -469,7 +475,7 @@ public:
 
 ### RPi scp 경로 규칙 (2026-05-18 사고에서 확립)
 
-**`run_vic_bringup.sh`는 `~/vicpinky_ws`에서 bringup을 실행한다. `~/moca`로 scp해도 RPi에 적용 안 됨.**
+**`run_vic_bringup.sh`는 `~/vicpinky_ws`에서 bringup을 실행한다. `~/physical-ai-repo-3/src/controller/doby_controller`로 scp해도 RPi에 적용 안 됨.**
 
 vicpinky_bringup 파일을 RPi에 반영할 때는 아래 두 경로 모두 전송해야 한다:
 
@@ -495,8 +501,8 @@ scp <파일> vic@192.168.0.138:~/vicpinky_ws/install/vicpinky_bringup/share/vicp
 다른 home, 다른 워크스페이스 이름, 다른 clone 위치에서도 동일하게 작동해야 함.
 
 **금지 패턴** (신규 코드 + 기존 코드 발견 즉시 수정):
-- `WS="$HOME/moca"` (또는 `$HOME/cabot` — §0 위반)
-- `os.path.expanduser('~/moca/...')` 절대 디렉토리 명시
+- `WS="$HOME/physical-ai-repo-3/src/controller/doby_controller"` (또는 `$HOME/moca`, `$HOME/cabot` 같은 옛 경로 — §0 cabot 금지 / §3 SoT 위반)
+- `os.path.expanduser('~/physical-ai-repo-3/.../...')` 절대 디렉토리 명시
 - launch XML 의 `$(env HOME)/moca/...`
 - `/home/gjkong/...` 직접 경로
 
@@ -558,7 +564,7 @@ def _find_workspace_root() -> str:
 | Pinky Nav2 튜닝 | `~/cabot/src/.../vicpinky_navigation/params` | 본 워크스페이스로 마이그레이션됨 |
 | OMX LeRobot | `~/robot_arm/` | Phase 3 RPS 모션 참고 |
 | ~~dalimi 천장 카메라~~ | ~~`~/dev_ws/dalimi_gazebo_teleop`~~ | **제외** (맵 좌표계 불일치) |
-| vicpinky_emotion 자산 | `~/moca/src/.../vicpinky_emotion/emotion/*.gif` | **노트북 풀스크린 얼굴 표현 GUI 입력 (8 어휘 .gif)** |
+| vicpinky_emotion 자산 | `~/physical-ai-repo-3/src/controller/doby_controller/src/.../vicpinky_emotion/emotion/*.gif` | **노트북 풀스크린 얼굴 표현 GUI 입력 (8 어휘 .gif)** |
 
 ---
 

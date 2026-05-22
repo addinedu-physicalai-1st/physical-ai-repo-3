@@ -288,7 +288,7 @@ ros2 topic hz /cmd_vel             # 모터까지 도달
 
 ### 10.2 정확한 사실 (감춤 없음)
 
-- **수정 대상**: `/home/gjkong/moca/scripts/run_3stage.sh` line 30
+- **수정 대상**: `/home/gjkong/moca/scripts/run_3stage.sh` line 30 — *2026-05-19 워크스페이스 이전 후 현재 경로*: `/home/gjkong/physical-ai-repo-3/src/controller/doby_controller/scripts/run_3stage.sh`
 - **수정 내용**: 1줄, 환경변수 2개 추가 (`ROS_STATIC_PEERS=192.168.0.138`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`)
 - **vic_pinky 패키지 트리 (`src/shared/vic_pinky/`) 자체는 0 변경**
 - **그러나 vic_pinky 의존 운영 스크립트 (scripts/run_3stage.sh) 1줄 patch 발생 + revert**

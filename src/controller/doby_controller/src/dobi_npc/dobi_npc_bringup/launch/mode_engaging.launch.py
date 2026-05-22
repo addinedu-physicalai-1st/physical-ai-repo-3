@@ -30,7 +30,7 @@ engaging 모드 stack 에 두는 이유: 다른 모드 (serving/patrol/guiding) 
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterValue
 
@@ -38,9 +38,13 @@ from launch_ros.descriptions import ParameterValue
 def generate_launch_description():
     # 카메라 3 (노트북 외장 RPC-20F) 인덱스. /dev/video2 가 일반적이나
     # 환경마다 다르므로 launch arg 로 노출. GEVA 는 카메라 1 (내장, 0).
+    # sim 환경 (외장 캠 미연결) 에선 MOCA_GAME_CAMERA_INDEX=0 으로 override.
     game_camera_index_arg = DeclareLaunchArgument(
-        'game_camera_index', default_value='2',
-        description='미니게임이 사용할 cv2.VideoCapture 인덱스 (카메라 3, 외장)')
+        'game_camera_index',
+        default_value=EnvironmentVariable(
+            'MOCA_GAME_CAMERA_INDEX', default_value='2'),
+        description='미니게임이 사용할 cv2.VideoCapture 인덱스 (카메라 3, 외장). '
+                    'env MOCA_GAME_CAMERA_INDEX 로 default override 가능 (sim=0).')
 
     return LaunchDescription([
         game_camera_index_arg,

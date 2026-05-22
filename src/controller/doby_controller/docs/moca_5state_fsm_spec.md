@@ -1,11 +1,12 @@
-# MOCA 5-State FSM 사양서
+# MOCA Mode FSM 사양서 (구 5-State, 현 6-State 확장)
 
-> **문서 ID**: `moca_5state_fsm_spec.md`
-> **버전**: v1.0 (2026-05-16)
+> **문서 ID**: `moca_5state_fsm_spec.md` *(파일명은 v1.0 시점 5-state 기준 — 6-state 확장 후에도 cross-reference 보존 위해 그대로 유지)*
+> **버전**: v1.1 (2026-05-19 — `follow` 6번째 상태 정식 승격, 후술 §0.2 참조)
+> **이전 버전**: v1.0 (2026-05-16, 5-state)
 > **작성자**: Stephen Kong (gjkong, PinkLAB)
 > **상위 문서**: `moca_mode_and_opserver_plan.md` §2
-> **구현 대상**: `dobi_npc_bringup/mode_manager_node.py` (수정), `dobi_npc_msgs/srv/SetMode.srv` (확장)
-> **워크스페이스**: `~/moca` (ROS2 Jazzy, `ROS_DOMAIN_ID=22`)
+> **구현 대상**: `dobi_npc_bringup/mode_manager_node.py`, `dobi_npc_msgs/srv/SetMode.srv`, `dobi_npc_msgs/msg/ModeState.msg`
+> **워크스페이스**: `~/physical-ai-repo-3/src/controller/doby_controller` (ROS2 Jazzy, `ROS_DOMAIN_ID=22`) — *2026-05-19 이전 `~/moca`*
 
 ---
 
@@ -26,6 +27,26 @@
 - 외부 트리거 발생 메커니즘 (별도 문서: `moca_opserver_api_spec.md`)
 - 웹 UI에서의 모드 표시 (별도 문서: `moca_web_dashboard_spec.md`)
 
+### 0.2 v1.1 변경 사항 — 6-state 확장 (2026-05-19)
+
+**배경**: 2026-05-19 `moca_teammember` 18 commit 머지 (회고 `docs/daily/2026-05-19_teammember_merge.md`) 시 사용자 결정 — *"mode_follow + mode_guiding 분리 운용 (둘 다 살림) — VALID_MODES 6-state"*.
+
+**v1.0 (5-state)**: `{idle, serving, patrol, guiding, engaging}` — 머지 직전 시점. `follow` 는 legacy alias 로 `guiding` 으로 자동 변환.
+
+**v1.1 (6-state)**: `{idle, serving, patrol, guiding, engaging, follow}` — `follow` 가 정식 6번째 상태로 승격. `guiding` 과 알고리즘 정반대 (follow=reactive 추종, guiding=proactive 인솔) 라 별도 모드 유지가 옳다는 사용자 판단.
+
+**spec-code 정합 상태**:
+- ✅ `mode_manager_node.py` `VALID_MODES` — 6-state (2026-05-19 머지 직후 적용)
+- ✅ `mode_follow.launch.py` — 별도 stack 운용 (deprecation wrapper 아님)
+- ✅ `follow_controller_node.py` + `person_detector` — 추종 stack
+- ✅ 본 문서 — 2026-05-19 v1.1 갱신으로 6-state 정합
+- ✅ `dobi_npc_msgs/{msg/ModeState.msg, srv/SetMode.srv}` 코멘트 — 2026-05-19 v1.1 갱신으로 6-state 정합
+- ⚠ **운영자 UI / 웹 대시보드는 5-state 기준 그대로 (`web/static/*.html` + `teleop_server.py` 의 모드 표시 / 모드 전환 버튼)** — `follow` 모드의 UI 통합은 별도 트랙 (사용자 확인 2026-05-19). 본 spec v1.1 이 SoT 로서 6-state 를 명세하지만, UI 구현은 향후 작업에서 추격 예정. UI 측 follow 미지원 기간 동안엔 ros2 service / CLI 로만 follow 모드 진입 가능.
+
+**Legacy alias 정리**:
+- v1.0: `LEGACY_MODE_ALIAS = {'npc': 'engaging', 'follow': 'guiding'}`
+- v1.1: `LEGACY_MODE_ALIAS = {'npc': 'engaging'}` — `'follow': 'guiding'` 제거 (follow 가 정식 상태이므로 alias 불필요)
+
 ---
 
 ## 1. 형식적 정의
@@ -33,13 +54,14 @@
 ### 1.1 상태 집합 S
 
 ```
-S = { S_idle, S_serving, S_patrol, S_guiding, S_engaging }
+S = { S_idle, S_serving, S_patrol, S_guiding, S_engaging, S_follow }
 ```
 
 상태 ID는 ROS 도메인에서 다음 문자열 리터럴로 표현된다:
 
 ```python
-VALID_MODES = ('idle', 'serving', 'patrol', 'guiding', 'engaging')
+VALID_MODES = ('idle', 'serving', 'patrol', 'guiding', 'engaging', 'follow')
+#                                                                   ^^^^^^ v1.1 추가 (2026-05-19)
 ```
 
 **초기 상태**: `S_idle` (전원 ON 시 mode_manager가 `idle`로 부팅).
@@ -195,8 +217,36 @@ G_can_enter(m)    ≡ G_valid_mode(m) ∧ G_valid_params(p) ∧ G_not_busy ∧
 | **Exit action** | • SIGTERM<br>• BT tick 중단<br>• dialog/emotion/minigame 노드 cleanup |
 | **자동 종료 사건** | `e_complete` (funnel 6단계 완주 OR BT root SUCCESS OR Emotion abort) — bt_executor가 `/bt/result` 발행 후 self-terminate; OpServer가 이를 보고 `SetMode('idle')` |
 | **params 스키마** | `{"persona":"<id>"}` (선택). 미지정 시 `casual_browser` 기본 |
-| **선점 정책** | • serving/guiding/patrol 요청 수신: **선점 허용** (모두 우선순위 < 5)<br>• 또 다른 engaging 요청: 거부 |
+| **선점 정책** | • serving/guiding/patrol/follow 요청 수신: **선점 허용** (모두 우선순위 < 5)<br>• 또 다른 engaging 요청: 거부 |
 | **KPI 누적** | `engaging_total_count++`, `engaging_conversion_count` (LeadIn 성공), `engaging_abort_count` |
+
+---
+
+### 2.6 S_follow (1인 추종) — v1.1 신설 (2026-05-19 머지)
+
+| 속성 | 값 |
+|---|---|
+| ID | `'follow'` |
+| 우선순위 | 4 (mode_manager_node 헤더 docstring 명시) |
+| **Invariant** | • `mode_follow.launch.py` 자식 alive<br>• `person_detector` (dobi_npc_emotion) + `follow_controller` (dobi_npc_bringup) running<br>• `/mode/state.current_mode == 'follow'`<br>• `/robot_cam/image_raw` (또는 `/image_raw` — 카메라 통합 시점 의존) 입력 수신 중<br>• `/scan` (LiDAR) 입력 수신 중 (안전 가드용) |
+| **Entry action** | LaunchSupervisor.spawn('follow', params_json)<br>params 옵션: `{"target":"<id>"}` (현 구현 미사용 — 가장 큰 person bbox 자동 추종) |
+| **During action** | 1. `person_detector` 가 `/robot_cam/image_raw` 처리 → `/robot_cam/persons` (Detection2DArray) 발행<br>2. `follow_controller` 가 최대 bbox 선택 → P 제어:<br>   • `err_angle = (image_cx - bbox_cx) / (image_w / 2)` → ω 명령<br>   • `err_dist = target_height_ratio - (bbox_h / image_h)` → v 명령<br>3. 안전 가드 4종 (모두 발동 시 cmd_vel=0 강제):<br>   ① `/rapport/event abort_trigger` → 즉시 v=ω=0 + abort_dwell 동안 송신 중단<br>   ② `/scan` 전방 ±front_arc_deg(기본 30°) 구간 `< scan_stop_dist`(기본 0.8m) → v=0 (회전 허용)<br>   ③ `detection_lost_sec`(기본 1.0s) 동안 person 미검출 → v=ω=0<br>   ④ image_size 미수신 → 0 (첫 sample 대기) |
+| **Exit action** | • SIGTERM (LaunchSupervisor.kill())<br>• `follow_controller.destroy_node()` 직전 마지막 stop msg (`/cmd_vel` v=ω=0) 발행 후 종료 |
+| **자동 종료 사건** | 없음 — **operator-triggered diagnostic/manual 모드**. 자동 완료 신호 없음. OpServer 또는 운영자 UI 가 명시적으로 `SetMode('idle')` 호출 시 종료. (`e_complete` 미정의) |
+| **params 스키마** | `{"target":"<id>"}` 또는 `""` (현 구현은 target 식별자 미사용 — face id 등 확장 시 follow_controller 파라미터로 매핑, 후속). |
+| **선점 정책** | • serving/guiding/patrol 요청 수신: **선점 허용** (모두 우선순위 < 4)<br>• engaging 요청 수신: 거부 (`follow_busy` — 5 > 4)<br>• 또 다른 follow 요청: 거부 |
+| **KPI 누적** | `follow_total_count++`, `follow_total_duration_sec`, `follow_abort_count` (rapport 또는 scan 가드로 강제 종료) |
+| **⚠ UI 통합 상태** | **2026-05-19 v1.1 spec 갱신 시점 기준 운영자 UI / 웹 대시보드는 5-state UI 구현 그대로**. `follow` 모드 표시 / 진입 버튼 / KPI 카드 등은 향후 별도 트랙 (`web/static/*.html` + `teleop_server.py`). 그 사이엔 ros2 service / CLI 로만 follow 진입 가능. SoT: `docs/moca_web_dashboard_spec.md` 와 동기화 필요. |
+
+**의도된 사용 시나리오** (v1.1 신설 시점):
+- 운영자가 로봇을 사람 옆에 대기시키거나 짧은 거리 추종이 필요한 디버깅/캘리브 상황
+- 신규 person_tracking_pkg (YOLOv8 + DBSCAN + BoT-SORT) 검증
+- 카페 영업 외 시간 + 점주 동행 시 사용 가정. **영업 중 customer-facing 사용은 미권장** (engaging 우선)
+
+**guiding 과의 차이 (재확인)**:
+- `follow`: **사람의 움직임을 따라가는 reactive controller** — 사람이 앞, 로봇이 뒤따름
+- `guiding`: **로봇이 앞장서고 사람이 따라오는지 확인하는 supervisor** — 로봇이 앞, 사람이 뒤
+- 알고리즘 정반대, 코드 재사용 < 30%. 별도 `follow_controller_node.py` / `guiding_controller_node.py` 분리 유지.
 
 ---
 
@@ -204,13 +254,16 @@ G_can_enter(m)    ≡ G_valid_mode(m) ∧ G_valid_params(p) ∧ G_not_busy ∧
 
 ### 3.1 전이 매트릭스 (행: S_from, 열: S_to)
 
-| from \ to | idle | serving | patrol | guiding | engaging |
-|---|---|---|---|---|---|
-| **idle** | (self-loop, no-op) | T-IS | T-IP | T-IG | T-IE |
-| **serving** | T-SI | (큐 append) | ✗ T-busy | ✗ T-busy | ✗ T-busy |
-| **patrol** | T-PI | T-PS (preempt) | (self, no-op) | T-PG (preempt) | ✗ T-busy |
-| **guiding** | T-GI | T-GS (preempt) | ✗ T-busy | (큐 append) | ✗ T-busy |
-| **engaging** | T-EI | T-ES (preempt) | T-EP (preempt) | T-EG (preempt) | (self, no-op) |
+| from \ to | idle | serving | patrol | guiding | engaging | follow |
+|---|---|---|---|---|---|---|
+| **idle** | (self-loop, no-op) | T-IS | T-IP | T-IG | T-IE | T-IF |
+| **serving** | T-SI | (큐 append) | ✗ T-busy | ✗ T-busy | ✗ T-busy | ✗ T-busy |
+| **patrol** | T-PI | T-PS (preempt) | (self, no-op) | T-PG (preempt) | ✗ T-busy | ✗ T-busy |
+| **guiding** | T-GI | T-GS (preempt) | ✗ T-busy | (큐 append) | ✗ T-busy | ✗ T-busy |
+| **engaging** | T-EI | T-ES (preempt) | T-EP (preempt) | T-EG (preempt) | (self, no-op) | T-EF (preempt) |
+| **follow** | T-FI | T-FS (preempt) | T-FP (preempt) | T-FG (preempt) | ✗ T-busy | (self, no-op) |
+
+**우선순위 정렬 (낮을수록 高 priority)**: serving(1) < guiding(2) < patrol(3) < follow(4) < engaging(5) < idle(99).
 
 ### 3.2 전이 상세 명세
 
@@ -253,7 +306,16 @@ Guard:    G_can_enter('engaging')
 Action:   spawn_thread(...)
 ```
 
-#### T-SI, T-PI, T-GI, T-EI: <any-active> → idle
+#### T-IF: idle → follow (v1.1 추가)
+
+```
+Event:    e_set_mode('follow', {"target":"<id>"})   # target 옵션 (현 구현 미사용)
+Guard:    G_can_enter('follow')
+Action:   spawn_thread(_do_transition(prev='idle', new='follow', params))
+Postcondition: 비동기 spawn → mode_follow stack alive (person_detector + follow_controller)
+```
+
+#### T-SI, T-PI, T-GI, T-EI, T-FI: <any-active> → idle
 
 ```
 Event:    e_set_mode('idle', '')
@@ -263,9 +325,9 @@ Postcondition: LaunchSupervisor.kill() → 기존 stack SIGTERM
                _current_mode = 'idle', _params = ''
 ```
 
-**중요**: 활동 모드의 자동 종료(`e_complete`)는 별도 사건이 아니라 *OpServer가 `SetMode('idle')`을 외부에서 호출*한 결과로 이 전이가 발생한다. mode_manager 자체는 `e_complete`를 모른다.
+**중요**: 활동 모드의 자동 종료(`e_complete`)는 별도 사건이 아니라 *OpServer가 `SetMode('idle')`을 외부에서 호출*한 결과로 이 전이가 발생한다. mode_manager 자체는 `e_complete`를 모른다. `follow` 는 자동 완료 사건 자체가 없으므로(`§2.6`) 운영자/OpServer 가 명시적으로 idle 호출해야 종료.
 
-#### T-PS, T-GS, T-ES: <patrol|guiding|engaging> → serving (선점)
+#### T-PS, T-GS, T-ES, T-FS: <patrol|guiding|engaging|follow> → serving (선점)
 
 ```
 Event:    e_set_mode('serving', params)
@@ -304,6 +366,33 @@ Guard:    G_can_enter('guiding') ∧ priority('guiding') < priority('engaging')
 Action:   spawn_thread(...)
 ```
 
+#### T-EF: engaging → follow (선점, v1.1 추가)
+
+```
+Event:    e_set_mode('follow', params)
+Guard:    G_can_enter('follow') ∧ priority('follow') < priority('engaging')
+                                   # 4 < 5 = True
+Action:   spawn_thread(...)
+Note:     영업 중 customer-facing engaging 도중 follow 진입은 운영자 명시 트리거가 필요.
+          OpServer 자동 로직에서는 거의 발생 안 함 — 디버깅/캘리브 상황 가정.
+```
+
+#### T-FP, T-FG: follow → patrol|guiding (선점, v1.1 추가)
+
+```
+T-FP:
+  Event:    e_set_mode('patrol', params)
+  Guard:    G_can_enter('patrol') ∧ priority('patrol') < priority('follow')
+                                     # 3 < 4 = True
+  Action:   spawn_thread(...)
+
+T-FG:
+  Event:    e_set_mode('guiding', params)
+  Guard:    G_can_enter('guiding') ∧ priority('guiding') < priority('follow')
+                                     # 2 < 4 = True
+  Action:   spawn_thread(...)
+```
+
 ### 3.3 거부되는 요청 (T-busy)
 
 다음 케이스는 SetMode가 즉시 `success=False`로 응답하며 상태 변경 없음:
@@ -313,9 +402,13 @@ Action:   spawn_thread(...)
 | serving | patrol | `lower_priority_during_serving` (3 > 1) |
 | serving | guiding | `lower_priority_during_serving` (2 > 1) |
 | serving | engaging | `lower_priority_during_serving` (5 > 1) |
+| serving | follow | `lower_priority_during_serving` (4 > 1) |
 | guiding | patrol | `lower_priority_during_guiding` (3 > 2) |
 | guiding | engaging | `lower_priority_during_guiding` (5 > 2) |
+| guiding | follow | `lower_priority_during_guiding` (4 > 2) |
 | patrol | engaging | `lower_priority_during_patrol` (5 > 3) |
+| patrol | follow | `lower_priority_during_patrol` (4 > 3) |
+| follow | engaging | `lower_priority_during_follow` (5 > 4) |
 
 **비고**: 위 규칙은 **mode_manager가 아니라 OpServer가 enforce**하는 것이 권장 패턴이다. mode_manager는 priority 무관하게 모든 전이를 허용하고(기존 코드 그대로), OpServer가 우선순위 규칙을 적용한 후 적절한 시점에만 SetMode를 호출한다. 이는 책임 분리 원칙(§5.1)에 따른다.
 
@@ -494,20 +587,23 @@ def _do_transition(self, prev, new, params, reject_reason=''):
 ### 6.3 후방 호환
 
 ```python
+# v1.1 (2026-05-19 ~)
 LEGACY_MODE_ALIAS = {
     'npc': 'engaging',
-    'follow': 'guiding',
 }
+# 'follow' -> 'guiding' alias 는 v1.1 에서 제거됨 — follow 가 정식 6번째 상태로 승격.
 ```
 
 - 요청이 legacy 이름이면 `WARN` 로그 + 신규 이름으로 자동 변환 + 처리.
-- M3 종료(2026-07-04) 후 alias 제거 예정.
+- M3 종료(2026-07-04) 후 alias 제거 예정 (현재 잔여: `npc -> engaging` 만).
+
+**v1.0 → v1.1 마이그레이션 주의**: v1.0 시점 코드가 `'follow'` 를 `'guiding'` 으로 자동 변환했다면, v1.1 코드는 `'follow'` 를 그대로 follow 모드 진입으로 해석한다. v1.0 시점 자동 변환에 의존하던 호출자 (예: 옛 운영자 UI 의 follow 버튼이 실제로 guiding 을 띄우길 기대) 가 있으면 의도 재확인 필요.
 
 ---
 
 ## 7. 시각적 다이어그램
 
-### 7.1 상태 다이어그램 (Mermaid 호환)
+### 7.1 상태 다이어그램 (v1.1 — 6-state)
 
 ```
                                   ┌──────────────┐
@@ -520,30 +616,32 @@ LEGACY_MODE_ALIAS = {
             │                S_idle (priority 99)                 │◀───────┐
             │                                                     │        │
             │  Invariant: stack=None, /cmd_vel≈0, mode='idle'     │        │
-            └─┬────────┬────────────────┬────────────────┬───────┘        │
-              │        │                │                │                 │
-       T-IS   │   T-IP │           T-IG │           T-IE │                 │
-       SetM   │   SetM │           SetM │           SetM │                 │
-      (s,p)   │  (p,p) │          (g,p) │          (e,p) │                 │
-              ▼        ▼                ▼                ▼                 │
-        ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐                │
-        │S_serving │ │S_patrol  │ │S_guiding │ │S_engaging│                │
-        │ (prio 1) │ │ (prio 3) │ │ (prio 2) │ │ (prio 5) │                │
-        └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘                │
-             │            │            │            │                      │
-             │            ▼ T-PS       ▼ T-GS       ▼ T-ES                 │
-             │       (preempt to       (preempt to  (preempt to             │
-             │        serving)          serving)     serving)               │
-             │            │                                                 │
-             │            ▼ T-PG       ▼ T-EP                               │
-             │       (preempt to       (preempt to                          │
-             │        guiding)          patrol)                             │
-             │                          ▼ T-EG                              │
-             │                       (preempt to                            │
-             │                        guiding)                              │
-             │ T-SI  T-PI  T-GI  T-EI                                       │
-             └─────┴─────┴─────┴───────────────────────────────────────────┘
+            └─┬────┬────┬────┬────┬────┬───────────────────────┘        │
+              │    │    │    │    │    │                                  │
+       T-IS   │T-IP│T-IG│T-IE│T-IF│                                       │
+       SetM   │SetM│SetM│SetM│SetM│  (v1.1)                                │
+      (s,p)   │(p,p│(g,p│(e,p│(f,p│                                       │
+              ▼    ▼    ▼    ▼    ▼                                       │
+        ┌─────────┐┌────────┐┌────────┐┌─────────┐┌──────────┐            │
+        │S_serving││S_patrol││S_guiding││S_engagi.││ S_follow │            │
+        │ (prio 1)││(prio 3)││(prio 2)││ (prio 5)││ (prio 4) │            │
+        └────┬────┘└───┬────┘└───┬────┘└────┬────┘└────┬─────┘            │
+             │         │         │          │          │                   │
+             │         ▼ T-PS   ▼ T-GS    ▼ T-ES    ▼ T-FS                │
+             │      (preempt → (preempt → (preempt → (preempt →            │
+             │       serving)  serving)  serving)   serving)               │
+             │         │                                                   │
+             │         ▼ T-PG  ▼ T-EP    ▼ T-EG    ▼ T-FG                 │
+             │      (preempt → (preempt → (preempt → (preempt →            │
+             │       guiding) patrol)    guiding)   guiding)               │
+             │                                       ▼ T-FP                │
+             │                            ▼ T-EF (preempt →                │
+             │                          (preempt →  patrol)                │
+             │                           follow)                            │
+             │ T-SI  T-PI  T-GI  T-EI   T-FI                               │
+             └─────┴─────┴─────┴────────┴──────────────────────────────────┘
                           (e_set_mode('idle') OR e_complete via OpServer)
+                          ※ S_follow 는 e_complete 없음 — 운영자 명시 idle 전이만
 
 
   ╔═══════════════════════════════════════════════════════════════════════╗
@@ -665,38 +763,43 @@ OpServer        mode_manager     LaunchSup
 
 ## 8. 구현 체크리스트
 
+> v1.0 → v1.1 시점 체크 상태를 반영. v1.0 항목 중 이미 완료된 건 [x], v1.1 신규 추가 건은 별도 표기.
+
 ### 8.1 mode_manager_node.py 변경
 
-- [ ] `VALID_MODES = ('idle', 'serving', 'patrol', 'guiding', 'engaging')`로 변경
-- [ ] `LEGACY_MODE_ALIAS = {'npc': 'engaging', 'follow': 'guiding'}` 추가
-- [ ] `_on_request` 진입부에 legacy alias 자동 변환 + WARN 로그
-- [ ] `launch_file = f'mode_{mode}.launch.py'` 그대로 (launch 파일명만 신규 추가하면 됨)
+- [x] `VALID_MODES = ('idle', 'serving', 'patrol', 'guiding', 'engaging', 'follow')` — v1.1 6-state
+- [x] `LEGACY_MODE_ALIAS = {'npc': 'engaging'}` — v1.1 에서 `'follow': 'guiding'` 제거
+- [x] `_on_request` 진입부에 legacy alias 자동 변환 + WARN 로그
+- [x] `launch_file = f'mode_{mode}.launch.py'` (mode_follow.launch.py 포함 6 파일 모두 정상 spawn)
 - [ ] `_publish_state`에 supervisor.is_running() 불일치 감지 (M1 stretch)
-- [ ] `_on_operator_cmd` 콜백 추가 (`OperatorCommand{command_type:"stop_emergency"}` 처리)
+- [x] `_on_operator_cmd` 콜백 (`OperatorCommand{command_type:"stop_emergency"}` 처리)
 
 ### 8.2 신규 launch 파일
 
-- [ ] `dobi_npc_bringup/launch/mode_engaging.launch.py` (mode_npc 리네이밍 + 내부 BT 그대로)
-- [ ] `dobi_npc_bringup/launch/mode_guiding.launch.py` (신규)
-- [ ] `dobi_npc_bringup/launch/mode_patrol.launch.py` (신규)
-- [ ] `dobi_npc_bringup/launch/mode_npc.launch.py` → deprecation wrapper
-- [ ] `dobi_npc_bringup/launch/mode_follow.launch.py` → deprecation wrapper
+- [x] `dobi_npc_bringup/launch/mode_engaging.launch.py` (mode_npc 리네이밍 + 내부 BT 그대로)
+- [x] `dobi_npc_bringup/launch/mode_guiding.launch.py`
+- [x] `dobi_npc_bringup/launch/mode_patrol.launch.py`
+- [x] `dobi_npc_bringup/launch/mode_npc.launch.py` — LEGACY_MODE_ALIAS 가 mode_engaging.launch.py 를 spawn 하도록 redirect (자체 deprecation wrapper 형태)
+- [x] `dobi_npc_bringup/launch/mode_follow.launch.py` — **v1.1: deprecation wrapper 아닌 정식 stack** (person_detector + follow_controller + LiDAR 가드)
+- [ ] (v1.2 후보) `mode_follow.launch.py` 의 face id 기반 target 식별자 활용 — 현재는 가장 큰 bbox 추종
 
 ### 8.3 단위 테스트
 
-- [ ] `test_mode_manager_5state.py`:
-  - VALID_MODES 5종 진입/이탈
-  - LEGACY_MODE_ALIAS 자동 변환
+- [ ] `test_mode_manager_6state.py` (v1.1 — 옛 `test_mode_manager_5state.py` 갱신/리네이밍):
+  - VALID_MODES 6종 진입/이탈
+  - LEGACY_MODE_ALIAS 자동 변환 (`npc` 만 잔여 — `follow` alias 제거 후 직접 진입 검증)
   - 가드 (battery_low, safety_alarm) 거부
   - busy_flag 동시 요청 거부
   - spawn 실패 시 idle rollback
+  - **follow 모드 신규 시나리오**: idle→follow→idle, engaging→follow→engaging 복구, follow 중 scan 가드 발동
 - [ ] `test_setmode_responses.py`: 응답 코드 사전(§6) 전부 발생 시나리오 커버
 
 ### 8.4 통합 테스트
 
 - [ ] §10.1의 자동 시나리오 A1~A4 통과 (마스터 계획서 참조)
 - [ ] alarm dwell 5초 후 자동 해제 확인
-- [ ] 5종 모드 전부 spawn/kill cycle 100회 누수 없음
+- [ ] **6종 모드 전부 spawn/kill cycle 100회 누수 없음** (v1.1 — 5→6 갱신)
+- [ ] (v1.2 후보) UI 측 6-state 통합 검증 — `web/static/*.html` + `teleop_server.py` follow 모드 카드/버튼 추가 후 e2e 시나리오
 
 ---
 

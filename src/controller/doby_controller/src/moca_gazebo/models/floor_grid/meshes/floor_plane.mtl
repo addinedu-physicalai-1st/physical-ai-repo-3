@@ -1,0 +1,5 @@
+newmtl floor
+Ka 0.95 0.95 0.95
+Kd 0.99 0.99 0.99
+Ks 0.05 0.05 0.05
+map_Kd ../textures/bottom.png
