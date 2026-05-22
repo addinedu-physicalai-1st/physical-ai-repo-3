@@ -24,6 +24,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/OperatorCommand.msg"
   "msg/PersonTrack.msg"
   "msg/PersonTrackArray.msg"
+  "msg/CustomerIdentity.msg"
+  "msg/CustomerRegistry.msg"
   "srv/SetPersona.srv"
   "srv/SetMode.srv"
   "srv/GetTableStatus.srv"
