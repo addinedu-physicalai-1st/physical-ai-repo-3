@@ -48,6 +48,9 @@ class OrderClaimRepository(Protocol):
     def mark_completed(self, order_id: int) -> bool:
         ...
 
+    def mark_failed(self, order_id: int) -> bool:
+        ...
+
 
 class OrderItemLookup(Protocol):
     def list_by_order_id(self, order_id: int) -> list[Any]:
@@ -116,6 +119,7 @@ class OrderOrchestrationRuntime:
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2.0)
         self._thread = None
+        self._fail_in_progress_items()
         self.logger.info("order orchestration runtime stopped")
 
     def tick(self) -> None:
@@ -134,6 +138,11 @@ class OrderOrchestrationRuntime:
             if item is None:
                 return False
             if item.state == WorkState.MANUFACTURING:
+                self.logger.info(
+                    "manufacture completed subscribed order_id=%s command_id=%s",
+                    order_id,
+                    command_id,
+                )
                 item.state = WorkState.MANUFACTURED
                 item.retry_count = 0
                 item.next_retry_at = 0.0
@@ -150,6 +159,11 @@ class OrderOrchestrationRuntime:
             if item is None:
                 return False
             if item.state == WorkState.SERVING:
+                self.logger.info(
+                    "serving completed subscribed order_id=%s command_id=%s",
+                    order_id,
+                    command_id,
+                )
                 item.state = WorkState.SERVED
                 item.retry_count = 0
                 item.next_retry_at = 0.0
@@ -210,6 +224,13 @@ class OrderOrchestrationRuntime:
                         order_items=order_items,
                     )
                 )
+                self.logger.info(
+                    "accepted order claimed order_id=%s receive_type=%s table_number=%s item_count=%s",
+                    order_id,
+                    str(getattr(order, "receive_type", "")),
+                    getattr(order, "table_number", None),
+                    len(order_items),
+                )
 
     def _advance(self, item: WorkItem) -> None:
         if item.next_retry_at > self.time_fn():
@@ -226,6 +247,12 @@ class OrderOrchestrationRuntime:
 
     def _enqueue_manufacture(self, item: WorkItem) -> None:
         try:
+            self.logger.info(
+                "manufacture command enqueue order_id=%s command_id=%s item_count=%s",
+                item.order_id,
+                item.manufacture_command_id,
+                len(item.order_items),
+            )
             ok = self.manufacture_port.enqueue_manufacture(
                 item.manufacture_command_id,
                 item.order_id,
@@ -245,6 +272,12 @@ class OrderOrchestrationRuntime:
 
     def _enqueue_serving(self, item: WorkItem) -> None:
         try:
+            self.logger.info(
+                "serving command enqueue order_id=%s command_id=%s table_number=%s",
+                item.order_id,
+                item.serving_command_id,
+                item.table_number,
+            )
             ok = self.serving_port.enqueue_serving(
                 item.serving_command_id,
                 item.order_id,
@@ -266,6 +299,28 @@ class OrderOrchestrationRuntime:
         if self.order_repository.mark_completed(item.order_id):
             with self._lock:
                 self._items = [current for current in self._items if current.order_id != item.order_id]
+            self.logger.info("order completed order_id=%s", item.order_id)
+
+    def _fail_in_progress_items(self) -> None:
+        with self._lock:
+            items = list(self._items)
+        for item in items:
+            if self.order_repository.mark_failed(item.order_id):
+                self.logger.info(
+                    "order failed on runtime shutdown order_id=%s state=%s",
+                    item.order_id,
+                    item.state.value,
+                )
+            else:
+                self.logger.warning(
+                    "order fail skipped on runtime shutdown order_id=%s state=%s",
+                    item.order_id,
+                    item.state.value,
+                )
+        if items:
+            with self._lock:
+                failed_ids = {item.order_id for item in items}
+                self._items = [item for item in self._items if item.order_id not in failed_ids]
 
     def _schedule_retry(self, item: WorkItem, exc: Exception) -> None:
         with self._lock:

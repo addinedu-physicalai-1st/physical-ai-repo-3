@@ -53,7 +53,7 @@ def load_config() -> MocaServiceConfig:
         doby_controller_setmode_timeout_sec=float(
             os.getenv("MOCA_DOBY_CONTROLLER_SETMODE_TIMEOUT_SEC", "2.0")
         ),
-        order_orchestration_enabled=_env_bool("MOCA_ORDER_ORCHESTRATION_ENABLED", False),
+        order_orchestration_enabled=_env_bool("MOCA_ORDER_ORCHESTRATION_ENABLED", True),
         order_orchestration_tick_sec=float(
             os.getenv("MOCA_ORDER_ORCHESTRATION_TICK_SEC", "1.0")
         ),

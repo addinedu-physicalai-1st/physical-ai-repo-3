@@ -168,6 +168,20 @@ class OrderRepository:
                 )
                 return cursor.rowcount > 0
 
+    def mark_failed(self, order_id: int) -> bool:
+        with self.database.connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE orders
+                    SET order_status = 'FAILED'
+                    WHERE order_id = %s
+                      AND order_status = 'PROCESSING'
+                    """,
+                    (order_id,),
+                )
+                return cursor.rowcount > 0
+
     def update_assignment_if_pending(
         self,
         order_id: int,
