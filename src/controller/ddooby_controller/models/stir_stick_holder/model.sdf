@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="stir_stick_holder">
+    <static>true</static>
+    <link name="holder_link">
+      <collision name="base_collision">
+        <pose>0 0 0.01 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.10 0.10 0.02</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="base_visual">
+        <pose>0 0 0.01 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.10 0.10 0.02</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.22 0.34 0.28 1.0</ambient>
+          <diffuse>0.22 0.34 0.28 1.0</diffuse>
+        </material>
+      </visual>
+
+      <collision name="left_guide_collision">
+        <pose>0 0.030 0.0325 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.080 0.012 0.025</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="left_guide_visual">
+        <pose>0 0.030 0.0325 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.080 0.012 0.025</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.18 0.24 0.22 1.0</ambient>
+          <diffuse>0.18 0.24 0.22 1.0</diffuse>
+        </material>
+      </visual>
+
+      <collision name="right_guide_collision">
+        <pose>0 -0.030 0.0325 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.080 0.012 0.025</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="right_guide_visual">
+        <pose>0 -0.030 0.0325 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.080 0.012 0.025</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.18 0.24 0.22 1.0</ambient>
+          <diffuse>0.18 0.24 0.22 1.0</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

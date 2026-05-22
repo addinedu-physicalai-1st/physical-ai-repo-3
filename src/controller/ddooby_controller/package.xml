@@ -1,24 +1,24 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>tubi_controller</name>
+  <name>ddooby_controller</name>
   <version>0.0.0</version>
-  <description>ROS2 C++ package scaffold for the tubi controller.</description>
-  <maintainer email="robo@example.com">robo</maintainer>
-  <license>TODO: License declaration</license>
+  <description>DDooby beverage controller package for OpenArm simulation.</description>
+  <maintainer email="placeholder@example.com">DDooby Maintainer</maintainer>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>controller_status_msgs</depend>
   <depend>rclcpp</depend>
-  <depend>std_msgs</depend>
-  <depend>std_srvs</depend>
-  <depend>launch</depend>
-  <depend>launch_ros</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>gz_msgs_vendor</depend>
+  <depend>gz_transport_vendor</depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
+  <exec_depend>moveit_configs_utils</exec_depend>
+  <exec_depend>openarm_bimanual_moveit_config</exec_depend>
+  <exec_depend>openarm_gazebo</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
