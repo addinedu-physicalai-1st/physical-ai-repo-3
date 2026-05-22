@@ -9,11 +9,10 @@ ROS node가 자동으로 실행하므로 직접 실행할 필요 없음.
 import argparse
 import socket
 import struct
-import sys
-
 import numpy as np
 import torch
 
+from lerobot.policies.rtc.configuration_rtc import RTCConfig
 from lerobot.policies.smolvla import SmolVLAPolicy
 from lerobot.policies import make_pre_post_processors
 from lerobot.policies.utils import prepare_observation_for_inference
@@ -30,7 +29,8 @@ WRIST_BYTES  = int(np.prod(WRIST_SHAPE))
 STATE_BYTES  = STATE_DIM * 4  # float32
 
 OBS_BYTES    = TOP_BYTES + WRIST_BYTES + STATE_BYTES
-ACT_BYTES    = CHUNK_SIZE * ACTION_DIM * 4  # float32
+ACT_PLANES   = 2  # 0=original policy actions, 1=postprocessed robot actions
+ACT_BYTES    = ACT_PLANES * CHUNK_SIZE * ACTION_DIM * 4  # float32
 
 
 def _recv_exact(sock, n):
@@ -51,6 +51,7 @@ def main():
     parser.add_argument('--socket-path',  required=True)
     parser.add_argument('--shm-obs-name', required=True)
     parser.add_argument('--shm-act-name', required=True)
+    parser.add_argument('--rtc-execution-horizon', type=int, default=11)
     args = parser.parse_args()
 
     # ── shared memory 연결 ────────────────────────────────────────────────
@@ -61,11 +62,13 @@ def main():
     top_buf   = np.ndarray(TOP_SHAPE,   dtype=np.uint8,   buffer=shm_obs.buf, offset=0)
     wrist_buf = np.ndarray(WRIST_SHAPE, dtype=np.uint8,   buffer=shm_obs.buf, offset=TOP_BYTES)
     state_buf = np.ndarray(STATE_DIM,   dtype=np.float32, buffer=shm_obs.buf, offset=TOP_BYTES + WRIST_BYTES)
-    act_buf   = np.ndarray((CHUNK_SIZE, ACTION_DIM), dtype=np.float32, buffer=shm_act.buf)
+    act_buf   = np.ndarray((ACT_PLANES, CHUNK_SIZE, ACTION_DIM), dtype=np.float32, buffer=shm_act.buf)
 
     # ── 모델 로딩 (1회) ───────────────────────────────────────────────────
     print(f"[worker] Loading model from {args.model_path} on {args.device} ...", flush=True)
     model = SmolVLAPolicy.from_pretrained(args.model_path)
+    model.config.rtc_config = RTCConfig(execution_horizon=args.rtc_execution_horizon)
+    model.init_rtc_processor()
     model.to(args.device)
     model.eval()
     device = torch.device(args.device)
@@ -91,7 +94,7 @@ def main():
             break
 
         if cmd == b'G':
-            # 프로토콜: task_len(4) + task + delay(4) + has_prev(1) + [prev_len(4) + prev_bytes]
+            # 프로토콜: task_len(4) + task + delay(4) + has_prev(1) + [prev_len(4) + prev original bytes]
             task_len = struct.unpack('>I', _recv_exact(sock, 4))[0]
             task = _recv_exact(sock, task_len).decode('utf-8')
             inference_delay = struct.unpack('>I', _recv_exact(sock, 4))[0]
@@ -128,16 +131,16 @@ def main():
                     prev_chunk_left_over=prev_chunk_left_over,
                 )  # (1, chunk_size, action_dim)
 
-            chunk = chunk.squeeze(0)
-            processed = []
-            for i in range(chunk.shape[0]):
-                a = postprocess(chunk[i].unsqueeze(0))
-                processed.append(a.squeeze(0))
-            chunk_np = torch.stack(processed).cpu().numpy()
+            original_chunk = chunk.squeeze(0).clone()
+            processed_chunk = postprocess(chunk).squeeze(0)
+            original_np = original_chunk.cpu().numpy()
+            processed_np = processed_chunk.cpu().numpy()
 
-            # 결과를 shared memory에 쓰기
-            rows = min(len(chunk_np), CHUNK_SIZE)
-            act_buf[:rows] = chunk_np[:rows]
+            # 결과를 shared memory에 쓰기: original은 RTC prefix용, processed는 로봇 실행용
+            rows = min(len(processed_np), CHUNK_SIZE)
+            act_buf[:] = 0
+            act_buf[0, :rows] = original_np[:rows]
+            act_buf[1, :rows] = processed_np[:rows]
 
             sock.sendall(b'D')
 

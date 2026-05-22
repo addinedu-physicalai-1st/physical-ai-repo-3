@@ -146,6 +146,8 @@ class OrderService:
             and order.receive_type == receive_type
             and current_table_number == table_number
         ):
+            if order.order_status == "PENDING":
+                self.order_repository.accept_if_pending(request.order_id)
             return TableAssignmentResult.ok()
 
         if order.receive_type != "PENDING" or order.table_id is not None:

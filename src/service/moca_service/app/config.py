@@ -24,6 +24,12 @@ class MocaServiceConfig:
     doby_controller_ros_enabled: bool
     doby_controller_node_name: str
     doby_controller_setmode_timeout_sec: float
+    ddooby_controller_ros_enabled: bool
+    ddooby_controller_node_name: str
+    ddooby_controller_action_name: str
+    ddooby_controller_action_timeout_sec: float
+    order_orchestration_enabled: bool
+    order_orchestration_tick_sec: float
 
 
 def load_config() -> MocaServiceConfig:
@@ -50,6 +56,22 @@ def load_config() -> MocaServiceConfig:
         doby_controller_node_name=os.getenv("MOCA_DOBY_CONTROLLER_NODE_NAME", "moca_doby_controller"),
         doby_controller_setmode_timeout_sec=float(
             os.getenv("MOCA_DOBY_CONTROLLER_SETMODE_TIMEOUT_SEC", "2.0")
+        ),
+        ddooby_controller_ros_enabled=_env_bool("MOCA_DDOOBY_CONTROLLER_ROS_ENABLED", True),
+        ddooby_controller_node_name=os.getenv(
+            "MOCA_DDOOBY_CONTROLLER_NODE_NAME",
+            "moca_ddooby_controller",
+        ),
+        ddooby_controller_action_name=os.getenv(
+            "MOCA_DDOOBY_CONTROLLER_ACTION_NAME",
+            "ddooby/manifacture",
+        ),
+        ddooby_controller_action_timeout_sec=float(
+            os.getenv("MOCA_DDOOBY_CONTROLLER_ACTION_TIMEOUT_SEC", "2.0")
+        ),
+        order_orchestration_enabled=_env_bool("MOCA_ORDER_ORCHESTRATION_ENABLED", True),
+        order_orchestration_tick_sec=float(
+            os.getenv("MOCA_ORDER_ORCHESTRATION_TICK_SEC", "1.0")
         ),
     )
 

@@ -46,14 +46,15 @@ rosbag2_*/
 **/datasets/
 **/web/
 **/tools/
+**/models/
 !src/service/web_service/app/models/
+!src/service/web_service/app/models/**
 
 # OpenArm CAN upstream Launchpad release packaging encrypted files; not needed for this demo.
 src/controller/ddooby_controller/openarm_vendor/openarm_can/packages/launchpad-account.asc.kou
 src/controller/ddooby_controller/openarm_vendor/openarm_can/packages/release-key.asc.kou
 
 # === ML model assets (mediapipe .task/.tflite 등) — download_models.sh 로 별도 관리 ===
-src/dobi_npc/**/models/
 *.pt              # YOLO weights
 *.pth             # PyTorch checkpoints
 *.onnx

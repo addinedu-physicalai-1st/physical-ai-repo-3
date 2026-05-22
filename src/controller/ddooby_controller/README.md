@@ -14,7 +14,7 @@ src/controller/ddooby_controller/
 ├── launch/
 │   ├── beverage_making_test.launch.py
 │   └── beverage_station_gz.launch.py
-├── models/
+├── assets/
 ├── src/
 │   └── beverage_making_test_node.cpp
 └── openarm_vendor/
@@ -56,6 +56,18 @@ source install/setup.bash
 
 아래 명령어를 순서대로 실행하면 됩니다. `터미널 1`부터 `터미널 4`까지는 각각 별도의 새 터미널에서 실행해 주세요.
 
+이미 Gazebo, MoveGroup, RViz, 테스트 노드를 실행했던 상태라면 먼저 기존 프로세스가 남아 있지 않은지 확인합니다. 특히 `move_group`이 2개 이상 떠 있으면 Gazebo가 움직이지 않거나 trajectory 실행 상태가 꼬일 수 있습니다.
+
+```bash
+pgrep -af 'ddooby_controller|openarm_gazebo|move_group|rviz2|gz sim|ros2 launch'
+```
+
+남아 있는 프로세스가 있다면 각 실행 터미널에서 `Ctrl+C`로 종료한 뒤 다시 실행합니다. 터미널을 닫았는데도 orphan 프로세스가 남은 경우에는 PID를 확인한 뒤 해당 PID만 종료합니다.
+
+```bash
+kill <PID>
+```
+
 빌드:
 
 빠른 설치 절차에서 이미 빌드했다면 이 단계는 생략할 수 있습니다.
@@ -88,6 +100,8 @@ source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch openarm_gazebo move_group_gz.launch.py
 ```
+
+MoveGroup 로그에 `You can start planning now!`가 출력된 뒤 다음 단계를 실행합니다.
 
 터미널 3: RViz 실행
 
