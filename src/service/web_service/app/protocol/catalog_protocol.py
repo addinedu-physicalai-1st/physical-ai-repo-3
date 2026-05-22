@@ -1,3 +1,4 @@
+import json
 import struct
 from typing import Any
 
@@ -29,6 +30,45 @@ def decode_catalog_payload(payload: bytes, cmd_type: int) -> dict[str, Any]:
     if cmd_type == CMD_ALLERGY:
         return {"allergy": decode_allergy_payload(payload)}
     raise ValueError(f"unsupported catalog cmd_type: 0x{cmd_type:02X}")
+
+
+def encode_product_management_payload(
+    action: str,
+    *,
+    product_id: int | None = None,
+    product: dict[str, Any] | None = None,
+    include_paused: bool = False,
+) -> bytes:
+    if action not in {"create", "list", "update", "delete"}:
+        raise ValueError(f"unsupported product action={action}")
+
+    body: dict[str, Any] = {"action": action}
+    if action in {"update", "delete"}:
+        if product_id is None or product_id <= 0:
+            raise ValueError("product_id must be a positive int")
+        body["product_id"] = product_id
+    if action in {"create", "update"}:
+        if product is None:
+            raise ValueError("product is required")
+        body["product"] = product
+    if action == "list":
+        body["include_paused"] = include_paused
+
+    return json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def decode_product_management_payload(payload: bytes) -> dict[str, Any]:
+    if payload[:1] == bytes([STATUS_ERROR]):
+        error_code, message = decode_error_payload(payload)
+        return {"error": error_code, "message": message}
+    if payload[:1] != bytes([STATUS_OK]):
+        raise ValueError(f"invalid product management status: 0x{payload[:1].hex()}")
+    if len(payload) == 1:
+        return {}
+    decoded = json.loads(payload[1:].decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise ValueError("product management response must be a JSON object")
+    return decoded
 
 
 def encode_menu_option_payload(catalog: dict[str, Any]) -> bytes:

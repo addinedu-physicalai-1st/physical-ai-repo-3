@@ -1,13 +1,17 @@
+import json
 import struct
 from dataclasses import dataclass
 from typing import Any
 
-from app.protocol.header_protocol import (
+from app.communication.web_service.protocol.header_protocol import (
+    CMD_ALLERGY,
+    CMD_MENU,
     STATUS_ERROR,
     STATUS_OK,
     decode_error_payload,
     encode_error_payload,
 )
+from app.service.request_models import ProductManagementRequest
 
 MENU_NAME_SIZE = 256
 MENU_IMAGE_SIZE = 1020
@@ -39,9 +43,26 @@ class CatalogResponse:
         return self.error_code is not None
 
 
-def encode_catalog_response_payload(response: CatalogResponse, cmd_type: int) -> bytes:
-    from app.protocol.header_protocol import CMD_ALLERGY, CMD_MENU
+@dataclass(frozen=True)
+class ProductManagementResponse:
+    result: dict[str, Any] | None = None
+    error_code: int | None = None
+    message: str = ""
 
+    @classmethod
+    def ok(cls, result: dict[str, Any]) -> "ProductManagementResponse":
+        return cls(result=result)
+
+    @classmethod
+    def error(cls, error_code: int, message: str) -> "ProductManagementResponse":
+        return cls(error_code=error_code, message=message)
+
+    @property
+    def is_error(self) -> bool:
+        return self.error_code is not None
+
+
+def encode_catalog_response_payload(response: CatalogResponse, cmd_type: int) -> bytes:
     if response.is_error:
         if response.error_code is None:
             raise ValueError("catalog response missing error code")
@@ -55,6 +76,63 @@ def encode_catalog_response_payload(response: CatalogResponse, cmd_type: int) ->
     raise ValueError(f"unsupported catalog cmd_type: 0x{cmd_type:02X}")
 
 
+def parse_product_management_payload(payload: bytes) -> ProductManagementRequest:
+    if not payload:
+        raise ValueError("product management payload must not be empty")
+    try:
+        body = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid product management JSON: {exc}") from exc
+    if not isinstance(body, dict):
+        raise ValueError("product management payload must be a JSON object")
+
+    action = str(body.get("action", ""))
+    if action not in {"create", "get", "list", "update", "delete"}:
+        raise ValueError(f"invalid product action={action}")
+
+    product_id = 0
+    if action in {"get", "update", "delete"}:
+        raw_product_id = body.get("product_id")
+        if isinstance(raw_product_id, bool) or not isinstance(raw_product_id, int) or raw_product_id <= 0:
+            raise ValueError("product_id must be a positive int")
+        product_id = raw_product_id
+
+    product = body.get("product")
+    if action in {"create", "update"}:
+        if not isinstance(product, dict):
+            raise ValueError("product must be an object")
+    elif product is not None:
+        raise ValueError("product is only supported for create/update")
+
+    return ProductManagementRequest(
+        action=action,
+        product_id=product_id,
+        product=product,
+        include_paused=bool(body.get("include_paused", False)),
+    )
+
+
+def encode_product_management_response_payload(response: ProductManagementResponse) -> bytes:
+    if response.is_error:
+        if response.error_code is None:
+            raise ValueError("product management response missing error code")
+        return encode_error_payload(response.error_code, response.message)
+    if response.result is None:
+        raise ValueError("product management response missing result")
+    return bytes([STATUS_OK]) + json.dumps(response.result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def decode_catalog_payload(payload: bytes, cmd_type: int) -> dict[str, Any]:
+    if payload[:1] == bytes([STATUS_ERROR]):
+        error_code, message = decode_error_payload(payload)
+        return {"error": error_code, "message": message}
+    if cmd_type == CMD_MENU:
+        return {"menu": decode_menu_option_payload(payload)}
+    if cmd_type == CMD_ALLERGY:
+        return {"allergy": decode_allergy_payload(payload)}
+    raise ValueError(f"unsupported catalog cmd_type: 0x{cmd_type:02X}")
+
+
 def encode_menu_option_payload(catalog: dict[str, Any]) -> bytes:
     frame = bytearray([STATUS_OK])
     menu = _as_list(catalog.get("menu", []), "menu")
@@ -63,7 +141,13 @@ def encode_menu_option_payload(catalog: dict[str, Any]) -> bytes:
     for item in menu:
         if not isinstance(item, dict):
             raise ValueError("menu item must be a dict")
-        frame.extend(struct.pack(">HI", _bounded_int(item.get("id"), "product_id", MAX_U16), _bounded_int(item.get("price"), "price", MAX_U32)))
+        frame.extend(
+            struct.pack(
+                ">HI",
+                _bounded_int(item.get("id"), "product_id", MAX_U16),
+                _bounded_int(item.get("price"), "price", MAX_U32),
+            )
+        )
         frame.extend(_encode_fixed_string(str(item.get("name", "")), MENU_NAME_SIZE, "menu.name"))
         frame.extend(_encode_fixed_string(str(item.get("image", item.get("emoji", ""))), MENU_IMAGE_SIZE, "menu.image"))
 
@@ -96,19 +180,6 @@ def encode_allergy_payload(catalog: dict[str, Any]) -> bytes:
             frame.extend(_encode_fixed_string(str(item_name), MENU_NAME_SIZE, "allergy.item"))
 
     return bytes(frame)
-
-
-def decode_catalog_payload(payload: bytes, cmd_type: int) -> dict[str, Any]:
-    from app.protocol.header_protocol import CMD_ALLERGY, CMD_MENU
-
-    if payload[:1] == bytes([STATUS_ERROR]):
-        error_code, message = decode_error_payload(payload)
-        return {"error": error_code, "message": message}
-    if cmd_type == CMD_MENU:
-        return {"menu": decode_menu_option_payload(payload)}
-    if cmd_type == CMD_ALLERGY:
-        return {"allergy": decode_allergy_payload(payload)}
-    raise ValueError(f"unsupported catalog cmd_type: 0x{cmd_type:02X}")
 
 
 def decode_menu_option_payload(payload: bytes) -> list[dict[str, Any]]:
@@ -149,7 +220,7 @@ def decode_allergy_payload(payload: bytes) -> list[dict[str, Any]]:
 
 
 class _PayloadReader:
-    def __init__(self, payload: bytes):
+    def __init__(self, payload: bytes) -> None:
         self.payload = payload
         self.offset = 0
 

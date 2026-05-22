@@ -20,6 +20,8 @@ ERROR_ORDER_REJECTED = 0x02
 ERROR_TABLE_UNAVAILABLE = 0x03
 ERROR_ORDER_NOT_FOUND = 0x04
 ERROR_TABLE_ASSIGNMENT_REJECTED = 0x05
+ERROR_PRODUCT_MANAGEMENT_FAILED = 0x06
+ERROR_BAD_REQUEST = 0x07
 ERROR_MESSAGE_MAX_SIZE = 512
 
 
@@ -32,8 +34,6 @@ class MocaHeader:
 
 
 def encode_header(cmd_type: int, method: int, sequence: int, payload_size: int) -> bytes:
-    """Validate header fields and encode the fixed-size MOCA frame header."""
-
     if cmd_type not in {CMD_MENU, CMD_ALLERGY, CMD_ORDER, CMD_TABLE}:
         raise ValueError(f"unsupported cmd_type: 0x{cmd_type:02X}")
     if method not in {METHOD_GET, METHOD_SET}:
@@ -46,8 +46,6 @@ def encode_header(cmd_type: int, method: int, sequence: int, payload_size: int) 
 
 
 def decode_header(header: bytes) -> MocaHeader:
-    """Decode and validate a 7-byte MOCA frame header."""
-
     if len(header) != HEADER_SIZE:
         raise ValueError(f"invalid moca header length: {len(header)}")
     cmd_type, method, sequence = header[:3]
@@ -57,21 +55,15 @@ def decode_header(header: bytes) -> MocaHeader:
 
 
 def encode_frame(cmd_type: int, method: int, sequence: int, payload: bytes = b"") -> bytes:
-    """Build a complete MOCA frame from a header and raw payload bytes."""
-
     return encode_header(cmd_type, method, sequence, len(payload)) + payload
 
 
 def encode_error_payload(error_code: int, message: str) -> bytes:
-    """Encode a common MOCA error payload."""
-
     message_bytes = _truncate_utf8(message, ERROR_MESSAGE_MAX_SIZE)
     return bytes([STATUS_ERROR, error_code & 0xFF]) + struct.pack(">H", len(message_bytes)) + message_bytes
 
 
 def decode_error_payload(payload: bytes) -> tuple[int, str]:
-    """Decode a common MOCA error payload into error_code and message."""
-
     if len(payload) < 4:
         raise ValueError(f"invalid error payload length: {len(payload)}")
     status, error_code = payload[:2]
@@ -84,8 +76,6 @@ def decode_error_payload(payload: bytes) -> tuple[int, str]:
 
 
 def _truncate_utf8(value: str, max_size: int) -> bytes:
-    """Trim UTF-8 bytes to max_size without splitting a multibyte character."""
-
     encoded = value.encode("utf-8")
     if len(encoded) <= max_size:
         return encoded

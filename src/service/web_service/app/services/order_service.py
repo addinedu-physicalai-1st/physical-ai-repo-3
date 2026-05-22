@@ -3,6 +3,7 @@ from app.models.order import Order, OrderCreate
 from app.protocol.order_protocol import MocaOrderItem
 from app.clients.moca_shared import get_order_client
 from app.clients.order_client import MocaOrderClientError, MocaOrderRejected
+from app.services import menu_service
 
 
 _lock = threading.Lock()
@@ -33,25 +34,18 @@ class OrderRejected(OrderError):
 
 def _calc_total(payload: OrderCreate) -> int:
     total = 0
-    menu_prices = {
-        1: 3500,
-        2: 4500,
-        3: 4500,
-        4: 5000,
-        5: 5500,
-        6: 5500,
-        7: 6000,
-        8: 7000,
-    }
+    catalog = menu_service.fetch_catalog()
+    menu_prices = {item["id"]: item["price"] for item in catalog["menu"]}
+    surcharges = catalog["surcharges"]
     for item in payload.items:
         price = menu_prices.get(item.menu_id)
         if price is None:
             raise UnknownMenu(f"unknown menu_id={item.menu_id}")
         line = price * item.qty
         if item.options.shot == "추가":
-            line += 500 * item.qty
+            line += surcharges.get("shot:추가", 0) * item.qty
         if item.options.milk == "저지방":
-            line += 300 * item.qty
+            line += surcharges.get("milk:저지방", 0) * item.qty
         total += line
     return total
 

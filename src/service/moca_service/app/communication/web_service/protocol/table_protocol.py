@@ -1,9 +1,9 @@
 import struct
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any
 
-from app.domain.table_assignment_runtime import StoreTable
-from app.protocol.header_protocol import STATUS_OK, decode_error_payload, encode_error_payload
+from app.communication.web_service.protocol.header_protocol import STATUS_OK, decode_error_payload, encode_error_payload
+from app.service.request_models import TableAssignmentRequest
 
 MAX_U16 = 0xFFFF
 MAX_U32 = 0xFFFFFFFF
@@ -12,17 +12,15 @@ TABLE_STATUS_OCCUPIED = 1
 RECEIVE_TAKE_OUT = 0
 RECEIVE_DINE_IN = 1
 
-ReceiveType = Literal["take_out", "dine_in"]
-
 
 @dataclass(frozen=True)
 class TableResponse:
-    tables: list[StoreTable] | None = None
+    tables: list[Any] | None = None
     error_code: int | None = None
     message: str = ""
 
     @classmethod
-    def ok(cls, tables: list[StoreTable]) -> "TableResponse":
+    def ok(cls, tables: list[Any]) -> "TableResponse":
         return cls(tables=tables)
 
     @classmethod
@@ -32,13 +30,6 @@ class TableResponse:
     @property
     def is_error(self) -> bool:
         return self.error_code is not None
-
-
-@dataclass(frozen=True)
-class TableAssignmentRequest:
-    order_id: int
-    receive_type: ReceiveType
-    table_number: int
 
 
 @dataclass(frozen=True)
@@ -59,17 +50,6 @@ class TableAssignmentResponse:
         return self.error_code is not None
 
 
-def encode_table_payload(tables: list[StoreTable]) -> bytes:
-    """Encode all table runtime states into a MOCA table payload."""
-
-    frame = bytearray([STATUS_OK])
-    frame.extend(struct.pack(">H", _bounded_int(len(tables), "table_count", MAX_U16)))
-    for table in tables:
-        frame.extend(struct.pack(">H", _bounded_int(table.table_number, "table_number", MAX_U16)))
-        frame.append(_encode_table_status(table.status))
-    return bytes(frame)
-
-
 def parse_table_assignment_payload(payload: bytes) -> TableAssignmentRequest:
     if len(payload) != 7:
         raise ValueError(f"invalid table assignment payload length: {len(payload)}")
@@ -82,8 +62,23 @@ def parse_table_assignment_payload(payload: bytes) -> TableAssignmentRequest:
     return TableAssignmentRequest(order_id=order_id, receive_type=receive_type, table_number=table_number)
 
 
-def encode_table_assignment_success_payload() -> bytes:
-    return bytes([STATUS_OK])
+def encode_table_response_payload(response: TableResponse) -> bytes:
+    if response.is_error:
+        if response.error_code is None:
+            raise ValueError("table response missing error code")
+        return encode_error_payload(response.error_code, response.message)
+    if response.tables is None:
+        raise ValueError("table response missing table data")
+    return encode_table_payload(response.tables)
+
+
+def encode_table_payload(tables: list[Any]) -> bytes:
+    frame = bytearray([STATUS_OK])
+    frame.extend(struct.pack(">H", _bounded_int(len(tables), "table_count", MAX_U16)))
+    for table in tables:
+        frame.extend(struct.pack(">H", _bounded_int(_table_number(table), "table_number", MAX_U16)))
+        frame.append(_encode_table_status(_table_status(table)))
+    return bytes(frame)
 
 
 def encode_table_assignment_response_payload(response: TableAssignmentResponse) -> bytes:
@@ -91,7 +86,7 @@ def encode_table_assignment_response_payload(response: TableAssignmentResponse) 
         if response.error_code is None:
             raise ValueError("table assignment response missing error code")
         return encode_error_payload(response.error_code, response.message)
-    return encode_table_assignment_success_payload()
+    return bytes([STATUS_OK])
 
 
 def decode_table_assignment_response_payload(payload: bytes) -> tuple[bool, int | None, str | None]:
@@ -101,16 +96,16 @@ def decode_table_assignment_response_payload(payload: bytes) -> tuple[bool, int 
     return False, error_code, message
 
 
-def encode_table_response_payload(response: TableResponse) -> bytes:
-    """Encode a table response payload."""
+def _table_number(table: Any) -> int:
+    if isinstance(table, dict):
+        return int(table.get("table_number", table.get("id", 0)))
+    return int(getattr(table, "table_number"))
 
-    if response.is_error:
-        if response.error_code is None:
-            raise ValueError("table response missing error code")
-        return encode_error_payload(response.error_code, response.message)
-    if response.tables is None:
-        raise ValueError("table response missing table data")
-    return encode_table_payload(response.tables)
+
+def _table_status(table: Any) -> str:
+    if isinstance(table, dict):
+        return str(table.get("status", ""))
+    return str(getattr(table, "status"))
 
 
 def _encode_table_status(status: str) -> int:
@@ -121,7 +116,7 @@ def _encode_table_status(status: str) -> int:
     raise ValueError(f"invalid table status={status}")
 
 
-def _decode_receive_type(value: int) -> ReceiveType:
+def _decode_receive_type(value: int) -> str:
     if value == RECEIVE_TAKE_OUT:
         return "take_out"
     if value == RECEIVE_DINE_IN:

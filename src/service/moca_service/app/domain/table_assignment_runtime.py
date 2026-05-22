@@ -58,6 +58,16 @@ class TableAssignmentRuntime:
             self._status[table_id] = "occupied"
             return table_id
 
+    def try_occupy_by_table_number(self, table_number: int) -> tuple[int | None, str]:
+        with self._lock:
+            table_id = self._find_table_id_for_number(table_number)
+            if table_id is None:
+                return None, f"unknown table_number={table_number}"
+            if self._status[table_id] == "occupied":
+                return None, f"table {table_id} is already occupied"
+            self._status[table_id] = "occupied"
+            return table_id, ""
+
     def release(self, table_id: int) -> None:
         with self._lock:
             if table_id not in self._tables:
@@ -75,7 +85,13 @@ class TableAssignmentRuntime:
             raise TableUnavailable(f"table {table_id} is already occupied")
 
     def _table_id_for_number(self, table_number: int) -> int:
+        table_id = self._find_table_id_for_number(table_number)
+        if table_id is not None:
+            return table_id
+        raise TableUnavailable(f"unknown table_number={table_number}")
+
+    def _find_table_id_for_number(self, table_number: int) -> int | None:
         for table in self._tables.values():
             if table.table_number == table_number:
                 return table.table_id
-        raise TableUnavailable(f"unknown table_number={table_number}")
+        return None
