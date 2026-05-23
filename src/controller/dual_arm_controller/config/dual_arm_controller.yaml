@@ -1,3 +1,0 @@
-dual_arm_controller:
-  ros__parameters:
-    controller_name: dual_arm_controller

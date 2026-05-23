@@ -41,13 +41,13 @@ rosbag2_*/
 
 # === Heavy assets (Phase 0-A에서 가져온 cabot 자산) ===
 # 이 디렉토리들은 별도 관리 (git-lfs 또는 다운로드 스크립트)
-# root anchor — src/moca_gazebo/models/ 등 sub-디렉토리 추적 가능
 **/maps/
 **/datasets/
 **/web/
 **/tools/
 **/models/
 !src/service/web_service/app/models/
+!src/service/web_service/app/models/**
 !src/service/web_service/app/models/**
 
 # OpenArm CAN upstream Launchpad release packaging encrypted files; not needed for this demo.
@@ -58,6 +58,8 @@ src/controller/ddooby_controller/openarm_vendor/openarm_can/packages/release-key
 *.pt              # YOLO weights
 *.pth             # PyTorch checkpoints
 *.onnx
+*.task
+*.tflite
 *.gguf            # LLM weights
 *.bin
 # audio assets (TTS reference 등) — 별도 다운로드 스크립트로 관리

@@ -9,7 +9,7 @@ from launch_ros.substitutions import FindPackageShare
 def spawn_model(name, model_dir, x, y, z, delay, roll=0.0, pitch=0.0, yaw=0.0):
     model_path = PathJoinSubstitution([
         FindPackageShare("ddooby_controller"),
-        "models",
+        "assets",
         model_dir,
         "model.sdf",
     ])
@@ -45,8 +45,9 @@ def generate_launch_description():
     set_pose_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
+        name="beverage_set_pose_bridge",
         arguments=[
-            "/world/default/set_pose@ros_gz_interfaces/srv/SetEntityPose",
+            "/world/default/set_pose@ros_gz_interfaces/srv/SetEntityPose@gz.msgs.Pose@gz.msgs.Boolean",
         ],
         output="screen",
     )

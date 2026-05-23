@@ -21,6 +21,8 @@
 #include <moveit/robot_state/robot_state.hpp>
 #include <moveit_msgs/msg/robot_trajectory.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <ros_gz_interfaces/msg/entity.hpp>
+#include <ros_gz_interfaces/srv/set_entity_pose.hpp>
 #include <trajectory_msgs/msg/joint_trajectory.hpp>
 
 namespace
@@ -101,6 +103,99 @@ geometry_msgs::msg::Pose rotatePoseLocal(
   rotated_pose.orientation.z = rotated_orientation.z();
   rotated_pose.orientation.w = rotated_orientation.w();
   return rotated_pose;
+}
+
+geometry_msgs::msg::Pose makePose(
+  double x, double y, double z, double roll = 0.0, double pitch = 0.0, double yaw = 0.0)
+{
+  geometry_msgs::msg::Pose pose;
+  pose.position.x = x;
+  pose.position.y = y;
+  pose.position.z = z;
+
+  const Eigen::Quaterniond orientation =
+    Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
+    Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+    Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+  pose.orientation.x = orientation.x();
+  pose.orientation.y = orientation.y();
+  pose.orientation.z = orientation.z();
+  pose.orientation.w = orientation.w();
+  return pose;
+}
+
+struct GazeboModelInitialPose
+{
+  std::string name;
+  geometry_msgs::msg::Pose pose;
+};
+
+bool setGazeboModelPose(
+  const rclcpp::Node::SharedPtr & node,
+  const std::string & service_name,
+  const GazeboModelInitialPose & model,
+  double timeout_sec)
+{
+  using SetEntityPose = ros_gz_interfaces::srv::SetEntityPose;
+
+  auto client = node->create_client<SetEntityPose>(service_name);
+  const auto timeout = std::chrono::duration<double>(timeout_sec);
+  if (!client->wait_for_service(timeout)) {
+    RCLCPP_ERROR(
+      node->get_logger(),
+      "Gazebo set pose service '%s' unavailable while resetting '%s'",
+      service_name.c_str(),
+      model.name.c_str());
+    return false;
+  }
+
+  auto request = std::make_shared<SetEntityPose::Request>();
+  request->entity.name = model.name;
+  request->entity.type = ros_gz_interfaces::msg::Entity::MODEL;
+  request->pose = model.pose;
+
+  auto future = client->async_send_request(request);
+  if (future.wait_for(timeout) != std::future_status::ready) {
+    RCLCPP_ERROR(
+      node->get_logger(),
+      "Timed out resetting Gazebo model '%s' through service '%s'",
+      model.name.c_str(),
+      service_name.c_str());
+    return false;
+  }
+
+  const auto response = future.get();
+  if (!response->success) {
+    RCLCPP_ERROR(node->get_logger(), "Gazebo rejected reset pose for model '%s'", model.name.c_str());
+    return false;
+  }
+  RCLCPP_INFO(
+    node->get_logger(),
+    "Reset Gazebo model '%s' to [%.3f, %.3f, %.3f]",
+    model.name.c_str(),
+    model.pose.position.x,
+    model.pose.position.y,
+    model.pose.position.z);
+  return true;
+}
+
+bool resetGazeboBeverageObjects(
+  const rclcpp::Node::SharedPtr & node,
+  const std::string & service_name,
+  const std::vector<GazeboModelInitialPose> & model_poses,
+  double timeout_sec,
+  double settle_time_sec)
+{
+  for (const auto & model : model_poses) {
+    if (!setGazeboModelPose(node, service_name, model, timeout_sec)) {
+      return false;
+    }
+  }
+
+  if (settle_time_sec > 0.0) {
+    std::this_thread::sleep_for(std::chrono::duration<double>(settle_time_sec));
+  }
+  return true;
 }
 
 double computePourAngleTowardTarget(
@@ -3563,6 +3658,14 @@ int main(int argc, char ** argv)
     getOrDeclareParameter<std::string>(node, "pickup_model", "pickup_zone");
   const std::string gazebo_pose_topic =
     getOrDeclareParameter<std::string>(node, "gazebo_pose_topic", "/world/default/pose/info");
+  const std::string gazebo_set_pose_service =
+    getOrDeclareParameter<std::string>(node, "gazebo_set_pose_service", "/world/default/set_pose");
+  const bool reset_world_on_start =
+    getOrDeclareParameter<bool>(node, "reset_world_on_start", true);
+  const double reset_world_service_timeout =
+    getOrDeclareParameter<double>(node, "reset_world_service_timeout", 3.0);
+  const double reset_world_settle_time =
+    getOrDeclareParameter<double>(node, "reset_world_settle_time", 1.0);
   const double pose_timeout =
     getOrDeclareParameter<double>(node, "target_pose_timeout", 5.0);
   const double planning_time =
@@ -3618,6 +3721,32 @@ int main(int argc, char ** argv)
     rclcpp::shutdown();
     spinner.join();
     return 1;
+  }
+
+  if (reset_world_on_start) {
+    const std::vector<GazeboModelInitialPose> initial_model_poses{
+      {"espresso_cup", makePose(0.38, 0.21, 0.425)},
+      {"ade_cup", makePose(0.38, 0.07, 0.425)},
+      {mixing_model, makePose(0.38, -0.08, 0.425)},
+      {water_model, makePose(0.38, -0.22, 0.425)},
+      {"stir_stick_holder", makePose(0.38, 0.36, 0.37)},
+      {stir_stick_model, makePose(0.38, 0.36, 0.48)},
+      {pickup_model, makePose(0.025, -0.50, 0.35)}};
+    RCLCPP_INFO(
+      node->get_logger(),
+      "Resetting Gazebo beverage objects before task execution through '%s'",
+      gazebo_set_pose_service.c_str());
+    if (!resetGazeboBeverageObjects(
+        node,
+        gazebo_set_pose_service,
+        initial_model_poses,
+        reset_world_service_timeout,
+        reset_world_settle_time))
+    {
+      rclcpp::shutdown();
+      spinner.join();
+      return 1;
+    }
   }
 
   const bool requires_cup_tasks =

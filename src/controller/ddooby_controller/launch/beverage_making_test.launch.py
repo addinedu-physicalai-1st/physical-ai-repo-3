@@ -9,6 +9,7 @@ def generate_launch_description():
     ingredient_model = LaunchConfiguration("ingredient_model")
     start_step = LaunchConfiguration("start_step")
     end_step = LaunchConfiguration("end_step")
+    reset_world_on_start = LaunchConfiguration("reset_world_on_start")
 
     ingredient_model_arg = DeclareLaunchArgument(
         "ingredient_model",
@@ -24,6 +25,11 @@ def generate_launch_description():
         "end_step",
         default_value="",
         description="Optional last primitive step to run",
+    )
+    reset_world_on_start_arg = DeclareLaunchArgument(
+        "reset_world_on_start",
+        default_value="true",
+        description="Reset Gazebo beverage objects to their initial poses before running the task",
     )
 
     moveit_config = MoveItConfigsBuilder(
@@ -44,8 +50,11 @@ def generate_launch_description():
                 "stir_stick_model": "stir_stick",
                 "pickup_model": "pickup_zone",
                 "gazebo_pose_topic": "/world/default/pose/info",
+                "gazebo_set_pose_service": "/world/default/set_pose",
                 "start_step": start_step,
                 "end_step": end_step,
+                "reset_world_on_start": reset_world_on_start,
+                "reset_world_settle_time": 1.0,
                 "dual_arm_group": "both_arms",
                 "run_water": True,
                 "run_ingredient": True,
@@ -211,5 +220,6 @@ def generate_launch_description():
         ingredient_model_arg,
         start_step_arg,
         end_step_arg,
+        reset_world_on_start_arg,
         beverage_making_test_node,
     ])
