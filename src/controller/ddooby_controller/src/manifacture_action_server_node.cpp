@@ -88,7 +88,9 @@ std::optional<std::string> temporaryBackendForItem(const std::string & item_name
   if (containsAny(lowered, {"hot dog", "hotdog", "new york", "핫도그", "뉴욕", "cake", "케이크"})) {
     return "hotdog_placeholder";
   }
-  if (containsAny(lowered, {"ade", "lemonade", "smoothie", "에이드", "스무디", "딸기"})) {
+  if (containsAny(
+      lowered,
+      {"ade", "lemonade", "smoothie", "drink", "soda", "cola", "beverage", "에이드", "스무디", "딸기", "음료", "탄산", "콜라"})) {
     return "ade_cup";
   }
   if (containsAny(
@@ -212,6 +214,23 @@ public:
     start_step_ = declare_parameter<std::string>("start_step", "");
     end_step_ = declare_parameter<std::string>("end_step", "");
     command_timeout_sec_ = declare_parameter<double>("command_timeout_sec", 0.0);
+    execution_backend_ =
+      declare_parameter<std::string>("execution_backend", "temporary_beverage_test");
+    hotdog_task_executable_ =
+      declare_parameter<std::string>("hotdog_task_executable", "hotdog_making_node");
+    drink_task_executable_ =
+      declare_parameter<std::string>("drink_task_executable", "drink_serving_node");
+    scenario_step_delay_ms_ = declare_parameter<int>("scenario_step_delay_ms", 150);
+
+    if (execution_backend_ != "temporary_beverage_test" &&
+        execution_backend_ != "scenario_task_nodes")
+    {
+      RCLCPP_WARN(
+        get_logger(),
+        "Unknown execution_backend '%s'; falling back to temporary_beverage_test",
+        execution_backend_.c_str());
+      execution_backend_ = "temporary_beverage_test";
+    }
 
     using std::placeholders::_1;
     using std::placeholders::_2;
@@ -284,7 +303,7 @@ private:
 
     publishStatus(
       goal_handle,
-      "manufacture started: " + std::to_string(run_plan.size()) + " temporary task(s)");
+      "manufacture started: " + std::to_string(run_plan.size()) + " task(s)");
 
     for (size_t index = 0; index < run_plan.size(); ++index) {
       if (goal_handle->is_canceling()) {
@@ -296,7 +315,9 @@ private:
       std::ostringstream status;
       status << "manufacturing " << run.item_name << " with ";
       if (isHotdogPlaceholder(run)) {
-        status << "temporary hotdog placeholder";
+        status << hotdog_task_executable_;
+      } else if (useScenarioTaskNodes()) {
+        status << drink_task_executable_;
       } else {
         status << run.ingredient_model;
       }
@@ -304,7 +325,7 @@ private:
              << run.item_run_index << "/" << run.item_run_count << ")";
       publishStatus(goal_handle, status.str());
 
-      const ProcessResult process_result = runBeverageTestProcess(goal_handle, run);
+      const ProcessResult process_result = runManufactureTask(goal_handle, run);
       if (process_result.canceled) {
         finishCanceled(goal_handle, process_result.message);
         return;
@@ -323,7 +344,7 @@ private:
     auto result = std::make_shared<Manifacture::Result>();
     result->success = true;
     result->message =
-      "manufacture completed: " + std::to_string(run_plan.size()) + " temporary task(s)";
+      "manufacture completed: " + std::to_string(run_plan.size()) + " task(s)";
     goal_handle->succeed(result);
     RCLCPP_INFO(get_logger(), "%s", result->message.c_str());
   }
@@ -351,7 +372,7 @@ private:
       if (!ingredient_model.has_value()) {
         error =
           "unsupported manufacture item '" + item.name +
-          "': temporary backend supports coffee, ade, and hotdog items only";
+          "': backend supports coffee, ade/drink, and hotdog items only";
         return false;
       }
 
@@ -536,17 +557,93 @@ private:
     return ProcessResult{true, false, "Gazebo beverage objects reset"};
   }
 
+  bool useScenarioTaskNodes() const
+  {
+    return execution_backend_ == "scenario_task_nodes";
+  }
+
+  ProcessResult runManufactureTask(
+    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
+    const BeverageRun & run) const
+  {
+    if (isHotdogPlaceholder(run)) {
+      return runScenarioTaskProcess(
+        goal_handle,
+        run,
+        hotdog_task_executable_,
+        "Hotdog task scenario completed",
+        "");
+    }
+
+    if (useScenarioTaskNodes()) {
+      return runScenarioTaskProcess(
+        goal_handle,
+        run,
+        drink_task_executable_,
+        "Drink serving scenario completed",
+        run.ingredient_model);
+    }
+
+    return runBeverageTestProcess(goal_handle, run);
+  }
+
+  ProcessResult runScenarioTaskProcess(
+    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
+    const BeverageRun & run,
+    const std::string & executable,
+    const std::string & success_marker,
+    const std::string & drink_model) const
+  {
+    std::vector<std::string> args{
+      ros2_executable_,
+      "run",
+      "ddooby_controller",
+      executable,
+      "--ros-args",
+      "-p",
+      "item_name:=" + run.item_name,
+      "-p",
+      "scenario_only:=true",
+      "-p",
+      "step_delay_ms:=" + std::to_string(scenario_step_delay_ms_),
+    };
+    if (!drink_model.empty()) {
+      args.push_back("-p");
+      args.push_back("drink_model:=" + drink_model);
+    }
+
+    RCLCPP_INFO(get_logger(), "Starting scenario task process: %s", joinCommandForLog(args).c_str());
+    const auto command_result = runCommandAndCollectOutput(args, goal_handle, command_timeout_sec_);
+    if (command_result.canceled) {
+      return ProcessResult{false, true, "manufacture canceled while running " + executable};
+    }
+    if (!command_result.success) {
+      return ProcessResult{
+        false,
+        false,
+        executable + " failed for item '" + run.item_name + "': " + command_result.message};
+    }
+    if (command_result.output.find(success_marker) == std::string::npos) {
+      return ProcessResult{
+        false,
+        false,
+        executable + " exited without success marker for item '" + run.item_name + "'"};
+    }
+
+    return ProcessResult{true, false, executable + " completed"};
+  }
+
   ProcessResult runBeverageTestProcess(
     const std::shared_ptr<GoalHandleManifacture> & goal_handle,
     const BeverageRun & run) const
   {
     if (isHotdogPlaceholder(run)) {
-      RCLCPP_WARN(
-        get_logger(),
-        "Hotdog item '%s' completed by temporary placeholder; final hotdog backend is not wired yet",
-        run.item_name.c_str());
-      std::this_thread::sleep_for(500ms);
-      return ProcessResult{true, false, "temporary hotdog placeholder completed"};
+      return runScenarioTaskProcess(
+        goal_handle,
+        run,
+        hotdog_task_executable_,
+        "Hotdog task scenario completed",
+        "");
     }
 
     if (reset_world_on_start_ && use_gz_cli_reset_) {
@@ -760,6 +857,10 @@ private:
   std::string start_step_;
   std::string end_step_;
   double command_timeout_sec_;
+  std::string execution_backend_;
+  std::string hotdog_task_executable_;
+  std::string drink_task_executable_;
+  int scenario_step_delay_ms_;
   rclcpp_action::Server<Manifacture>::SharedPtr action_server_;
   mutable std::mutex active_goal_mutex_;
   bool active_goal_{false};

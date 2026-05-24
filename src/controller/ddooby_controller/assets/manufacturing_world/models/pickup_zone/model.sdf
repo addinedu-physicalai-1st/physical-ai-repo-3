@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="pickup_zone">
+    <static>true</static>
+    <link name="pickup_zone_link">
+      <inertial>
+        <mass>4.000000</mass>
+        <inertia>
+          <ixx>0.004000000</ixx>
+          <iyy>0.004000000</iyy>
+          <izz>0.004000000</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="pickup_zone_visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/pickup_zone.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.025000 0.162500 0.087500 1.000000</ambient>
+          <diffuse>0.100000 0.650000 0.350000 1.000000</diffuse>
+          <specular>0.120000 0.120000 0.120000 1.000000</specular>
+        </material>
+      </visual>
+      <collision name="pickup_zone_pickup_zone_table_visual_collision">
+        <pose>-0.158457279 0.000000000 -0.126734689 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.649999976 0.270000011 0.039999992</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+    </link>
+  </model>
+</sdf>

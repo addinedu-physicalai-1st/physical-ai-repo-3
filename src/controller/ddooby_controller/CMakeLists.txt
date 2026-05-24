@@ -19,6 +19,16 @@ ament_target_dependencies(manifacture_action_server_node
   custom_msg
 )
 
+add_executable(hotdog_making_node src/hotdog_making_node.cpp)
+ament_target_dependencies(hotdog_making_node
+  rclcpp
+)
+
+add_executable(drink_serving_node src/drink_serving_node.cpp)
+ament_target_dependencies(drink_serving_node
+  rclcpp
+)
+
 add_executable(beverage_making_test_node src/beverage_making_test_node.cpp)
 ament_target_dependencies(beverage_making_test_node
   rclcpp
@@ -33,7 +43,14 @@ target_link_libraries(beverage_making_test_node
 
 install(TARGETS
   beverage_making_test_node
+  drink_serving_node
+  hotdog_making_node
   manifacture_action_server_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/sync_planning_scene_from_layout.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

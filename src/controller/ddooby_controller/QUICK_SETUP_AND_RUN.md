@@ -182,7 +182,32 @@ export MPLCONFIGDIR=/tmp/moca_matplotlib
 ros2 launch dobi_npc_bringup dev_common.launch.py fullscreen:=false initial_mode:=idle
 ```
 
-### 터미널 2. Gazebo 음료 제조 station
+### 터미널 2. Gazebo 제조 world
+
+커밋된 `assets/manufacturing_world/layout.json`과 `assets/manufacturing_world/models/`를 기준으로 제조 Gazebo world를 실행합니다. 각 물체는 Gazebo 안에서 개별 model/entity로 spawn됩니다.
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
+  ros2 launch ddooby_controller manufacturing_world_gz.launch.py
+```
+
+Gazebo 제조 world, MoveGroup, RViz를 한 번에 띄우고 RViz에서 로봇 제어를 확인하려면 아래처럼 실행합니다. 이 경우 터미널 3, 터미널 4는 따로 실행하지 않아도 됩니다.
+`layout.json`과 각 `model.sdf`의 collision box도 MoveIt planning scene에 자동 반영되므로 RViz MotionPlanning 화면에서 제조 물체를 장애물로 볼 수 있습니다.
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
+  ros2 launch ddooby_controller manufacturing_world_gz.launch.py with_rviz:=true
+```
+
+기존 테스트 station만 독립적으로 실행하고 싶을 때는 아래 launch도 사용할 수 있습니다.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -218,7 +243,7 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optim
 
 ### 추가 터미널. ddooby_controller 제조 action server
 
-`moca_service`가 제조 요청을 보낼 `custom_msg/action/Manifacture.action` server입니다. Gazebo station과 MoveGroup이 먼저 떠 있어야 커피/에이드 제조 테스트 노드가 실제 Gazebo 모션을 실행할 수 있습니다.
+`moca_service`가 제조 요청을 보낼 `custom_msg/action/Manifacture.action` server입니다. Gazebo world와 MoveGroup이 먼저 떠 있어야 기본 backend에서 커피/에이드 제조 테스트 노드가 실제 Gazebo 모션을 실행할 수 있습니다.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -231,6 +256,12 @@ export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 
 ros2 launch ddooby_controller manifacture_action_server.launch.py
+```
+
+실제 제조 task-node skeleton만 확인하려면 아래처럼 실행합니다. 이 모드는 아직 실제 MoveIt 경로를 수행하지 않고, `hotdog_making_node`와 `drink_serving_node`의 시나리오 단계만 실행합니다.
+
+```bash
+ros2 launch ddooby_controller manifacture_action_server.launch.py execution_backend:=scenario_task_nodes
 ```
 
 정상 로그:
@@ -465,7 +496,7 @@ receive_type = TAKE_OUT
 
 ```text
 터미널 1. ROS bringup
-터미널 2. Gazebo 음료 제조 station
+터미널 2. Gazebo 제조 world
 터미널 3. MoveGroup
 터미널 4. RViz
 터미널 6. moca_service

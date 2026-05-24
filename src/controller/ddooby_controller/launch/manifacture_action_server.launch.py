@@ -10,6 +10,8 @@ def generate_launch_description():
     reset_world_on_start = LaunchConfiguration("reset_world_on_start")
     start_step = LaunchConfiguration("start_step")
     end_step = LaunchConfiguration("end_step")
+    execution_backend = LaunchConfiguration("execution_backend")
+    scenario_step_delay_ms = LaunchConfiguration("scenario_step_delay_ms")
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -37,6 +39,16 @@ def generate_launch_description():
             default_value="",
             description="Optional last primitive step passed to beverage_making_test.launch.py",
         ),
+        DeclareLaunchArgument(
+            "execution_backend",
+            default_value="temporary_beverage_test",
+            description="temporary_beverage_test keeps the current Gazebo beverage backend; scenario_task_nodes runs the hotdog/drink task-node skeletons",
+        ),
+        DeclareLaunchArgument(
+            "scenario_step_delay_ms",
+            default_value="150",
+            description="Delay between scenario skeleton steps when task-node backend is used",
+        ),
         Node(
             package="ddooby_controller",
             executable="manifacture_action_server_node",
@@ -49,6 +61,8 @@ def generate_launch_description():
                     "reset_world_on_start": reset_world_on_start,
                     "start_step": start_step,
                     "end_step": end_step,
+                    "execution_backend": execution_backend,
+                    "scenario_step_delay_ms": scenario_step_delay_ms,
                 }
             ],
         ),

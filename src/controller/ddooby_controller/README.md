@@ -13,10 +13,15 @@ src/controller/ddooby_controller/
 ├── include/
 ├── launch/
 │   ├── beverage_making_test.launch.py
-│   └── beverage_station_gz.launch.py
+│   ├── beverage_station_gz.launch.py
+│   ├── manufacturing_world_gz.launch.py
+│   └── manifacture_action_server.launch.py
 ├── assets/
 ├── src/
-│   └── beverage_making_test_node.cpp
+│   ├── beverage_making_test_node.cpp
+│   ├── drink_serving_node.cpp
+│   ├── hotdog_making_node.cpp
+│   └── manifacture_action_server_node.cpp
 └── openarm_vendor/
     ├── openarm/
     ├── openarm_bimanual_moveit_config/
@@ -26,15 +31,45 @@ src/controller/ddooby_controller/
     └── openarm_gazebo/
 ```
 
-현재 최종 task 노드는 `beverage_making_test_node` 하나입니다.
+현재 `beverage_making_test_node`는 주문-제조 연동 검증용 임시 backend입니다. 실제 제조 준비 구조는 아래처럼 분리합니다.
+
+```text
+manufacturing_world_gz.launch.py
+  - 제조 월드 entrypoint
+  - assets/manufacturing_world/layout.json을 기준으로 개별 Gazebo model/entity spawn
+  - Gazebo reset, pick/place, 제조 task에서 물체별 entity를 제어할 수 있게 유지
+
+manifacture_action_server_node
+  - custom_msg/action/Manifacture.action server
+  - item/count를 task queue로 전개
+  - count를 하나씩 줄이며 hotdog/drink task로 전이
+  - 모든 task 성공 시 action result success 반환
+
+hotdog_making_node
+  - 뉴욕 핫도그 1개 제조 task skeleton
+  - case -> bread -> sausage -> ketchup -> pickup zone 순서
+
+drink_serving_node
+  - 음료 1개 제공 task skeleton
+  - fridge open -> drink pick -> pickup zone 순서
+```
+
+`manifacture_action_server_node`의 `execution_backend` 파라미터는 두 가지입니다.
+
+```text
+temporary_beverage_test  기존 Gazebo 음료 제조 테스트 backend 유지
+scenario_task_nodes      hotdog_making_node/drink_serving_node skeleton 실행
+```
+
+기본값은 기존 웹 주문-가제보 검증을 깨지 않기 위해 `temporary_beverage_test`입니다.
 
 ## 빠른 설치 절차
 
-이미 이 repo를 clone 받은 상태를 기준으로 합니다. 아래 명령어는 repo 최상위 경로에서 실행합니다. `~/Desktop/physical-ai-repo-3`는 예시 경로이므로, 다른 위치에 clone했다면 해당 repo 경로로 바꿔 실행합니다.
+이미 이 repo를 clone 받은 상태를 기준으로 합니다. 아래 명령어는 repo 안 아무 위치에서 실행해도 `git rev-parse --show-toplevel`로 repo 최상위 경로를 찾아 이동합니다.
 ROS 2 Jazzy와 `rosdep`, `colcon`은 먼저 설치되어 있어야 합니다. Gazebo, MoveIt, RViz, ros2_control 관련 의존성은 아래 `rosdep install` 단계에서 package.xml 기준으로 설치됩니다.
 
 ```bash
-cd ~/Desktop/physical-ai-repo-3
+cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 sudo rosdep init  # 처음 한 번만 실행합니다. 이미 초기화되어 있으면 생략합니다.
 rosdep update
@@ -73,7 +108,7 @@ kill <PID>
 빠른 설치 절차에서 이미 빌드했다면 이 단계는 생략할 수 있습니다.
 
 ```bash
-cd ~/Desktop/physical-ai-repo-3
+cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 colcon build \
   --base-paths src/controller/ddooby_controller src/controller/ddooby_controller/openarm_vendor
@@ -85,7 +120,7 @@ source install/setup.bash
 터미널 1: Gazebo station 실행
 
 ```bash
-cd ~/Desktop/physical-ai-repo-3
+cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
@@ -95,7 +130,7 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optim
 터미널 2: MoveGroup 실행
 
 ```bash
-cd ~/Desktop/physical-ai-repo-3
+cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch openarm_gazebo move_group_gz.launch.py
@@ -106,7 +141,7 @@ MoveGroup 로그에 `You can start planning now!`가 출력된 뒤 다음 단계
 터미널 3: RViz 실행
 
 ```bash
-cd ~/Desktop/physical-ai-repo-3
+cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
@@ -118,7 +153,7 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optim
 에스프레소 원액 컵을 사용할 때:
 
 ```bash
-cd ~/Desktop/physical-ai-repo-3
+cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch ddooby_controller beverage_making_test.launch.py ingredient_model:=espresso_cup
@@ -127,7 +162,7 @@ ros2 launch ddooby_controller beverage_making_test.launch.py ingredient_model:=e
 에이드 원액 컵을 사용할 때:
 
 ```bash
-cd ~/Desktop/physical-ai-repo-3
+cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch ddooby_controller beverage_making_test.launch.py ingredient_model:=ade_cup
@@ -166,8 +201,55 @@ stir_cleanup, pickup_place
 ros2 pkg executables ddooby_controller
 ```
 
-정상적으로 빌드되면 아래 실행 파일 하나가 보여야 합니다.
+정상적으로 빌드되면 아래 실행 파일들이 보여야 합니다.
 
 ```text
 ddooby_controller beverage_making_test_node
+ddooby_controller drink_serving_node
+ddooby_controller hotdog_making_node
+ddooby_controller manifacture_action_server_node
+ddooby_controller sync_planning_scene_from_layout.py
+```
+
+
+## Manufacturing Gazebo World
+
+제조 Gazebo world는 커밋된 runtime asset을 기준으로 실행합니다.
+
+```text
+src/controller/ddooby_controller/assets/manufacturing_world/layout.json
+src/controller/ddooby_controller/assets/manufacturing_world/models/<object_name>/model.sdf
+src/controller/ddooby_controller/assets/manufacturing_world/models/<object_name>/meshes/<object_name>.obj
+```
+
+제조 world만 실행:
+
+```bash
+ros2 launch ddooby_controller manufacturing_world_gz.launch.py
+```
+
+MoveGroup/RViz와 함께 실행:
+
+```bash
+ros2 launch ddooby_controller manufacturing_world_gz.launch.py with_rviz:=true
+```
+
+`with_rviz:=true` 또는 `with_moveit:=true`를 사용하면 export된 SDF collision box가 MoveIt planning scene에도 반영됩니다.
+
+월드 편집 원본과 모델링 작업 메모는 로컬 개발용 `src/controller/ddooby_controller/modeling/` 아래에 있으며, 이 폴더는 `.gitignore` 대상입니다.
+
+## 실제 제조 skeleton 실행
+
+현재 제조 시나리오 골격만 빠르게 확인하려면 action server를 아래처럼 실행합니다.
+
+```bash
+ros2 launch ddooby_controller manifacture_action_server.launch.py execution_backend:=scenario_task_nodes
+```
+
+이 모드에서는 `Manifacture.action` goal을 받으면 커피/에이드/음료 계열은 `drink_serving_node`, 핫도그 계열은 `hotdog_making_node`를 실행합니다. 각 task node는 아직 실제 MoveIt 경로를 수행하지 않고, 최종 제조 단계의 순서를 로그로 실행한 뒤 success marker를 남깁니다.
+
+기존 Gazebo 음료 제조 테스트를 계속 검증하려면 기본값 그대로 실행합니다.
+
+```bash
+ros2 launch ddooby_controller manifacture_action_server.launch.py
 ```

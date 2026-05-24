@@ -11,13 +11,18 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>custom_msg</depend>
+  <depend>geometry_msgs</depend>
+  <depend>moveit_msgs</depend>
   <depend>trajectory_msgs</depend>
+  <depend>shape_msgs</depend>
   <depend>moveit_ros_planning_interface</depend>
   <depend>ros_gz_interfaces</depend>
   <depend>gz_msgs_vendor</depend>
   <depend>gz_transport_vendor</depend>
 
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>moveit_configs_utils</exec_depend>
+  <exec_depend>rclpy</exec_depend>
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>openarm_bimanual_moveit_config</exec_depend>
   <exec_depend>openarm_gazebo</exec_depend>

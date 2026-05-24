@@ -1,0 +1,137 @@
+{
+  "source": "manufacturing_world_export",
+  "collections": [
+    "Environment",
+    "Object"
+  ],
+  "models": [
+    {
+      "name": "table",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/table",
+      "xyz": [
+        0.490793,
+        0.190141,
+        0.124958
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 4.0
+    },
+    {
+      "name": "pickup_zone",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/pickup_zone",
+      "xyz": [
+        0.025,
+        -0.565594,
+        0.35
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 4.5
+    },
+    {
+      "name": "tray_stand",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/tray_stand",
+      "xyz": [
+        0.633395,
+        0.183832,
+        0.36827
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 5.0
+    },
+    {
+      "name": "tray",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/tray",
+      "xyz": [
+        0.315891,
+        0.181481,
+        0.282603
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 5.5
+    },
+    {
+      "name": "bread1",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/bread1",
+      "xyz": [
+        0.384483,
+        0.182663,
+        0.303284
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 6.0
+    },
+    {
+      "name": "bread2",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/bread2",
+      "xyz": [
+        0.313305,
+        0.182663,
+        0.303284
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 6.5
+    },
+    {
+      "name": "bread3",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/bread3",
+      "xyz": [
+        0.240355,
+        0.182663,
+        0.303284
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 7.0
+    },
+    {
+      "name": "kachup",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/kachup",
+      "xyz": [
+        0.694688,
+        0.182718,
+        0.571259
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 7.5
+    }
+  ]
+}
