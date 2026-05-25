@@ -22,13 +22,15 @@
 
 
     <load_composable_node target="$(var container_name)" if="$(var use_composition)">    
-        <composable_node pkg="nav2_controller" plugin="nav2_controller::ControllerServer" name="controller_server">            
+        <composable_node pkg="nav2_controller" plugin="nav2_controller::ControllerServer" name="controller_server">
             <param from="$(var params_file)"/>
             <param name="use_sim_time" value="$(var use_sim_time)"/>
             <param name="autostart" value="$(var autostart)"/>
 
             <remap from="/tf" to="tf"/>
             <remap from="/tf_static" to="tf_static"/>
+            <!-- 2026-05-24: composable 분기에 cmd_vel remap 누락 수정. non-composable 분기는 line 99 에 이미 있음. controller 가 /cmd_vel_nav 발행 → smoother → /bt/cmd_vel → twist_mux 정합. -->
+            <remap from="cmd_vel" to="cmd_vel_nav"/>
         </composable_node>
 
         <composable_node pkg="nav2_planner" plugin="nav2_planner::PlannerServer" name="planner_server">            
@@ -40,14 +42,16 @@
             <remap from="/tf_static" to="tf_static"/>
         </composable_node>  
 
-        <composable_node pkg="nav2_behaviors" plugin="behavior_server::BehaviorServer" name="behavior_server">            
+        <composable_node pkg="nav2_behaviors" plugin="behavior_server::BehaviorServer" name="behavior_server">
             <param from="$(var params_file)"/>
             <param name="use_sim_time" value="$(var use_sim_time)"/>
             <param name="autostart" value="$(var autostart)"/>
 
             <remap from="/tf" to="tf"/>
             <remap from="/tf_static" to="tf_static"/>
-        </composable_node>  
+            <!-- 2026-05-24: behavior_server (spin / backup / drive_on_heading) 도 cmd_vel 발행 → smoother chain 정합. -->
+            <remap from="cmd_vel" to="cmd_vel_nav"/>
+        </composable_node>
 
         <composable_node pkg="nav2_bt_navigator" plugin="nav2_bt_navigator::BtNavigator" name="bt_navigator">            
             <param from="$(var params_file)"/>

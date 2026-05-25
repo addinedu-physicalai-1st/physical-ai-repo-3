@@ -22,6 +22,7 @@ TS="$(date +%Y%m%d_%H%M%S)"
 LOGDIR="/tmp/moca_nav2_sim_${TS}"
 GAZEBO_LOG="${LOGDIR}/gazebo.log"
 NAV2_LOG="${LOGDIR}/nav2.log"
+TWISTMUX_LOG="${LOGDIR}/twist_mux.log"
 INITPOSE_LOG="${LOGDIR}/initpose.log"
 RVIZ_LOG="${LOGDIR}/rviz.log"
 
@@ -159,13 +160,27 @@ fi
 # 2. Nav2 bringup
 # ─────────────────────────────────────────────────────────────
 step "[2/4] Nav2 bringup"
-dim "map: $REPO/maps/mapv5_mocamap.yaml, use_sim_time: True"
-nohup ros2 launch moca_navigation bringup_launch.xml \
+# bringup_smac_mppi.launch.xml = bringup_launch.xml + params 만 nav2_params_smac_mppi.yaml
+# 로 override. planner=SmacPlanner2D, controller=MPPI(+PreferForwardCritic).
+# 배경: SmacHybrid+DWB 시 정차 직전 후미 충돌 (diff-drive 인데 Reeds-Shepp reverse
+#       경로 생성) -> SmacHybrid 영구 제외, 후진 차단 조합으로 대체. (2026-05-24)
+dim "map: $REPO/maps/mapv5_mocamap.yaml, use_sim_time: True, stack: SmacPlanner2D + MPPI"
+nohup ros2 launch moca_navigation bringup_smac_mppi.launch.xml \
   map:="$REPO/maps/mapv5_mocamap.yaml" \
   use_sim_time:=True \
   > "$NAV2_LOG" 2>&1 &
 NAV2_PID=$!
 dim "launcher PID = $NAV2_PID, log = $NAV2_LOG"
+
+# twist_mux (시뮬 전용) — Nav2 의 /bt/cmd_vel 을 Gazebo 구독 토픽 /cmd_vel 로 중계.
+# 시뮬엔 실물 RPi bringup 의 twist_mux 가 없어 cmd_vel chain 이 끊김 (로봇 안 움직임).
+# A 안: twist_mux -> /cmd_vel 직결 (실물의 velocity_smoother+collision_monitor 2단 생략).
+# e_stop lock 제거판 (twist_mux_sim.yaml). 종료는 stop_all() 의 moca_navigation pkill 이 커버.
+dim "twist_mux 기동 (/bt/cmd_vel -> /cmd_vel chain 연결)"
+nohup ros2 launch moca_navigation twist_mux_sim.launch.xml \
+  > "$TWISTMUX_LOG" 2>&1 &
+TWISTMUX_PID=$!
+dim "launcher PID = $TWISTMUX_PID, log = $TWISTMUX_LOG"
 
 # Localization (map_server + amcl) active 대기 (최대 60초)
 # 주의: `ros2 lifecycle get` 은 composable 노드 가시성 이슈로 빈 응답 가능 →
