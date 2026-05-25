@@ -186,6 +186,14 @@ ros2 launch dobi_npc_bringup dev_common.launch.py fullscreen:=false initial_mode
 
 커밋된 `assets/manufacturing_world/layout.json`과 `assets/manufacturing_world/models/`를 기준으로 제조 Gazebo world를 실행합니다. 각 물체는 Gazebo 안에서 개별 model/entity로 spawn됩니다.
 
+실행 전에 기존 Gazebo/MoveIt/RViz 프로세스가 남아 있지 않은지 확인합니다. 중복 world가 떠 있으면 model이 중복 spawn되고 controller 상태가 꼬일 수 있습니다.
+
+```bash
+pgrep -af '[r]os2|[g]z sim|[r]viz2|[m]ove_group|[r]obot_state_publisher|[c]ontroller_manager|[h]otdog_making_node|[p]arameter_bridge|[s]pawner'
+```
+
+남아 있으면 해당 실행 터미널에서 `Ctrl+C`로 종료합니다. 터미널이 이미 닫힌 경우에만 PID를 확인해서 해당 PID만 종료합니다.
+
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
@@ -205,6 +213,13 @@ source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
   ros2 launch ddooby_controller manufacturing_world_gz.launch.py with_rviz:=true
+```
+
+아래 로그가 보이면 MoveIt planning scene까지 준비된 상태입니다.
+
+```text
+You can start planning now!
+applied 6 collision objects / 16 boxes to MoveIt planning scene
 ```
 
 기존 테스트 station만 독립적으로 실행하고 싶을 때는 아래 launch도 사용할 수 있습니다.
@@ -268,6 +283,60 @@ ros2 launch ddooby_controller manifacture_action_server.launch.py execution_back
 
 ```text
 DDooby manufacture action server ready: ddooby/manifacture
+```
+
+### 추가 터미널. 뉴욕 핫도그 빵 pick 검증
+
+터미널 2에서 `manufacturing_world_gz.launch.py with_rviz:=true`를 실행하고, planning scene sync 로그까지 확인한 뒤 실행합니다.
+
+계산만 먼저 확인:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+ros2 launch ddooby_controller hotdog_bread_pick.launch.py dry_run:=true
+```
+
+정상 로그 예:
+
+```text
+Target 'bread': xyz=[0.313 0.183 0.303], size=[0.150 0.050 0.025], principal=[1.000 0.000 0.000], closing=[-0.000 1.000 0.000]
+```
+
+실제 빵 pick 실행:
+
+```bash
+ros2 launch ddooby_controller hotdog_bread_pick.launch.py
+```
+
+주의:
+
+```text
+ros2 run ddooby_controller hotdog_making_node ...
+```
+
+위 방식으로 직접 실행하지 않습니다. MoveIt의 `robot_description_semantic` 파라미터가 주입되지 않아 robot model 생성에 실패합니다. 실제 MoveIt 제어는 `hotdog_bread_pick.launch.py`를 사용합니다.
+
+엔드이펙터 위치 확인:
+
+```bash
+ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
+```
+
+빵 layout 위치 확인:
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+layout = Path("src/controller/ddooby_controller/assets/manufacturing_world/layout.json")
+for model in json.loads(layout.read_text())["models"]:
+    if model["name"] == "bread":
+        print(model["xyz"])
+PY
 ```
 
 

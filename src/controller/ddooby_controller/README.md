@@ -14,6 +14,7 @@ src/controller/ddooby_controller/
 ├── launch/
 │   ├── beverage_making_test.launch.py
 │   ├── beverage_station_gz.launch.py
+│   ├── hotdog_bread_pick.launch.py
 │   ├── manufacturing_world_gz.launch.py
 │   └── manifacture_action_server.launch.py
 ├── assets/
@@ -237,6 +238,99 @@ ros2 launch ddooby_controller manufacturing_world_gz.launch.py with_rviz:=true
 `with_rviz:=true` 또는 `with_moveit:=true`를 사용하면 export된 SDF collision box가 MoveIt planning scene에도 반영됩니다.
 
 월드 편집 원본과 모델링 작업 메모는 로컬 개발용 `src/controller/ddooby_controller/modeling/` 아래에 있으며, 이 폴더는 `.gitignore` 대상입니다.
+
+## 뉴욕 핫도그 빵 Pick 검증
+
+`hotdog_making_node`의 첫 실제 MoveIt 검증 단계는 `bread_pick`입니다. 이 단계는 `assets/manufacturing_world/layout.json`과 `models/bread/model.sdf`의 collision box를 읽어서 빵의 주축을 계산하고, 주축 기준으로 파지 방향을 정합니다.
+
+현재 world 기준 빵 model 이름은 `bread`입니다. `bread1`, `bread2`, `bread3`는 사용하지 않습니다.
+
+먼저 기존 Gazebo/MoveIt/RViz 프로세스가 남아 있지 않게 정리합니다. 중복 world가 떠 있으면 model이 중복 spawn되고 controller 상태가 꼬일 수 있습니다.
+
+```bash
+pgrep -af '[r]os2|[g]z sim|[r]viz2|[m]ove_group|[r]obot_state_publisher|[c]ontroller_manager|[h]otdog_making_node|[p]arameter_bridge|[s]pawner'
+```
+
+남아 있는 프로세스는 해당 터미널에서 `Ctrl+C`로 종료합니다. 터미널이 이미 닫힌 경우에만 PID를 확인해서 해당 PID만 종료합니다.
+
+```bash
+kill <PID>
+```
+
+빌드:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+source /opt/ros/jazzy/setup.bash
+colcon build \
+  --base-paths src/controller/ddooby_controller src/controller/ddooby_controller/openarm_vendor \
+  --packages-select openarm_bimanual_moveit_config ddooby_controller \
+  --symlink-install
+source install/setup.bash
+```
+
+터미널 1: Gazebo + MoveGroup + RViz 실행
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
+  ros2 launch ddooby_controller manufacturing_world_gz.launch.py with_rviz:=true
+```
+
+아래 로그가 보이면 제조 world와 MoveIt planning scene 반영이 끝난 상태입니다.
+
+```text
+You can start planning now!
+applied 6 collision objects / 16 boxes to MoveIt planning scene
+```
+
+터미널 2: 빵 pick 계산만 확인
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+ros2 launch ddooby_controller hotdog_bread_pick.launch.py dry_run:=true
+```
+
+정상 로그 예:
+
+```text
+Target 'bread': xyz=[0.313 0.183 0.303], size=[0.150 0.050 0.025], principal=[1.000 0.000 0.000], closing=[-0.000 1.000 0.000]
+```
+
+터미널 2: 실제 빵 pick 실행
+
+```bash
+ros2 launch ddooby_controller hotdog_bread_pick.launch.py
+```
+
+`ros2 run ddooby_controller hotdog_making_node ...`로 직접 실행하지 않습니다. MoveIt의 `robot_description_semantic` 파라미터가 주입되지 않아 robot model 생성에 실패합니다. 실제 MoveIt 제어는 `hotdog_bread_pick.launch.py`를 사용합니다.
+
+실행 중 TCP와 빵 위치를 확인하려면:
+
+```bash
+ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
+```
+
+빵의 layout 기준 위치를 확인하려면:
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+layout = Path("src/controller/ddooby_controller/assets/manufacturing_world/layout.json")
+for model in json.loads(layout.read_text())["models"]:
+    if model["name"] == "bread":
+        print(model["xyz"])
+PY
+```
+
+`hotdog_bread_pick.launch.py`는 pre-grasp 도달 뒤 TCP x/y와 목표 x/y의 오차를 검사합니다. 기본 허용 오차는 `0.03m`입니다. approximate IK는 목표 x/y를 크게 놓칠 수 있어서 기본 비활성화되어 있습니다.
 
 ## 실제 제조 skeleton 실행
 

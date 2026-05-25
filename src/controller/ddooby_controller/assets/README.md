@@ -66,10 +66,8 @@ table
 pickup_zone
 tray_stand
 tray
-bread1
-bread2
-bread3
 kachup
+bread
 ```
 
 ## 수정 주의

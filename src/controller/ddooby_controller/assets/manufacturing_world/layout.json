@@ -70,54 +70,6 @@
       "spawn_delay_sec": 5.5
     },
     {
-      "name": "bread1",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/bread1",
-      "xyz": [
-        0.384483,
-        0.182663,
-        0.303284
-      ],
-      "rpy": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "spawn_delay_sec": 6.0
-    },
-    {
-      "name": "bread2",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/bread2",
-      "xyz": [
-        0.313305,
-        0.182663,
-        0.303284
-      ],
-      "rpy": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "spawn_delay_sec": 6.5
-    },
-    {
-      "name": "bread3",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/bread3",
-      "xyz": [
-        0.240355,
-        0.182663,
-        0.303284
-      ],
-      "rpy": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "spawn_delay_sec": 7.0
-    },
-    {
       "name": "kachup",
       "collection": "Object",
       "model_dir": "manufacturing_world/models/kachup",
@@ -131,7 +83,23 @@
         0.0,
         0.0
       ],
-      "spawn_delay_sec": 7.5
+      "spawn_delay_sec": 6.0
+    },
+    {
+      "name": "bread",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/bread",
+      "xyz": [
+        0.313305,
+        0.182663,
+        0.303284
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 6.5
     }
   ]
 }

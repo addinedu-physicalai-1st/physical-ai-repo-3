@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(ddooby_controller)
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(custom_msg REQUIRED)
@@ -20,7 +21,12 @@ ament_target_dependencies(manifacture_action_server_node
 )
 
 add_executable(hotdog_making_node src/hotdog_making_node.cpp)
+target_include_directories(hotdog_making_node PRIVATE
+  include
+)
 ament_target_dependencies(hotdog_making_node
+  ament_index_cpp
+  moveit_ros_planning_interface
   rclcpp
 )
 
@@ -58,6 +64,11 @@ install(DIRECTORY
   launch
   assets
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY
+  include/
+  DESTINATION include
 )
 
 ament_package()
