@@ -55,7 +55,6 @@ def main() -> None:
         product_repository,
         order_repository,
         order_item_repository,
-        store_table_repository,
         table_inmemory_state,
         logger,
     )
