@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from app.in_memory.table_inmemory_state import TableInMemory_state
+from app.in_memory.table_inmemory_state import TableInmemoryState
 from app.repository.order_repo import OrderItemCreate
 from app.service.request_models import OrderRequest, TableAssignmentRequest
 
@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from app.repository.catalog_repo import ProductRepository
     from app.repository.db import Database
     from app.repository.order_repo import OrderItemRepository, OrderRepository
-    from app.repository.table_repo import StoreTableRepository
+    from app.repository.table_repo import TableRepository
 
 
 @dataclass(frozen=True)
@@ -74,8 +74,8 @@ class OrderService:
         product_repository: "ProductRepository",
         order_repository: "OrderRepository",
         order_item_repository: "OrderItemRepository",
-        store_table_repository: "StoreTableRepository",
-        table_assignment_runtime: TableInMemory_state,
+        store_table_repository: "TableRepository",
+        table_assignment_runtime: TableInmemoryState,
         logger: logging.Logger,
     ):
         self.database = database
@@ -173,12 +173,12 @@ class OrderService:
                     latest_order = self.order_repository.get(request.order_id, conn)
         except Exception:
             if occupied_table_id is not None:
-                self.table_assignment_runtime.release(occupied_table_id)
+                self.table_assignment_runtime.release_by_table_number(request.table_number)
             raise
 
         if not updated:
             if occupied_table_id is not None:
-                self.table_assignment_runtime.release(occupied_table_id)
+                self.table_assignment_runtime.release_by_table_number(request.table_number)
             if latest_order is None:
                 return TableAssignmentResult.not_found(f"order {request.order_id} not found")
             latest_table_number = self._table_number_for_table_id(latest_order.table_id)

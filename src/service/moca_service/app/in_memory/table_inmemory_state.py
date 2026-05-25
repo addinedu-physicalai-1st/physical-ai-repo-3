@@ -1,10 +1,10 @@
 import threading
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Literal
-from app.repository.table_repo import StoreTableRepository
 
-TableStatus = Literal["empty", "occupied"]
+from app.repository.table_repo import TableRepository
+
+TableState = Literal["empty", "occupied"]
 
 
 class TableUnavailable(Exception):
@@ -13,80 +13,75 @@ class TableUnavailable(Exception):
 
 @dataclass(frozen=True)
 class TableItem:
+    table_id: int
     table_number: int
-    status: TableStatus
+    state: TableState
+
+    @property
+    def status(self) -> TableState:
+        return self.state
 
 
 class TableInmemoryState:
-    def __init__(self, table_repository: StoreTableRepository):
+    def __init__(self, table_repository: TableRepository):
         self.table_repository = table_repository
         self._lock = threading.RLock()
-        self._tables = {table.table_id: table for table in tables}
-        self._status: dict[int, TableStatus] = {table.table_id: "empty" for table in tables}
+        self._tables: dict[int, TableItem] = {}
+        self.reset(1)
 
-    def reset(self):
-        return [TableItem(table_number=table.table_number, status="empty") 
-                for table in table_repository.list_all()]
+    def reset(self, map_id: int) -> None:
+        tables = self.table_repository.list_by_map_id(map_id)
+        with self._lock:
+            self._tables = {
+                table.table_number: TableItem(
+                    table_id=table.table_id,
+                    table_number=table.table_number,
+                    state="empty",
+                )
+                for table in tables
+            }
 
     def list_tables(self) -> list[TableItem]:
         with self._lock:
-            return [
-                TableItem(
-                    table_id=table.table_id,
-                    table_number=table.table_number,
-                    pos_x=table.pos_x,
-                    pos_y=table.pos_y,
-                    status=self._status[table.table_id],
-                )
-                for table in self._tables.values()
-            ]
-
-    def occupy(self, table_id: int) -> None:
-        with self._lock:
-            self._require_available(table_id)
-            self._status[table_id] = "occupied"
+            return [self._tables[table_number] for table_number in sorted(self._tables)]
 
     def occupy_by_table_number(self, table_number: int) -> int:
         with self._lock:
-            table_id = self._table_id_for_number(table_number)
-            self._require_available(table_id)
-            self._status[table_id] = "occupied"
-            return table_id
+            self._require_available(table_number)
+            self._set_state(table_number, "occupied")
+            return self._table_id_for_number(table_number)
 
     def try_occupy_by_table_number(self, table_number: int) -> tuple[int | None, str]:
         with self._lock:
-            table_id = self._find_table_id_for_number(table_number)
-            if table_id is None:
+            if table_number not in self._tables:
                 return None, f"unknown table_number={table_number}"
-            if self._status[table_id] == "occupied":
-                return None, f"table {table_id} is already occupied"
-            self._status[table_id] = "occupied"
-            return table_id, ""
-
-    def release(self, table_id: int) -> None:
-        with self._lock:
-            if table_id not in self._tables:
-                raise TableUnavailable(f"unknown table_id={table_id}")
-            self._status[table_id] = "empty"
+            if self._tables[table_number].state == "occupied":
+                return None, f"table_number {table_number} is already occupied"
+            self._set_state(table_number, "occupied")
+            return self._table_id_for_number(table_number), ""
 
     def release_by_table_number(self, table_number: int) -> None:
         with self._lock:
-            self.release(self._table_id_for_number(table_number))
+            if table_number not in self._tables:
+                raise TableUnavailable(f"unknown table_number={table_number}")
+            self._set_state(table_number, "empty")
 
-    def _require_available(self, table_id: int) -> None:
-        if table_id not in self._tables:
-            raise TableUnavailable(f"unknown table_id={table_id}")
-        if self._status[table_id] == "occupied":
-            raise TableUnavailable(f"table {table_id} is already occupied")
+    def _require_available(self, table_number: int) -> None:
+        if table_number not in self._tables:
+            raise TableUnavailable(f"unknown table_number={table_number}")
+        if self._tables[table_number].state == "occupied":
+            raise TableUnavailable(f"table_number {table_number} is already occupied")
 
     def _table_id_for_number(self, table_number: int) -> int:
-        table_id = self._find_table_id_for_number(table_number)
-        if table_id is not None:
-            return table_id
-        raise TableUnavailable(f"unknown table_number={table_number}")
+        try:
+            return self._tables[table_number].table_id
+        except KeyError as exc:
+            raise TableUnavailable(f"unknown table_number={table_number}") from exc
 
-    def _find_table_id_for_number(self, table_number: int) -> int | None:
-        for table in self._tables.values():
-            if table.table_number == table_number:
-                return table.table_id
-        return None
+    def _set_state(self, table_number: int, state: TableState) -> None:
+        table = self._tables[table_number]
+        self._tables[table_number] = TableItem(
+            table_id=table.table_id,
+            table_number=table.table_number,
+            state=state,
+        )

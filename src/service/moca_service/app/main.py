@@ -20,7 +20,7 @@ from app.repository.catalog_repo import (
 )
 from app.repository.db import Database, DbConfig
 from app.repository.order_repo import OrderItemRepository, OrderRepository
-from app.repository.table_repo import StoreTableRepository
+from app.repository.table_repo import TableRepository
 from app.scheduler.order_orchestration_runtime import OrderOrchestrationRuntime
 from app.service.menu_service import MenuService
 from app.service.order_service import OrderService
@@ -48,7 +48,7 @@ def main() -> None:
     product_allergy_repository = ProductAllergyRepository(database)
     order_repository = OrderRepository(database)
     order_item_repository = OrderItemRepository(database)
-    store_table_repository = StoreTableRepository(database)
+    store_table_repository = TableRepository(database)
     table_inmemory_state = TableInmemoryState(store_table_repository)
     order_service = OrderService(
         database,
