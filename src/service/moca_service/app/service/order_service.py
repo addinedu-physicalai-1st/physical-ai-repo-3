@@ -136,7 +136,8 @@ class OrderService:
 
     def determine_receive_type(self, request: TableAssignmentRequest) -> DetermineReceiveTypeResult:
         # 1. Load the order and reject unknown order IDs.
-        order = self.order_repository.get(request.order_id)
+        with self.database.connect() as conn:
+            order = self.order_repository.get(conn, request.order_id)
         if order is None:
             return DetermineReceiveTypeResult.not_found(f"order {request.order_id} not found")
 
@@ -174,9 +175,9 @@ class OrderService:
     ) -> CreateOrderResult:
         product_ids = [item.product_id for item in request.items]
         products = self.product_repository.list_by_ids_and_status(
+            conn,
             product_ids,
             "ON_SALE",
-            conn,
         )
         prices = {product.product_id: product.price for product in products}
 
@@ -188,13 +189,14 @@ class OrderService:
 
         total_price = sum(prices[item.product_id] * item.quantity for item in request.items)
         order_id = self.order_repository.create(
+            conn,
             "COUNTER",
             "PENDING",
             None,
             total_price,
-            conn,
         )
         self.order_item_repository.create_many(
+            conn,
             [
                 OrderItemCreate(
                     order_id=order_id,
@@ -205,7 +207,6 @@ class OrderService:
                 )
                 for item in request.items
             ],
-            conn,
         )
         return CreateOrderResult.ok(
             CreatedOrder(order_id=order_id, total_price=total_price)
@@ -219,13 +220,13 @@ class OrderService:
     ) -> DetermineReceiveTypeResult:
         with self.database.transaction() as conn:
             updated = self.order_repository.update_assignment_if_pending(
+                conn,
                 request.order_id,
                 assignment_info.order_source,
                 assignment_info.receive_type,
                 assignment_result.table_id,
-                conn,
             )
-            latest_order = None if updated else self.order_repository.get(request.order_id, conn)
+            latest_order = None if updated else self.order_repository.get(conn, request.order_id)
 
         if updated:
             return DetermineReceiveTypeResult.ok()
@@ -281,3 +282,7 @@ class OrderService:
             if table.table_id == table_id:
                 return table.table_number
         return None
+
+    def list_recent_orders(self, limit: int = 20):
+        with self.database.connect() as conn:
+            return self.order_repository.list_recent(conn, limit)

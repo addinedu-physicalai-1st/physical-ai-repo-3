@@ -42,14 +42,14 @@ def main() -> None:
 
     # create Service, Repo
     database = Database(db_config)
-    product_repository = ProductRepository(database)
-    product_option_group_repository = ProductOptionGroupRepository(database)
-    allergy_category_repository = AllergyCategoryRepository(database)
-    product_allergy_repository = ProductAllergyRepository(database)
-    order_repository = OrderRepository(database)
-    order_item_repository = OrderItemRepository(database)
-    store_table_repository = TableRepository(database)
-    table_inmemory_state = TableInmemoryState(store_table_repository)
+    product_repository = ProductRepository()
+    product_option_group_repository = ProductOptionGroupRepository()
+    allergy_category_repository = AllergyCategoryRepository()
+    product_allergy_repository = ProductAllergyRepository()
+    order_repository = OrderRepository()
+    order_item_repository = OrderItemRepository()
+    store_table_repository = TableRepository()
+    table_inmemory_state = TableInmemoryState(database, store_table_repository)
     order_service = OrderService(
         database,
         product_repository,
@@ -59,6 +59,7 @@ def main() -> None:
         logger,
     )
     menu_service = MenuService(
+        database,
         product_repository,
         product_option_group_repository,
         allergy_category_repository,
@@ -119,6 +120,7 @@ def main() -> None:
     )
     manufacture_port = DDoobyActionManufacturePort(ddooby_controller_runtime, logger)
     order_orchestration_runtime = OrderOrchestrationRuntime(
+        database=database,
         order_repository=order_repository,
         order_item_repository=order_item_repository,
         manufacture_port=manufacture_port,

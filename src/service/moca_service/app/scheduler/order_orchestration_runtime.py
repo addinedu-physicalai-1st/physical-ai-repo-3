@@ -3,7 +3,14 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
+
+if TYPE_CHECKING:
+    from pymysql.connections import Connection
+
+    from app.repository.db import Database
+else:
+    Connection = Any
 
 
 TAKE_OUT_RECEIVE_TYPE = "TAKE_OUT"
@@ -129,20 +136,20 @@ class WorkQueues:
 class OrderClaimRepository(Protocol):
     """Order repository operations required by the runtime."""
 
-    def claim_accepted_orders(self, limit: int = 10) -> list[Any]:
+    def claim_accepted_orders(self, conn: Connection, limit: int = 10) -> list[Any]:
         ...
 
-    def mark_completed(self, order_id: int) -> bool:
+    def mark_completed(self, conn: Connection, order_id: int) -> bool:
         ...
 
-    def mark_failed(self, order_id: int) -> bool:
+    def mark_failed(self, conn: Connection, order_id: int) -> bool:
         ...
 
 
 class OrderItemLookup(Protocol):
     """Order item lookup required after an order is claimed."""
 
-    def list_by_order_id(self, order_id: int) -> list[Any]:
+    def list_by_order_id(self, conn: Connection, order_id: int) -> list[Any]:
         ...
 
 
@@ -171,6 +178,7 @@ class OrderOrchestrationContext:
     def __init__(
         self,
         *,
+        database: "Database",
         order_repository: OrderClaimRepository,
         order_item_repository: OrderItemLookup,
         manufacture_port: DDoobyManufacturePort,
@@ -182,6 +190,7 @@ class OrderOrchestrationContext:
         max_retry_count: int,
         time_fn: Callable[[], float],
     ) -> None:
+        self.database = database
         self.order_repository = order_repository
         self.order_item_repository = order_item_repository
         self.manufacture_port = manufacture_port
@@ -213,7 +222,9 @@ class OrderLifecycle:
         self.queues = queues
 
     def complete_order(self, item: WorkItem) -> None:
-        if self.context.order_repository.mark_completed(item.order_id):
+        with self.context.database.connect() as conn:
+            completed = self.context.order_repository.mark_completed(conn, item.order_id)
+        if completed:
             with self.context.condition:
                 self._remove_locked(item.order_id)
                 self.context.condition.notify_all()
@@ -228,7 +239,8 @@ class OrderLifecycle:
                     item.order_id,
                     item.last_error,
                 )
-                self.context.order_repository.mark_failed(item.order_id)
+                with self.context.database.connect() as conn:
+                    self.context.order_repository.mark_failed(conn, item.order_id)
                 self._remove_locked(item.order_id)
                 self.context.condition.notify_all()
                 return
@@ -253,7 +265,9 @@ class OrderLifecycle:
             items = list(self.context.items.values())
 
         for item in items:
-            if self.context.order_repository.mark_failed(item.order_id):
+            with self.context.database.connect() as conn:
+                failed = self.context.order_repository.mark_failed(conn, item.order_id)
+            if failed:
                 self.context.logger.info(
                     "order failed on runtime shutdown order_id=%s",
                     item.order_id,
@@ -333,15 +347,22 @@ class OrderClaimThread(OrderOrchestrationThread):
             self.context.stop_event.wait(self.context.tick_interval_sec)
 
     def claim_new_orders(self) -> None:
-        claimed = self.context.order_repository.claim_accepted_orders(self.context.claim_limit)
-        if not claimed:
-            return
+        with self.context.database.transaction() as conn:
+            claimed = self.context.order_repository.claim_accepted_orders(
+                conn,
+                self.context.claim_limit,
+            )
+            if not claimed:
+                return
+            work_items = [
+                self._build_work_item(conn, order)
+                for order in claimed
+            ]
         with self.context.condition:
-            for order in claimed:
-                order_id = int(order.order_id)
+            for work_item in work_items:
+                order_id = work_item.order_id
                 if order_id in self.context.items:
                     continue
-                work_item = self._build_work_item(order)
                 self.context.items[order_id] = work_item
                 self.queues.manufacture.enqueue(order_id)
                 self.context.logger.info(
@@ -353,7 +374,7 @@ class OrderClaimThread(OrderOrchestrationThread):
                 )
             self.context.condition.notify_all()
 
-    def _build_work_item(self, order: Any) -> WorkItem:
+    def _build_work_item(self, conn: Connection, order: Any) -> WorkItem:
         order_id = int(order.order_id)
         order_items = [
             ManufactureOrderItem(
@@ -363,7 +384,7 @@ class OrderClaimThread(OrderOrchestrationThread):
                 quantity=int(item.quantity),
                 unit_price=int(item.unit_price),
             )
-            for item in self.context.order_item_repository.list_by_order_id(order_id)
+            for item in self.context.order_item_repository.list_by_order_id(conn, order_id)
         ]
         return WorkItem(
             order_id=order_id,
@@ -570,6 +591,7 @@ class OrderOrchestrationRuntime:
     def __init__(
         self,
         *,
+        database: "Database",
         order_repository: OrderClaimRepository,
         order_item_repository: OrderItemLookup,
         manufacture_port: DDoobyManufacturePort,
@@ -582,6 +604,7 @@ class OrderOrchestrationRuntime:
         time_fn: Callable[[], float] = time.time,
     ) -> None:
         self.context = OrderOrchestrationContext(
+            database=database,
             order_repository=order_repository,
             order_item_repository=order_item_repository,
             manufacture_port=manufacture_port,

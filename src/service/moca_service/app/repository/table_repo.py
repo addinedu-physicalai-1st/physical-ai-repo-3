@@ -3,8 +3,6 @@ from decimal import Decimal
 
 from pymysql.connections import Connection
 
-from app.repository.db import Database, DbConfig
-
 
 @dataclass(frozen=True)
 class StoreTableRow:
@@ -16,28 +14,7 @@ class StoreTableRow:
 
 
 class TableRepository:
-    def __init__(self, database: Database | DbConfig):
-        self.database = database if isinstance(database, Database) else Database(database)
-
-    def list_all(self, conn: Connection | None = None) -> list[StoreTableRow]:
-        if conn is not None:
-            return self._list_all_with_conn(conn)
-        with self.database.connect() as own_conn:
-            return self._list_all_with_conn(own_conn)
-
-    def get(self, table_id: int, conn: Connection | None = None) -> StoreTableRow | None:
-        if conn is not None:
-            return self._get_with_conn(conn, table_id)
-        with self.database.connect() as own_conn:
-            return self._get_with_conn(own_conn, table_id)
-
-    def list_by_map_id(self, map_id: int, conn: Connection | None = None) -> list[StoreTableRow]:
-        if conn is not None:
-            return self._list_by_map_id_with_conn(conn, map_id)
-        with self.database.connect() as own_conn:
-            return self._list_by_map_id_with_conn(own_conn, map_id)
-
-    def _list_all_with_conn(self, conn: Connection) -> list[StoreTableRow]:
+    def list_all(self, conn: Connection) -> list[StoreTableRow]:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -48,7 +25,7 @@ class TableRepository:
             )
             return [self._to_row(row) for row in cursor.fetchall()]
 
-    def _get_with_conn(self, conn: Connection, table_id: int) -> StoreTableRow | None:
+    def get(self, conn: Connection, table_id: int) -> StoreTableRow | None:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -61,7 +38,7 @@ class TableRepository:
             row = cursor.fetchone()
             return self._to_row(row) if row is not None else None
 
-    def _list_by_map_id_with_conn(self, conn: Connection, map_id: int) -> list[StoreTableRow]:
+    def list_by_map_id(self, conn: Connection, map_id: int) -> list[StoreTableRow]:
         with conn.cursor() as cursor:
             cursor.execute(
                 """

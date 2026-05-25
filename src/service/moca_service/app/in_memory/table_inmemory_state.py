@@ -1,8 +1,11 @@
 import threading
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from app.repository.table_repo import TableRepository
+
+if TYPE_CHECKING:
+    from app.repository.db import Database
 
 TableState = Literal["empty", "occupied"]
 
@@ -23,14 +26,16 @@ class TableItem:
 
 
 class TableInmemoryState:
-    def __init__(self, table_repository: TableRepository):
+    def __init__(self, database: "Database", table_repository: TableRepository):
+        self.database = database
         self.table_repository = table_repository
         self._lock = threading.RLock()
         self._tables: dict[int, TableItem] = {}
         self.reset(1)
 
     def reset(self, map_id: int) -> None:
-        tables = self.table_repository.list_by_map_id(map_id)
+        with self.database.connect() as conn:
+            tables = self.table_repository.list_by_map_id(conn, map_id)
         with self._lock:
             self._tables = {
                 table.table_number: TableItem(
