@@ -239,9 +239,11 @@ ros2 launch ddooby_controller manufacturing_world_gz.launch.py with_rviz:=true
 
 월드 편집 원본과 모델링 작업 메모는 로컬 개발용 `src/controller/ddooby_controller/modeling/` 아래에 있으며, 이 폴더는 `.gitignore` 대상입니다.
 
-## 뉴욕 핫도그 빵 Pick 검증
+## 뉴욕 핫도그 Pick 검증
 
-`hotdog_making_node`의 첫 실제 MoveIt 검증 단계는 `bread_pick`입니다. 이 단계는 `assets/manufacturing_world/layout.json`과 `models/bread/model.sdf`의 collision box를 읽어서 빵의 주축을 계산하고, 주축 기준으로 파지 방향을 정합니다.
+`hotdog_making_node`는 `target`, `arm`, `stage` 기준으로 실행 범위를 정합니다. `target`은 제조 대상(`bread`, `case`), `arm`은 사용할 팔(`left`, `right`, `auto`), `stage`는 공통 단계(`home`, `pre_grasp`, `pick`, `pull_out`, `work`, `place`, `return_home`)입니다.
+
+첫 실제 MoveIt 검증 대상은 `target:=bread arm:=left stop_after_stage:=pick`입니다. 이 단계는 `assets/manufacturing_world/layout.json`과 `models/bread/model.sdf`의 collision box를 읽어서 빵의 주축을 계산하고, 주축 기준으로 파지 방향을 정합니다.
 
 현재 world 기준 빵 model 이름은 `bread`입니다. `bread1`, `bread2`, `bread3`는 사용하지 않습니다.
 
@@ -294,7 +296,7 @@ cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 
-ros2 launch ddooby_controller hotdog_making.launch.py active_step:=bread_pick dry_run:=true
+ros2 launch ddooby_controller hotdog_making.launch.py target:=bread arm:=left stop_after_stage:=pick dry_run:=true
 ```
 
 정상 로그 예:
@@ -306,7 +308,7 @@ Target 'bread': xyz=[0.313 0.183 0.303], size=[0.150 0.050 0.025], principal=[1.
 터미널 2: 실제 빵 pick 실행
 
 ```bash
-ros2 launch ddooby_controller hotdog_making.launch.py active_step:=bread_pick
+ros2 launch ddooby_controller hotdog_making.launch.py target:=bread arm:=left stop_after_stage:=pick
 ```
 
 `ros2 run ddooby_controller hotdog_making_node ...`로 직접 실행하지 않습니다. MoveIt의 `robot_description_semantic` 파라미터가 주입되지 않아 robot model 생성에 실패합니다. 실제 MoveIt 제어는 `hotdog_making.launch.py`를 사용합니다.

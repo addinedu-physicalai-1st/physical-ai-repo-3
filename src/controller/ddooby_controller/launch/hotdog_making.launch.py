@@ -6,23 +6,30 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def generate_launch_description():
-    active_step = LaunchConfiguration("active_step")
+    target = LaunchConfiguration("target")
+    arm = LaunchConfiguration("arm")
     target_model = LaunchConfiguration("target_model")
     start_from_stage = LaunchConfiguration("start_from_stage")
     stop_after_stage = LaunchConfiguration("stop_after_stage")
     gripper_grasp_target = LaunchConfiguration("gripper_grasp_target")
     dry_run = LaunchConfiguration("dry_run")
 
-    active_step_arg = DeclareLaunchArgument(
-        "active_step",
-        default_value="bread_pick",
-        choices=["case_pick", "bread_pick"],
-        description="Hotdog task step to execute.",
+    target_arg = DeclareLaunchArgument(
+        "target",
+        default_value="bread",
+        choices=["bread", "case"],
+        description="Manufacturing target object.",
+    )
+    arm_arg = DeclareLaunchArgument(
+        "arm",
+        default_value="auto",
+        choices=["auto", "left", "right"],
+        description="Arm side to use. Auto maps bread to left and case to right.",
     )
     target_model_arg = DeclareLaunchArgument(
         "target_model",
         default_value="auto",
-        description="Manufacturing world model name to pick. Use auto for the active step default.",
+        description="Manufacturing world model name to pick. Use auto for the target default.",
     )
     start_from_stage_arg = DeclareLaunchArgument(
         "start_from_stage",
@@ -63,7 +70,8 @@ def generate_launch_description():
             {
                 "use_sim_time": True,
                 "scenario_only": False,
-                "active_step": active_step,
+                "target": target,
+                "arm": arm,
                 "target_model": target_model,
                 "start_from_stage": start_from_stage,
                 "stop_after_stage": stop_after_stage,
@@ -74,7 +82,8 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        active_step_arg,
+        target_arg,
+        arm_arg,
         target_model_arg,
         start_from_stage_arg,
         stop_after_stage_arg,

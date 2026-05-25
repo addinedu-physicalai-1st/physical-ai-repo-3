@@ -6,6 +6,20 @@
 namespace ddooby_controller::manufacturing_task_presets
 {
 
+// 제조 대상 구분.
+enum class ManufacturingTarget
+{
+  Bread,
+  Case,
+};
+
+// 제조에 사용하는 팔 구분.
+enum class ArmSide
+{
+  Left,
+  Right,
+};
+
 // 제조 공정의 큰 단계 구분.
 enum class ManufacturingStage
 {
@@ -38,6 +52,8 @@ struct TcpPosePreset
 
 struct StagePosePreset
 {
+  ManufacturingTarget target;
+  ArmSide arm;
   ManufacturingStage stage;
   TcpPosePreset pose;
 };
@@ -81,81 +97,127 @@ inline constexpr const char * stageName(ManufacturingStage stage)
   return "unknown";
 }
 
-// 빵 pick 단계별 커스텀 TCP pose 설정 테이블.
-// pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
-inline constexpr std::array<StagePosePreset, 7> kLeftBreadPickStagePoses{{
+inline constexpr const char * targetName(ManufacturingTarget target)
+{
+  switch (target) {
+    case ManufacturingTarget::Bread:
+      return "bread";
+    case ManufacturingTarget::Case:
+      return "case";
+  }
+  return "unknown";
+}
+
+inline constexpr const char * armName(ArmSide arm)
+{
+  switch (arm) {
+    case ArmSide::Left:
+      return "left";
+    case ArmSide::Right:
+      return "right";
+  }
+  return "unknown";
+}
+
+// target + arm + stage별 커스텀 TCP pose 설정 테이블.
+// 왼손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
+// 오른손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_right_hand_tcp
+inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
   // 작업 시작 pose, 비활성화 시 기존 ready pose 사용.
   {
+    ManufacturingTarget::Bread,
+    ArmSide::Left,
     ManufacturingStage::Home,
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
   // 빵 위 접근 pose, 활성화 시 전체 pose 사용.
   {
+    ManufacturingTarget::Bread,
+    ArmSide::Left,
     ManufacturingStage::PreGrasp,
     {true, 0.313, 0.184, 0.360, 1.000, -0.000, 0.004, 0.000}
   },
   // 빵 집기 pose, 비활성화 시 빵 위치 기준 자동 계산.
   {
+    ManufacturingTarget::Bread,
+    ArmSide::Left,
     ManufacturingStage::Pick,
     {false, 0.313, 0.184, 0.336, 1.000, -0.000, 0.004, 0.000}
   },
   // 물체를 빼는 pose, 빵 pick에서는 현재 비활성화.
   {
+    ManufacturingTarget::Bread,
+    ArmSide::Left,
     ManufacturingStage::PullOut,
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
-  // pick 이후 작업 pose, 현재는 비활성화.
+  // 케이스 위 빵 놓기 직전 pose.
   {
+    ManufacturingTarget::Bread,
+    ArmSide::Left,
     ManufacturingStage::Work,
-    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+    {true, 0.195, -0.031, 0.411, 0.717, -0.697, 0.003, -0.003}
   },
-  // place pose, 현재는 비활성화.
+  // 케이스 위 빵 release pose, 비활성화 시 work pose에서 drop.
   {
+    ManufacturingTarget::Bread,
+    ArmSide::Left,
     ManufacturingStage::Place,
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
   // 복귀 pose, 현재는 비활성화.
   {
+    ManufacturingTarget::Bread,
+    ArmSide::Left,
     ManufacturingStage::ReturnHome,
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
-}};
-
-// 케이스 pick 단계별 커스텀 TCP pose 설정 테이블.
-// pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_right_hand_tcp
-inline constexpr std::array<StagePosePreset, 7> kRightCasePickStagePoses{{
   // 작업 시작 pose, 비활성화 시 기존 ready pose 사용.
   {
+    ManufacturingTarget::Case,
+    ArmSide::Right,
     ManufacturingStage::Home,
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
   // 케이스 앞 접근 pose, 비활성화 시 케이스 위치 기준 자동 계산.
   {
+    ManufacturingTarget::Case,
+    ArmSide::Right,
     ManufacturingStage::PreGrasp,
     {true, 0.441, -0.190, 0.437, 0.720, 0.000, 0.694, -0.000}
   },
   // 케이스 집기 pose, 비활성화 시 케이스 위치 기준 자동 계산.
   {
+    ManufacturingTarget::Case,
+    ArmSide::Right,
     ManufacturingStage::Pick,
     {false, 0.555, -0.191, 0.423, 0.0, 0.707, 0.0, 0.707}
   },
   // 케이스를 스탠드에서 빼는 pose, 활성화 시 자동 pull-out 대신 사용.
   {
+    ManufacturingTarget::Case,
+    ArmSide::Right,
     ManufacturingStage::PullOut,
     {true, 0.279, -0.191, 0.452, 0.720, -0.000, 0.694, 0.000}
   },
-  // pick 이후 작업 pose, 현재는 비활성화.
+  // 케이스를 빵 받는 위치로 내미는 pose, 비활성화 시 현재 오른손 pose 사용.
   {
+    ManufacturingTarget::Case,
+    ArmSide::Right,
     ManufacturingStage::Work,
-    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+    {true, 0.189, -0.119, 0.376, 0.520, 0.480, 0.501, -0.497}
   },
   // place pose, 현재는 비활성화.
   {
+    ManufacturingTarget::Case,
+    ArmSide::Right,
     ManufacturingStage::Place,
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
   // 복귀 pose, 현재는 비활성화.
   {
+    ManufacturingTarget::Case,
+    ArmSide::Right,
     ManufacturingStage::ReturnHome,
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
@@ -173,22 +235,28 @@ inline constexpr PickTuningPreset kRightCasePickTuning{
   {true, 0.034}
 };
 
-inline const StagePosePreset * findLeftBreadPickStagePose(ManufacturingStage stage)
+inline const StagePosePreset * findStagePosePreset(
+  ManufacturingTarget target,
+  ArmSide arm,
+  ManufacturingStage stage)
 {
-  for (const auto & preset : kLeftBreadPickStagePoses) {
-    if (preset.stage == stage && preset.pose.enabled) {
+  for (const auto & preset : kStagePosePresets) {
+    if (preset.target == target && preset.arm == arm && preset.stage == stage &&
+      preset.pose.enabled)
+    {
       return &preset;
     }
   }
   return nullptr;
 }
 
-inline const StagePosePreset * findRightCasePickStagePose(ManufacturingStage stage)
+inline const PickTuningPreset * findPickTuningPreset(ManufacturingTarget target, ArmSide arm)
 {
-  for (const auto & preset : kRightCasePickStagePoses) {
-    if (preset.stage == stage && preset.pose.enabled) {
-      return &preset;
-    }
+  if (target == ManufacturingTarget::Bread && arm == ArmSide::Left) {
+    return &kLeftBreadPickTuning;
+  }
+  if (target == ManufacturingTarget::Case && arm == ArmSide::Right) {
+    return &kRightCasePickTuning;
   }
   return nullptr;
 }

@@ -285,7 +285,7 @@ ros2 launch ddooby_controller manifacture_action_server.launch.py execution_back
 DDooby manufacture action server ready: ddooby/manifacture
 ```
 
-### 추가 터미널. 뉴욕 핫도그 빵 pick 검증
+### 추가 터미널. 뉴욕 핫도그 pick 검증
 
 터미널 2에서 `manufacturing_world_gz.launch.py with_rviz:=true`를 실행하고, planning scene sync 로그까지 확인한 뒤 실행합니다.
 
@@ -297,7 +297,7 @@ cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 
-ros2 launch ddooby_controller hotdog_making.launch.py active_step:=bread_pick dry_run:=true
+ros2 launch ddooby_controller hotdog_making.launch.py target:=bread arm:=left stop_after_stage:=pick dry_run:=true
 ```
 
 정상 로그 예:
@@ -309,7 +309,7 @@ Target 'bread': xyz=[0.313 0.183 0.303], size=[0.150 0.050 0.025], principal=[1.
 실제 빵 pick 실행:
 
 ```bash
-ros2 launch ddooby_controller hotdog_making.launch.py active_step:=bread_pick
+ros2 launch ddooby_controller hotdog_making.launch.py target:=bread arm:=left stop_after_stage:=pick
 ```
 
 주의:
