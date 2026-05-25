@@ -10,9 +10,8 @@ from app.communication.admin_gui.monitor import AdminGuiMonitorPublisher
 from app.communication.controller_ports import DDoobyActionManufacturePort, DobyModeServingPort
 from app.communication.ddooby_controller import create_ddooby_controller_runtime
 from app.communication.doby_controller import create_doby_controller_runtime
-from app.domain.order_orchestration_runtime import OrderOrchestrationRuntime
 from app.communication.web_service import create_web_service_tcp_server
-from app.domain.table_assignment_runtime import StoreTableDefinition, TableAssignmentRuntime
+from app.in_memory.table_inmemory_state import TableInmemoryState
 from app.repository.catalog_repo import (
     AllergyCategoryRepository,
     ProductAllergyRepository,
@@ -22,6 +21,7 @@ from app.repository.catalog_repo import (
 from app.repository.db import Database, DbConfig
 from app.repository.order_repo import OrderItemRepository, OrderRepository
 from app.repository.table_repo import StoreTableRepository
+from app.scheduler.order_orchestration_runtime import OrderOrchestrationRuntime
 from app.service.menu_service import MenuService
 from app.service.order_service import OrderService
 
@@ -49,24 +49,14 @@ def main() -> None:
     order_repository = OrderRepository(database)
     order_item_repository = OrderItemRepository(database)
     store_table_repository = StoreTableRepository(database)
-    table_assignment_runtime = TableAssignmentRuntime(
-        [
-            StoreTableDefinition(
-                table_id=table.table_id,
-                table_number=table.table_number,
-                pos_x=table.pos_x,
-                pos_y=table.pos_y,
-            )
-            for table in store_table_repository.list_all()
-        ]
-    )
+    table_inmemory_state = TableInmemoryState(store_table_repository)
     order_service = OrderService(
         database,
         product_repository,
         order_repository,
         order_item_repository,
         store_table_repository,
-        table_assignment_runtime,
+        table_inmemory_state,
         logger,
     )
     menu_service = MenuService(

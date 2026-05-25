@@ -2,6 +2,7 @@ import threading
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
+from app.repository.table_repo import StoreTableRepository
 
 TableStatus = Literal["empty", "occupied"]
 
@@ -11,32 +12,26 @@ class TableUnavailable(Exception):
 
 
 @dataclass(frozen=True)
-class StoreTable:
-    table_id: int
+class TableItem:
     table_number: int
-    pos_x: Decimal
-    pos_y: Decimal
     status: TableStatus
 
 
-@dataclass(frozen=True)
-class StoreTableDefinition:
-    table_id: int
-    table_number: int
-    pos_x: Decimal
-    pos_y: Decimal
-
-
-class TableAssignmentRuntime:
-    def __init__(self, tables: list[StoreTableDefinition]):
+class TableInmemoryState:
+    def __init__(self, table_repository: StoreTableRepository):
+        self.table_repository = table_repository
         self._lock = threading.RLock()
         self._tables = {table.table_id: table for table in tables}
         self._status: dict[int, TableStatus] = {table.table_id: "empty" for table in tables}
 
-    def list_tables(self) -> list[StoreTable]:
+    def reset(self):
+        return [TableItem(table_number=table.table_number, status="empty") 
+                for table in table_repository.list_all()]
+
+    def list_tables(self) -> list[TableItem]:
         with self._lock:
             return [
-                StoreTable(
+                TableItem(
                     table_id=table.table_id,
                     table_number=table.table_number,
                     pos_x=table.pos_x,

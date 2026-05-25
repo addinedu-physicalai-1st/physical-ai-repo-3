@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from app.domain.table_assignment_runtime import TableAssignmentRuntime
+from app.in_memory.table_inmemory_state import TableInMemory_state
 from app.repository.order_repo import OrderItemCreate
 from app.service.request_models import OrderRequest, TableAssignmentRequest
 
@@ -75,7 +75,7 @@ class OrderService:
         order_repository: "OrderRepository",
         order_item_repository: "OrderItemRepository",
         store_table_repository: "StoreTableRepository",
-        table_assignment_runtime: TableAssignmentRuntime,
+        table_assignment_runtime: TableInMemory_state,
         logger: logging.Logger,
     ):
         self.database = database

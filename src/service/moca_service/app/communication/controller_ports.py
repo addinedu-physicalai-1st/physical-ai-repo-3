@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Callable
 
-from app.domain.order_orchestration_runtime import ManufactureOrderItem
+from app.scheduler.order_orchestration_runtime import ManufactureOrderItem
 
 
 class LoggingDDoobyManufacturePort:
