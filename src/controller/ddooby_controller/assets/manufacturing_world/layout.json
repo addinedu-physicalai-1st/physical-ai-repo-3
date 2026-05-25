@@ -86,13 +86,13 @@
       "spawn_delay_sec": 6.0
     },
     {
-      "name": "bread",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/bread",
+      "name": "case_stand",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/case_stand",
       "xyz": [
-        0.313305,
-        0.182663,
-        0.303284
+        0.633395,
+        -0.187785,
+        0.36827
       ],
       "rpy": [
         0.0,
@@ -100,6 +100,38 @@
         0.0
       ],
       "spawn_delay_sec": 6.5
+    },
+    {
+      "name": "bread",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/bread",
+      "xyz": [
+        0.313305,
+        0.18796,
+        0.303284
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 7.0
+    },
+    {
+      "name": "case",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/case",
+      "xyz": [
+        0.555068,
+        -0.190745,
+        0.424241
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 7.5
     }
   ]
 }

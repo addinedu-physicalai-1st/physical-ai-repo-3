@@ -297,7 +297,7 @@ cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 
-ros2 launch ddooby_controller hotdog_bread_pick.launch.py dry_run:=true
+ros2 launch ddooby_controller hotdog_making.launch.py active_step:=bread_pick dry_run:=true
 ```
 
 정상 로그 예:
@@ -309,7 +309,7 @@ Target 'bread': xyz=[0.313 0.183 0.303], size=[0.150 0.050 0.025], principal=[1.
 실제 빵 pick 실행:
 
 ```bash
-ros2 launch ddooby_controller hotdog_bread_pick.launch.py
+ros2 launch ddooby_controller hotdog_making.launch.py active_step:=bread_pick
 ```
 
 주의:
@@ -318,7 +318,7 @@ ros2 launch ddooby_controller hotdog_bread_pick.launch.py
 ros2 run ddooby_controller hotdog_making_node ...
 ```
 
-위 방식으로 직접 실행하지 않습니다. MoveIt의 `robot_description_semantic` 파라미터가 주입되지 않아 robot model 생성에 실패합니다. 실제 MoveIt 제어는 `hotdog_bread_pick.launch.py`를 사용합니다.
+위 방식으로 직접 실행하지 않습니다. MoveIt의 `robot_description_semantic` 파라미터가 주입되지 않아 robot model 생성에 실패합니다. 실제 MoveIt 제어는 `hotdog_making.launch.py`를 사용합니다.
 
 엔드이펙터 위치 확인:
 

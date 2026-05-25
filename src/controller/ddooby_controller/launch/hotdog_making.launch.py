@@ -16,23 +16,24 @@ def generate_launch_description():
     active_step_arg = DeclareLaunchArgument(
         "active_step",
         default_value="bread_pick",
-        description="Hotdog task step to execute. First real motion step supports bread_pick.",
+        choices=["case_pick", "bread_pick"],
+        description="Hotdog task step to execute.",
     )
     target_model_arg = DeclareLaunchArgument(
         "target_model",
-        default_value="bread",
-        description="Manufacturing world model name to pick.",
+        default_value="auto",
+        description="Manufacturing world model name to pick. Use auto for the active step default.",
     )
     start_from_stage_arg = DeclareLaunchArgument(
         "start_from_stage",
         default_value="home",
-        choices=["home", "pre_grasp", "pick", "work", "place", "return_home"],
+        choices=["home", "pre_grasp", "pick", "pull_out", "work", "place", "return_home"],
         description="Start execution from this manufacturing stage.",
     )
     stop_after_stage_arg = DeclareLaunchArgument(
         "stop_after_stage",
         default_value="complete",
-        choices=["complete", "home", "pre_grasp", "pick", "work", "place", "return_home"],
+        choices=["complete", "home", "pre_grasp", "pick", "pull_out", "work", "place", "return_home"],
         description="Stop after this manufacturing stage. Use complete to run the full task.",
     )
     gripper_grasp_target_arg = DeclareLaunchArgument(
@@ -52,10 +53,10 @@ def generate_launch_description():
         "openarm", package_name="openarm_bimanual_moveit_config"
     ).to_moveit_configs()
 
-    hotdog_bread_pick_node = Node(
+    hotdog_making_node = Node(
         package="ddooby_controller",
         executable="hotdog_making_node",
-        name="ddooby_hotdog_bread_pick",
+        name="ddooby_hotdog_making",
         output="screen",
         parameters=[
             moveit_config.to_dict(),
@@ -79,5 +80,5 @@ def generate_launch_description():
         stop_after_stage_arg,
         gripper_grasp_target_arg,
         dry_run_arg,
-        hotdog_bread_pick_node,
+        hotdog_making_node,
     ])

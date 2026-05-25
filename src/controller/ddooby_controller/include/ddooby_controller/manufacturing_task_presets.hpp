@@ -12,6 +12,7 @@ enum class ManufacturingStage
   Home,
   PreGrasp,
   Pick,
+  PullOut,
   Work,
   Place,
   ReturnHome,
@@ -68,6 +69,8 @@ inline constexpr const char * stageName(ManufacturingStage stage)
       return "pre_grasp";
     case ManufacturingStage::Pick:
       return "pick";
+    case ManufacturingStage::PullOut:
+      return "pull_out";
     case ManufacturingStage::Work:
       return "work";
     case ManufacturingStage::Place:
@@ -80,7 +83,7 @@ inline constexpr const char * stageName(ManufacturingStage stage)
 
 // 빵 pick 단계별 커스텀 TCP pose 설정 테이블.
 // pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
-inline constexpr std::array<StagePosePreset, 6> kLeftBreadPickStagePoses{{
+inline constexpr std::array<StagePosePreset, 7> kLeftBreadPickStagePoses{{
   // 작업 시작 pose, 비활성화 시 기존 ready pose 사용.
   {
     ManufacturingStage::Home,
@@ -95,6 +98,51 @@ inline constexpr std::array<StagePosePreset, 6> kLeftBreadPickStagePoses{{
   {
     ManufacturingStage::Pick,
     {false, 0.313, 0.184, 0.336, 1.000, -0.000, 0.004, 0.000}
+  },
+  // 물체를 빼는 pose, 빵 pick에서는 현재 비활성화.
+  {
+    ManufacturingStage::PullOut,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // pick 이후 작업 pose, 현재는 비활성화.
+  {
+    ManufacturingStage::Work,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // place pose, 현재는 비활성화.
+  {
+    ManufacturingStage::Place,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 복귀 pose, 현재는 비활성화.
+  {
+    ManufacturingStage::ReturnHome,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+}};
+
+// 케이스 pick 단계별 커스텀 TCP pose 설정 테이블.
+// pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_right_hand_tcp
+inline constexpr std::array<StagePosePreset, 7> kRightCasePickStagePoses{{
+  // 작업 시작 pose, 비활성화 시 기존 ready pose 사용.
+  {
+    ManufacturingStage::Home,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 케이스 앞 접근 pose, 비활성화 시 케이스 위치 기준 자동 계산.
+  {
+    ManufacturingStage::PreGrasp,
+    {true, 0.441, -0.190, 0.437, 0.720, 0.000, 0.694, -0.000}
+  },
+  // 케이스 집기 pose, 비활성화 시 케이스 위치 기준 자동 계산.
+  {
+    ManufacturingStage::Pick,
+    {false, 0.555, -0.191, 0.423, 0.0, 0.707, 0.0, 0.707}
+  },
+  // 케이스를 스탠드에서 빼는 pose, 활성화 시 자동 pull-out 대신 사용.
+  {
+    ManufacturingStage::PullOut,
+    {true, 0.279, -0.191, 0.452, 0.720, -0.000, 0.694, 0.000}
   },
   // pick 이후 작업 pose, 현재는 비활성화.
   {
@@ -119,9 +167,25 @@ inline constexpr PickTuningPreset kLeftBreadPickTuning{
   {true, 0.022}
 };
 
+// 케이스 pick 파지 세부 조정값.
+inline constexpr PickTuningPreset kRightCasePickTuning{
+  -0.055,
+  {true, 0.034}
+};
+
 inline const StagePosePreset * findLeftBreadPickStagePose(ManufacturingStage stage)
 {
   for (const auto & preset : kLeftBreadPickStagePoses) {
+    if (preset.stage == stage && preset.pose.enabled) {
+      return &preset;
+    }
+  }
+  return nullptr;
+}
+
+inline const StagePosePreset * findRightCasePickStagePose(ManufacturingStage stage)
+{
+  for (const auto & preset : kRightCasePickStagePoses) {
     if (preset.stage == stage && preset.pose.enabled) {
       return &preset;
     }

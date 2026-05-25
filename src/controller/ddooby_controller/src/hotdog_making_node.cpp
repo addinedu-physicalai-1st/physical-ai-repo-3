@@ -50,13 +50,27 @@ struct TargetObject
   Eigen::Vector3d size{Eigen::Vector3d::Zero()};
 };
 
-struct BreadPickPlan
+struct PickPlan
 {
   geometry_msgs::msg::Pose pre_grasp_pose;
   geometry_msgs::msg::Pose grasp_pose;
   geometry_msgs::msg::Pose lift_pose;
   Eigen::Vector3d principal_axis{Eigen::Vector3d::UnitY()};
   Eigen::Vector3d closing_axis{Eigen::Vector3d::UnitX()};
+};
+
+struct PickMotionConfig
+{
+  std::string step_name;
+  std::string log_label;
+  std::string completed_log;
+  std::string arm_group;
+  std::string gripper_group;
+  std::string tcp_link;
+  std::string ready_pose_name;
+  std::vector<double> ready_joints;
+  const task_presets::PickTuningPreset * tuning{nullptr};
+  bool pull_out_to_pre_grasp_before_lift{false};
 };
 
 enum class PreGraspGoalMode
@@ -96,6 +110,9 @@ std::optional<ManufacturingStage> parseStopAfterStage(const std::string & value)
   if (normalized == "pick") {
     return ManufacturingStage::Pick;
   }
+  if (normalized == "pullout") {
+    return ManufacturingStage::PullOut;
+  }
   if (normalized == "work") {
     return ManufacturingStage::Work;
   }
@@ -120,6 +137,9 @@ ManufacturingStage parseStartFromStage(const std::string & value)
   if (normalized == "pick") {
     return ManufacturingStage::Pick;
   }
+  if (normalized == "pullout") {
+    return ManufacturingStage::PullOut;
+  }
   if (normalized == "work") {
     return ManufacturingStage::Work;
   }
@@ -141,12 +161,14 @@ int stageOrder(ManufacturingStage stage)
       return 1;
     case ManufacturingStage::Pick:
       return 2;
-    case ManufacturingStage::Work:
+    case ManufacturingStage::PullOut:
       return 3;
-    case ManufacturingStage::Place:
+    case ManufacturingStage::Work:
       return 4;
-    case ManufacturingStage::ReturnHome:
+    case ManufacturingStage::Place:
       return 5;
+    case ManufacturingStage::ReturnHome:
+      return 6;
   }
   return 0;
 }
@@ -304,20 +326,47 @@ geometry_msgs::msg::Quaternion makeQuaternion(
   return quaternion;
 }
 
+geometry_msgs::msg::Pose makePoseFromPreset(const task_presets::TcpPosePreset & preset)
+{
+  geometry_msgs::msg::Pose pose;
+  pose.position.x = preset.x;
+  pose.position.y = preset.y;
+  pose.position.z = preset.z;
+  pose.orientation = makeQuaternion(preset);
+  return pose;
+}
+
+const task_presets::StagePosePreset * findStagePosePreset(
+  const std::string & step_name,
+  ManufacturingStage stage)
+{
+  if (step_name == "case_pick") {
+    return task_presets::findRightCasePickStagePose(stage);
+  }
+  return task_presets::findLeftBreadPickStagePose(stage);
+}
+
+const task_presets::TcpPosePreset * findPullOutPosePreset(const std::string & step_name)
+{
+  const auto * preset = findStagePosePreset(step_name, ManufacturingStage::PullOut);
+  if (preset != nullptr) {
+    return &preset->pose;
+  }
+  return nullptr;
+}
+
 void applyStagePosePreset(
   const rclcpp::Logger & logger,
+  const std::string & step_name,
   task_presets::ManufacturingStage stage,
   geometry_msgs::msg::Pose & pose)
 {
-  const auto * preset = task_presets::findLeftBreadPickStagePose(stage);
+  const auto * preset = findStagePosePreset(step_name, stage);
   if (preset == nullptr) {
     return;
   }
 
-  pose.position.x = preset->pose.x;
-  pose.position.y = preset->pose.y;
-  pose.position.z = preset->pose.z;
-  pose.orientation = makeQuaternion(preset->pose);
+  pose = makePoseFromPreset(preset->pose);
 
   RCLCPP_INFO(
     logger,
@@ -325,9 +374,9 @@ void applyStagePosePreset(
     task_presets::stageName(stage));
 }
 
-bool hasStagePosePreset(ManufacturingStage stage)
+bool hasStagePosePreset(const std::string & step_name, ManufacturingStage stage)
 {
-  return task_presets::findLeftBreadPickStagePose(stage) != nullptr;
+  return findStagePosePreset(step_name, stage) != nullptr;
 }
 
 std::vector<CollisionBox> parseCollisionBoxes(const std::string & sdf_text)
@@ -420,7 +469,7 @@ Eigen::Vector3d horizontalOrFallback(const Eigen::Vector3d & vector, const Eigen
   return horizontal.normalized();
 }
 
-BreadPickPlan makeTopDownPickPlan(
+PickPlan makeTopDownPickPlan(
   const TargetObject & target,
   double pre_grasp_height,
   double lift_height,
@@ -465,12 +514,62 @@ BreadPickPlan makeTopDownPickPlan(
   Eigen::Vector3d lift_position = grasp_position;
   lift_position.z() += lift_height;
 
-  return BreadPickPlan{
+  return PickPlan{
     makePose(pre_grasp_position, tcp_orientation),
     makePose(grasp_position, tcp_orientation),
     makePose(lift_position, tcp_orientation),
     principal_axis,
     closing_axis};
+}
+
+PickPlan makeHorizontalPickPlan(
+  const TargetObject & target,
+  const Eigen::Vector3d & approach_axis,
+  const Eigen::Vector3d & closing_axis_hint,
+  double approach_distance,
+  double lift_height,
+  double grasp_tcp_z_offset_m)
+{
+  const Eigen::Matrix3d object_rotation = rotationFromRpy(target.rpy);
+  const Eigen::Vector3d object_center = target.xyz + object_rotation * target.local_center;
+
+  Eigen::Vector3d tcp_z = approach_axis;
+  if (tcp_z.norm() < 1e-6) {
+    tcp_z = Eigen::Vector3d::UnitX();
+  }
+  tcp_z.normalize();
+
+  Eigen::Vector3d tcp_y = closing_axis_hint - tcp_z * closing_axis_hint.dot(tcp_z);
+  if (tcp_y.norm() < 1e-6) {
+    tcp_y = Eigen::Vector3d::UnitZ() - tcp_z * Eigen::Vector3d::UnitZ().dot(tcp_z);
+  }
+  if (tcp_y.norm() < 1e-6) {
+    tcp_y = Eigen::Vector3d::UnitY() - tcp_z * Eigen::Vector3d::UnitY().dot(tcp_z);
+  }
+  tcp_y.normalize();
+
+  const Eigen::Vector3d tcp_x = tcp_y.cross(tcp_z).normalized();
+  Eigen::Matrix3d tcp_rotation;
+  tcp_rotation.col(0) = tcp_x;
+  tcp_rotation.col(1) = tcp_y;
+  tcp_rotation.col(2) = tcp_z;
+  const Eigen::Quaterniond tcp_orientation(tcp_rotation);
+
+  Eigen::Vector3d grasp_position = object_center;
+  grasp_position += tcp_rotation * Eigen::Vector3d(0.0, 0.0, grasp_tcp_z_offset_m);
+
+  Eigen::Vector3d pre_grasp_position = grasp_position;
+  pre_grasp_position -= tcp_z * approach_distance;
+
+  Eigen::Vector3d lift_position = grasp_position;
+  lift_position.z() += lift_height;
+
+  return PickPlan{
+    makePose(pre_grasp_position, tcp_orientation),
+    makePose(grasp_position, tcp_orientation),
+    makePose(lift_position, tcp_orientation),
+    tcp_z,
+    tcp_y};
 }
 
 void setBoundedStartState(moveit::planning_interface::MoveGroupInterface & group)
@@ -528,13 +627,15 @@ bool planAndExecute(
 bool closeGripperForPick(
   const rclcpp::Logger & logger,
   moveit::planning_interface::MoveGroupInterface & gripper,
+  const std::string & log_label,
   const task_presets::PickTuningPreset & tuning,
   const std::string & fallback_named_target)
 {
   if (tuning.gripper_close.enabled) {
     RCLCPP_INFO(
       logger,
-      "Bread pick: closing left gripper to joint position %.3f",
+      "%s: closing gripper to joint position %.3f",
+      log_label.c_str(),
       tuning.gripper_close.joint_position);
     gripper.clearPoseTargets();
     setBoundedStartState(gripper);
@@ -545,26 +646,28 @@ bool closeGripperForPick(
         tuning.gripper_close.joint_position);
       return false;
     }
-    return planAndExecute(logger, gripper, "left bread grasp close");
+    return planAndExecute(logger, gripper, log_label + " grasp close");
   }
 
   RCLCPP_INFO(
     logger,
-    "Bread pick: closing left gripper to named target '%s'",
+    "%s: closing gripper to named target '%s'",
+    log_label.c_str(),
     fallback_named_target.c_str());
   gripper.setNamedTarget(fallback_named_target);
-  return planAndExecute(logger, gripper, "left bread grasp close");
+  return planAndExecute(logger, gripper, log_label + " grasp close");
 }
 
 bool planAndExecuteStagePoseIfConfigured(
   const rclcpp::Logger & logger,
   moveit::planning_interface::MoveGroupInterface & arm,
+  const std::string & step_name,
   task_presets::ManufacturingStage stage,
   const std::string & tcp_link,
   bool & configured)
 {
   configured = false;
-  const auto * preset = task_presets::findLeftBreadPickStagePose(stage);
+  const auto * preset = findStagePosePreset(step_name, stage);
   if (preset == nullptr) {
     return true;
   }
@@ -715,7 +818,7 @@ public:
     scenario_only_ = declare_parameter<bool>("scenario_only", true);
     step_delay_ms_ = declare_parameter<int>("step_delay_ms", 150);
     active_step_ = declare_parameter<std::string>("active_step", "bread_pick");
-    target_model_ = declare_parameter<std::string>("target_model", "bread");
+    target_model_ = declare_parameter<std::string>("target_model", "auto");
     start_from_stage_name_ = declare_parameter<std::string>("start_from_stage", "home");
     stop_after_stage_name_ = declare_parameter<std::string>("stop_after_stage", "complete");
     layout_path_ = declare_parameter<std::string>("layout_path", "");
@@ -733,6 +836,20 @@ public:
         0.0010237185554880786,
         -0.0010588666577850028,
         -1.0783557656423297});
+    right_arm_group_ = declare_parameter<std::string>("right_arm_group", "right_arm");
+    right_gripper_group_ = declare_parameter<std::string>("right_gripper_group", "right_gripper");
+    right_tcp_link_ = declare_parameter<std::string>("right_tcp_link", "openarm_right_hand_tcp");
+    right_ready_pose_name_ = declare_parameter<std::string>("right_ready_pose_name", "right_case_pick_ready");
+    right_ready_joints_ = declare_parameter<std::vector<double>>(
+      "right_ready_joints",
+      {
+        -1.239329032213002,
+        0.0010114715451901488,
+        0.0009259087954886816,
+        1.718774510702148,
+        -0.0010237185554880786,
+        -0.0010588666577850028,
+        1.0783557656423297});
     planning_time_sec_ = declare_parameter<double>("planning_time_sec", 8.0);
     planning_attempts_ = declare_parameter<int>("planning_attempts", 8);
     velocity_scaling_ = declare_parameter<double>("velocity_scaling", 0.15);
@@ -740,6 +857,7 @@ public:
     gripper_velocity_scaling_ = declare_parameter<double>("gripper_velocity_scaling", 0.4);
     gripper_acceleration_scaling_ = declare_parameter<double>("gripper_acceleration_scaling", 0.4);
     pre_grasp_height_ = declare_parameter<double>("pre_grasp_height", 0.12);
+    case_pre_grasp_distance_ = declare_parameter<double>("case_pre_grasp_distance", 0.10);
     lift_height_ = declare_parameter<double>("lift_height", 0.12);
     cartesian_eef_step_ = declare_parameter<double>("cartesian_eef_step", 0.005);
     min_cartesian_fraction_ = declare_parameter<double>("min_cartesian_fraction", 0.90);
@@ -781,14 +899,20 @@ public:
       return runScenario();
     }
 
-    if (active_step_ != "bread_pick") {
+    if (active_step_ == "bread_pick") {
+      return runBreadPick();
+    }
+    if (active_step_ == "case_pick") {
+      return runCasePick();
+    }
+
+    {
       RCLCPP_ERROR(
         get_logger(),
-        "Unsupported active_step '%s'. First actual motion step supports 'bread_pick' only.",
+        "Unsupported active_step '%s'. Supported motion steps: bread_pick, case_pick.",
         active_step_.c_str());
       return false;
     }
-    return runBreadPick();
   }
 
 private:
@@ -849,52 +973,32 @@ private:
     return stageOrder(stage) >= stageOrder(start_from_stage_);
   }
 
-  bool runBreadPick()
+  bool prepareAndRunPickMotion(
+    const PickMotionConfig & config,
+    const TargetObject & target,
+    PickPlan pick_plan)
   {
-    RCLCPP_INFO(
-      get_logger(),
-      "Hotdog bread pick started: item=%s, target_model=%s",
-      item_name_.c_str(),
-      target_model_.c_str());
-
-    std::string package_share_directory;
-    try {
-      package_share_directory = ament_index_cpp::get_package_share_directory("ddooby_controller");
-    } catch (const std::exception & error) {
-      RCLCPP_ERROR(get_logger(), "Failed to resolve ddooby_controller share directory: %s", error.what());
+    if (config.tuning == nullptr) {
+      RCLCPP_ERROR(get_logger(), "%s: missing pick tuning preset", config.log_label.c_str());
       return false;
     }
 
-    const std::string layout_path = layout_path_.empty() ?
-      joinPath(package_share_directory, "assets/manufacturing_world/layout.json") :
-      layout_path_;
-
-    TargetObject target;
-    try {
-      target = loadTargetObject(package_share_directory, layout_path, target_model_);
-    } catch (const std::exception & error) {
-      RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", target_model_.c_str(), error.what());
-      return false;
-    }
-
-    const auto & bread_pick_tuning = task_presets::kLeftBreadPickTuning;
-    BreadPickPlan pick_plan =
-      makeTopDownPickPlan(
-        target,
-        pre_grasp_height_,
-        lift_height_,
-        bread_pick_tuning.grasp_tcp_z_offset_m);
-    const bool pre_grasp_pose_configured = hasStagePosePreset(ManufacturingStage::PreGrasp);
-    const bool pick_pose_configured = hasStagePosePreset(ManufacturingStage::Pick);
+    const auto & tuning = *config.tuning;
+    const bool pre_grasp_pose_configured =
+      hasStagePosePreset(config.step_name, ManufacturingStage::PreGrasp);
+    const bool pick_pose_configured =
+      hasStagePosePreset(config.step_name, ManufacturingStage::Pick);
     if (pre_grasp_pose_configured) {
       applyStagePosePreset(
         get_logger(),
+        config.step_name,
         task_presets::ManufacturingStage::PreGrasp,
         pick_plan.pre_grasp_pose);
     }
     if (pick_pose_configured) {
       applyStagePosePreset(
         get_logger(),
+        config.step_name,
         task_presets::ManufacturingStage::Pick,
         pick_plan.grasp_pose);
     }
@@ -913,6 +1017,7 @@ private:
       pick_plan.lift_pose.position.z += lift_height_;
     }
     pick_plan.lift_pose.orientation = pick_plan.grasp_pose.orientation;
+
     RCLCPP_INFO(
       get_logger(),
       "Target '%s': xyz=[%.3f %.3f %.3f], size=[%.3f %.3f %.3f], principal=[%.3f %.3f %.3f], closing=[%.3f %.3f %.3f]",
@@ -931,15 +1036,17 @@ private:
       pick_plan.closing_axis.z());
     RCLCPP_INFO(
       get_logger(),
-      "Bread pick tuning: grasp_tcp_z_offset=%.3f, gripper_joint_position=%s%.3f",
-      bread_pick_tuning.grasp_tcp_z_offset_m,
-      bread_pick_tuning.gripper_close.enabled ? "" : "disabled fallback ",
-      bread_pick_tuning.gripper_close.joint_position);
+      "%s tuning: grasp_tcp_z_offset=%.3f, gripper_joint_position=%s%.3f",
+      config.log_label.c_str(),
+      tuning.grasp_tcp_z_offset_m,
+      tuning.gripper_close.enabled ? "" : "disabled fallback ",
+      tuning.gripper_close.joint_position);
 
     if (dry_run_) {
       RCLCPP_INFO(
         get_logger(),
-        "Hotdog bread pick dry run completed: pre_grasp=[%.3f %.3f %.3f], grasp=[%.3f %.3f %.3f], lift=[%.3f %.3f %.3f]",
+        "%s dry run completed: pre_grasp=[%.3f %.3f %.3f], grasp=[%.3f %.3f %.3f], lift=[%.3f %.3f %.3f]",
+        config.log_label.c_str(),
         pick_plan.pre_grasp_pose.position.x,
         pick_plan.pre_grasp_pose.position.y,
         pick_plan.pre_grasp_pose.position.z,
@@ -953,64 +1060,66 @@ private:
     }
 
     auto self = shared_from_this();
-    moveit::planning_interface::MoveGroupInterface left_arm(self, left_arm_group_);
-    moveit::planning_interface::MoveGroupInterface left_gripper(self, left_gripper_group_);
+    moveit::planning_interface::MoveGroupInterface arm(self, config.arm_group);
+    moveit::planning_interface::MoveGroupInterface gripper(self, config.gripper_group);
     moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
 
-    left_arm.setPlanningTime(planning_time_sec_);
-    left_arm.setNumPlanningAttempts(planning_attempts_);
-    left_arm.setMaxVelocityScalingFactor(velocity_scaling_);
-    left_arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
-    left_gripper.setMaxVelocityScalingFactor(gripper_velocity_scaling_);
-    left_gripper.setMaxAccelerationScalingFactor(gripper_acceleration_scaling_);
+    arm.setPlanningTime(planning_time_sec_);
+    arm.setNumPlanningAttempts(planning_attempts_);
+    arm.setMaxVelocityScalingFactor(velocity_scaling_);
+    arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
+    gripper.setMaxVelocityScalingFactor(gripper_velocity_scaling_);
+    gripper.setMaxAccelerationScalingFactor(gripper_acceleration_scaling_);
 
-    left_arm.setPoseReferenceFrame(left_arm.getPlanningFrame());
-    const bool tcp_set = left_arm.setEndEffectorLink(left_tcp_link_);
+    arm.setPoseReferenceFrame(arm.getPlanningFrame());
+    const bool tcp_set = arm.setEndEffectorLink(config.tcp_link);
     RCLCPP_INFO(
       get_logger(),
-      "MoveIt setup: planning_frame='%s', left_eef='%s' (%s)",
-      left_arm.getPlanningFrame().c_str(),
-      left_arm.getEndEffectorLink().c_str(),
+      "%s MoveIt setup: planning_frame='%s', eef='%s' (%s)",
+      config.log_label.c_str(),
+      arm.getPlanningFrame().c_str(),
+      arm.getEndEffectorLink().c_str(),
       tcp_set ? "ok" : "failed");
-    logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread pick initial");
+    logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " initial");
 
-    if (!left_ready_joints_.empty()) {
-      left_arm.rememberJointValues(left_ready_pose_name_, left_ready_joints_);
+    if (!config.ready_joints.empty()) {
+      arm.rememberJointValues(config.ready_pose_name, config.ready_joints);
     }
 
     bool home_stage_configured = false;
     if (shouldRunStage(ManufacturingStage::Home)) {
       if (!planAndExecuteStagePoseIfConfigured(
           get_logger(),
-          left_arm,
+          arm,
+          config.step_name,
           task_presets::ManufacturingStage::Home,
-          left_tcp_link_,
+          config.tcp_link,
           home_stage_configured))
       {
         return false;
       }
 
       if (!home_stage_configured) {
-        RCLCPP_INFO(get_logger(), "Bread pick: moving left arm to ready pose");
-        left_arm.clearPoseTargets();
-        setBoundedStartState(left_arm);
-        left_arm.setNamedTarget(left_ready_pose_name_);
-        if (!planAndExecute(get_logger(), left_arm, "left bread pick ready")) {
+        RCLCPP_INFO(get_logger(), "%s: moving arm to ready pose", config.log_label.c_str());
+        arm.clearPoseTargets();
+        setBoundedStartState(arm);
+        arm.setNamedTarget(config.ready_pose_name);
+        if (!planAndExecute(get_logger(), arm, config.log_label + " ready")) {
           return false;
         }
       } else {
-        RCLCPP_INFO(get_logger(), "Bread pick: moved left arm using configured home stage pose");
+        RCLCPP_INFO(get_logger(), "%s: moved arm using configured home stage pose", config.log_label.c_str());
       }
-      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread pick ready");
+      logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " ready");
       if (shouldStopAfter(ManufacturingStage::Home)) {
         return true;
       }
     }
 
     if (shouldRunStage(ManufacturingStage::PreGrasp) || shouldRunStage(ManufacturingStage::Pick)) {
-      RCLCPP_INFO(get_logger(), "Bread pick: opening left gripper");
-      left_gripper.setNamedTarget(gripper_open_target_);
-      if (!planAndExecute(get_logger(), left_gripper, "left gripper open")) {
+      RCLCPP_INFO(get_logger(), "%s: opening gripper", config.log_label.c_str());
+      gripper.setNamedTarget(gripper_open_target_);
+      if (!planAndExecute(get_logger(), gripper, config.log_label + " gripper open")) {
         return false;
       }
     }
@@ -1020,12 +1129,12 @@ private:
     PreGraspGoalMode pre_grasp_goal_mode = PreGraspGoalMode::ExactPose;
     geometry_msgs::msg::Pose reached_pre_grasp_pose;
     if (shouldRunStage(ManufacturingStage::PreGrasp)) {
-      RCLCPP_INFO(get_logger(), "Bread pick: planning to top-down pre-grasp");
+      RCLCPP_INFO(get_logger(), "%s: planning to pre-grasp", config.log_label.c_str());
       if (!planAndExecutePreGrasp(
           get_logger(),
-          left_arm,
+          arm,
           pick_plan.pre_grasp_pose,
-          left_tcp_link_,
+          config.tcp_link,
           allow_approximate_pre_grasp_,
           allow_position_only_pre_grasp_,
           pre_grasp_goal_mode))
@@ -1034,13 +1143,27 @@ private:
       }
       RCLCPP_INFO(
         get_logger(),
-        "Bread pick: reached pre-grasp using %s goal mode",
+        "%s: reached pre-grasp using %s goal mode",
+        config.log_label.c_str(),
         preGraspGoalModeName(pre_grasp_goal_mode));
-      reached_pre_grasp_pose = left_arm.getCurrentPose(left_tcp_link_).pose;
-      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread pick pre-grasp");
+      reached_pre_grasp_pose = arm.getCurrentPose(config.tcp_link).pose;
+      logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " pre-grasp");
     } else {
-      reached_pre_grasp_pose = left_arm.getCurrentPose(left_tcp_link_).pose;
-      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread pick resume pre-grasp");
+      reached_pre_grasp_pose = arm.getCurrentPose(config.tcp_link).pose;
+      logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " resume pre-grasp");
+    }
+
+    geometry_msgs::msg::Pose grasp_pose = pick_plan.grasp_pose;
+    geometry_msgs::msg::Pose lift_pose = pick_plan.lift_pose;
+    if (adapt_grasp_orientation_to_reached_pre_grasp_ &&
+      pre_grasp_goal_mode != PreGraspGoalMode::ExactPose)
+    {
+      grasp_pose.orientation = reached_pre_grasp_pose.orientation;
+      lift_pose.orientation = reached_pre_grasp_pose.orientation;
+      RCLCPP_INFO(
+        get_logger(),
+        "%s: adapted grasp/lift orientation to reached pre-grasp orientation",
+        config.log_label.c_str());
     }
 
     if (shouldRunStage(ManufacturingStage::Pick)) {
@@ -1052,7 +1175,8 @@ private:
         std::sqrt(pre_grasp_dx * pre_grasp_dx + pre_grasp_dy * pre_grasp_dy);
       RCLCPP_INFO(
         get_logger(),
-        "Bread pick: desired pre-grasp xy=[%.3f %.3f], reached tcp xy=[%.3f %.3f], error=%.3f m",
+        "%s: desired pre-grasp xy=[%.3f %.3f], reached tcp xy=[%.3f %.3f], error=%.3f m",
+        config.log_label.c_str(),
         pick_plan.pre_grasp_pose.position.x,
         pick_plan.pre_grasp_pose.position.y,
         reached_pre_grasp_pose.position.x,
@@ -1061,7 +1185,8 @@ private:
       if (pre_grasp_xy_error > max_pre_grasp_xy_error_) {
         RCLCPP_ERROR(
           get_logger(),
-          "Bread pick: rejecting pre-grasp because TCP xy error %.3f m exceeds %.3f m",
+          "%s: rejecting pre-grasp because TCP xy error %.3f m exceeds %.3f m",
+          config.log_label.c_str(),
           pre_grasp_xy_error,
           max_pre_grasp_xy_error_);
         return false;
@@ -1070,122 +1195,281 @@ private:
         return true;
       }
 
-      geometry_msgs::msg::Pose grasp_pose = pick_plan.grasp_pose;
-      geometry_msgs::msg::Pose lift_pose = pick_plan.lift_pose;
-      if (adapt_grasp_orientation_to_reached_pre_grasp_ &&
-        pre_grasp_goal_mode != PreGraspGoalMode::ExactPose)
-      {
-        grasp_pose.orientation = reached_pre_grasp_pose.orientation;
-        lift_pose.orientation = reached_pre_grasp_pose.orientation;
-        RCLCPP_INFO(
-          get_logger(),
-          "Bread pick: adapted grasp/lift orientation to reached pre-grasp orientation");
-      }
-
       if (remove_target_collision_before_grasp_ && !target_collision_removed) {
         RCLCPP_INFO(
           get_logger(),
-          "Bread pick: removing target collision object '%s' before grasp approach",
-          target_model_.c_str());
-        planning_scene_interface.removeCollisionObjects({target_model_});
+          "%s: removing target collision object '%s' before grasp approach",
+          config.log_label.c_str(),
+          target.name.c_str());
+        planning_scene_interface.removeCollisionObjects({target.name});
+        target_collision_removed = true;
         if (collision_scene_settle_ms_ > 0) {
           rclcpp::sleep_for(std::chrono::milliseconds(collision_scene_settle_ms_));
         }
       }
 
-      RCLCPP_INFO(get_logger(), "Bread pick: Cartesian descent to grasp");
+      RCLCPP_INFO(get_logger(), "%s: Cartesian approach to grasp", config.log_label.c_str());
       if (!executeCartesian(
           get_logger(),
-          left_arm,
+          arm,
           {grasp_pose},
-          "left bread grasp descent",
+          config.log_label + " grasp approach",
           cartesian_eef_step_,
           min_cartesian_fraction_,
           cartesian_avoid_collisions_))
       {
         return false;
       }
-      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread pick grasp");
+      logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " grasp");
 
       if (!closeGripperForPick(
           get_logger(),
-          left_gripper,
-          bread_pick_tuning,
+          gripper,
+          config.log_label,
+          tuning,
           gripper_grasp_target_))
       {
         return false;
       }
       rclcpp::sleep_for(300ms);
 
-      RCLCPP_INFO(get_logger(), "Bread pick: Cartesian lift");
+      if (shouldStopAfter(ManufacturingStage::Pick)) {
+        return true;
+      }
+
+      if (!config.pull_out_to_pre_grasp_before_lift) {
+        RCLCPP_INFO(get_logger(), "%s: Cartesian lift", config.log_label.c_str());
+        if (!executeCartesian(
+            get_logger(),
+            arm,
+            {lift_pose},
+            config.log_label + " lift",
+            cartesian_eef_step_,
+            min_cartesian_fraction_,
+            cartesian_avoid_collisions_))
+        {
+          return false;
+        }
+        logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " lift");
+      }
+    }
+
+    if (config.pull_out_to_pre_grasp_before_lift && shouldRunStage(ManufacturingStage::PullOut)) {
+      geometry_msgs::msg::Pose pull_out_pose = arm.getCurrentPose(config.tcp_link).pose;
+      const auto * pull_out_preset = findPullOutPosePreset(config.step_name);
+      if (pull_out_preset != nullptr) {
+        pull_out_pose = makePoseFromPreset(*pull_out_preset);
+        RCLCPP_INFO(get_logger(), "%s: pull-out stage pose preset applied", config.log_label.c_str());
+      } else {
+        pull_out_pose.position.x = pick_plan.pre_grasp_pose.position.x;
+        pull_out_pose.position.y = pick_plan.pre_grasp_pose.position.y;
+      }
+
+      RCLCPP_INFO(get_logger(), "%s: Cartesian pull-out", config.log_label.c_str());
       if (!executeCartesian(
           get_logger(),
-          left_arm,
-          {lift_pose},
-          "left bread lift",
+          arm,
+          {pull_out_pose},
+          config.log_label + " pull-out",
           cartesian_eef_step_,
           min_cartesian_fraction_,
           cartesian_avoid_collisions_))
       {
         return false;
       }
-      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread pick lift");
-      if (shouldStopAfter(ManufacturingStage::Pick)) {
+      logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " pull-out");
+      if (shouldStopAfter(ManufacturingStage::PullOut)) {
+        return true;
+      }
+
+      lift_pose.position.x = pull_out_pose.position.x;
+      lift_pose.position.y = pull_out_pose.position.y;
+      lift_pose.position.z = pull_out_pose.position.z + lift_height_;
+      lift_pose.orientation = pull_out_pose.orientation;
+
+      RCLCPP_INFO(get_logger(), "%s: Cartesian lift", config.log_label.c_str());
+      if (!executeCartesian(
+          get_logger(),
+          arm,
+          {lift_pose},
+          config.log_label + " lift",
+          cartesian_eef_step_,
+          min_cartesian_fraction_,
+          cartesian_avoid_collisions_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " lift");
+    }
+
+    bool optional_stage_configured = false;
+    if (shouldRunStage(ManufacturingStage::Work)) {
+      if (!planAndExecuteStagePoseIfConfigured(
+          get_logger(),
+          arm,
+          config.step_name,
+          task_presets::ManufacturingStage::Work,
+          config.tcp_link,
+          optional_stage_configured))
+      {
+        return false;
+      }
+      if (optional_stage_configured) {
+        logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " work");
+      }
+      if (shouldStopAfter(ManufacturingStage::Work)) {
         return true;
       }
     }
 
-    bool optional_stage_configured = false;
-    if (!planAndExecuteStagePoseIfConfigured(
-        get_logger(),
-        left_arm,
-        task_presets::ManufacturingStage::Work,
-        left_tcp_link_,
-        optional_stage_configured))
-    {
-      return false;
-    }
-    if (optional_stage_configured) {
-      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread pick work");
-    }
-    if (shouldStopAfter(ManufacturingStage::Work)) {
-      return true;
-    }
-
-    if (!planAndExecuteStagePoseIfConfigured(
-        get_logger(),
-        left_arm,
-        task_presets::ManufacturingStage::Place,
-        left_tcp_link_,
-        optional_stage_configured))
-    {
-      return false;
-    }
-    if (optional_stage_configured) {
-      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread pick place");
-    }
-    if (shouldStopAfter(ManufacturingStage::Place)) {
-      return true;
+    if (shouldRunStage(ManufacturingStage::Place)) {
+      if (!planAndExecuteStagePoseIfConfigured(
+          get_logger(),
+          arm,
+          config.step_name,
+          task_presets::ManufacturingStage::Place,
+          config.tcp_link,
+          optional_stage_configured))
+      {
+        return false;
+      }
+      if (optional_stage_configured) {
+        logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " place");
+      }
+      if (shouldStopAfter(ManufacturingStage::Place)) {
+        return true;
+      }
     }
 
-    if (!planAndExecuteStagePoseIfConfigured(
-        get_logger(),
-        left_arm,
-        task_presets::ManufacturingStage::ReturnHome,
-        left_tcp_link_,
-        optional_stage_configured))
-    {
-      return false;
-    }
-    if (optional_stage_configured) {
-      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread pick return-home");
-    }
-    if (shouldStopAfter(ManufacturingStage::ReturnHome)) {
-      return true;
+    if (shouldRunStage(ManufacturingStage::ReturnHome)) {
+      if (!planAndExecuteStagePoseIfConfigured(
+          get_logger(),
+          arm,
+          config.step_name,
+          task_presets::ManufacturingStage::ReturnHome,
+          config.tcp_link,
+          optional_stage_configured))
+      {
+        return false;
+      }
+      if (optional_stage_configured) {
+        logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " return-home");
+      }
+      if (shouldStopAfter(ManufacturingStage::ReturnHome)) {
+        return true;
+      }
     }
 
-    RCLCPP_INFO(get_logger(), "Hotdog bread pick completed");
+    RCLCPP_INFO(get_logger(), "%s", config.completed_log.c_str());
     return true;
+  }
+
+  bool runBreadPick()
+  {
+    const std::string bread_target_model =
+      target_model_.empty() || target_model_ == "auto" ? "bread" : target_model_;
+    RCLCPP_INFO(
+      get_logger(),
+      "Hotdog bread pick started: item=%s, target_model=%s",
+      item_name_.c_str(),
+      bread_target_model.c_str());
+
+    std::string package_share_directory;
+    try {
+      package_share_directory = ament_index_cpp::get_package_share_directory("ddooby_controller");
+    } catch (const std::exception & error) {
+      RCLCPP_ERROR(get_logger(), "Failed to resolve ddooby_controller share directory: %s", error.what());
+      return false;
+    }
+
+    const std::string layout_path = layout_path_.empty() ?
+      joinPath(package_share_directory, "assets/manufacturing_world/layout.json") :
+      layout_path_;
+
+    TargetObject target;
+    try {
+      target = loadTargetObject(package_share_directory, layout_path, bread_target_model);
+    } catch (const std::exception & error) {
+      RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", bread_target_model.c_str(), error.what());
+      return false;
+    }
+
+    PickPlan pick_plan =
+      makeTopDownPickPlan(
+        target,
+        pre_grasp_height_,
+        lift_height_,
+        task_presets::kLeftBreadPickTuning.grasp_tcp_z_offset_m);
+
+    return prepareAndRunPickMotion(
+      PickMotionConfig{
+        "bread_pick",
+        "Bread pick",
+        "Hotdog bread pick completed",
+        left_arm_group_,
+        left_gripper_group_,
+        left_tcp_link_,
+        left_ready_pose_name_,
+        left_ready_joints_,
+        &task_presets::kLeftBreadPickTuning,
+        false},
+      target,
+      pick_plan);
+  }
+
+  bool runCasePick()
+  {
+    const std::string case_target_model =
+      target_model_.empty() || target_model_ == "auto" ? "case" : target_model_;
+    RCLCPP_INFO(
+      get_logger(),
+      "Hotdog case pick started: item=%s, target_model=%s",
+      item_name_.c_str(),
+      case_target_model.c_str());
+
+    std::string package_share_directory;
+    try {
+      package_share_directory = ament_index_cpp::get_package_share_directory("ddooby_controller");
+    } catch (const std::exception & error) {
+      RCLCPP_ERROR(get_logger(), "Failed to resolve ddooby_controller share directory: %s", error.what());
+      return false;
+    }
+
+    const std::string layout_path = layout_path_.empty() ?
+      joinPath(package_share_directory, "assets/manufacturing_world/layout.json") :
+      layout_path_;
+
+    TargetObject target;
+    try {
+      target = loadTargetObject(package_share_directory, layout_path, case_target_model);
+    } catch (const std::exception & error) {
+      RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", case_target_model.c_str(), error.what());
+      return false;
+    }
+
+    PickPlan pick_plan =
+      makeHorizontalPickPlan(
+        target,
+        Eigen::Vector3d::UnitX(),
+        Eigen::Vector3d::UnitY(),
+        case_pre_grasp_distance_,
+        lift_height_,
+        task_presets::kRightCasePickTuning.grasp_tcp_z_offset_m);
+
+    return prepareAndRunPickMotion(
+      PickMotionConfig{
+        "case_pick",
+        "Case pick",
+        "Hotdog case pick completed",
+        right_arm_group_,
+        right_gripper_group_,
+        right_tcp_link_,
+        right_ready_pose_name_,
+        right_ready_joints_,
+        &task_presets::kRightCasePickTuning,
+        true},
+      target,
+      pick_plan);
   }
 
   void sleepStep() const
@@ -1211,6 +1495,11 @@ private:
   std::string left_tcp_link_;
   std::string left_ready_pose_name_;
   std::vector<double> left_ready_joints_;
+  std::string right_arm_group_;
+  std::string right_gripper_group_;
+  std::string right_tcp_link_;
+  std::string right_ready_pose_name_;
+  std::vector<double> right_ready_joints_;
   double planning_time_sec_{8.0};
   int planning_attempts_{8};
   double velocity_scaling_{0.15};
@@ -1218,6 +1507,7 @@ private:
   double gripper_velocity_scaling_{0.4};
   double gripper_acceleration_scaling_{0.4};
   double pre_grasp_height_{0.12};
+  double case_pre_grasp_distance_{0.10};
   double lift_height_{0.12};
   double cartesian_eef_step_{0.005};
   double min_cartesian_fraction_{0.90};

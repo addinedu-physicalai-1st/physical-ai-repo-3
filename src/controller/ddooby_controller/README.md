@@ -14,7 +14,7 @@ src/controller/ddooby_controller/
 ├── launch/
 │   ├── beverage_making_test.launch.py
 │   ├── beverage_station_gz.launch.py
-│   ├── hotdog_bread_pick.launch.py
+│   ├── hotdog_making.launch.py
 │   ├── manufacturing_world_gz.launch.py
 │   └── manifacture_action_server.launch.py
 ├── assets/
@@ -294,7 +294,7 @@ cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 
-ros2 launch ddooby_controller hotdog_bread_pick.launch.py dry_run:=true
+ros2 launch ddooby_controller hotdog_making.launch.py active_step:=bread_pick dry_run:=true
 ```
 
 정상 로그 예:
@@ -306,10 +306,10 @@ Target 'bread': xyz=[0.313 0.183 0.303], size=[0.150 0.050 0.025], principal=[1.
 터미널 2: 실제 빵 pick 실행
 
 ```bash
-ros2 launch ddooby_controller hotdog_bread_pick.launch.py
+ros2 launch ddooby_controller hotdog_making.launch.py active_step:=bread_pick
 ```
 
-`ros2 run ddooby_controller hotdog_making_node ...`로 직접 실행하지 않습니다. MoveIt의 `robot_description_semantic` 파라미터가 주입되지 않아 robot model 생성에 실패합니다. 실제 MoveIt 제어는 `hotdog_bread_pick.launch.py`를 사용합니다.
+`ros2 run ddooby_controller hotdog_making_node ...`로 직접 실행하지 않습니다. MoveIt의 `robot_description_semantic` 파라미터가 주입되지 않아 robot model 생성에 실패합니다. 실제 MoveIt 제어는 `hotdog_making.launch.py`를 사용합니다.
 
 실행 중 TCP와 빵 위치를 확인하려면:
 
@@ -330,7 +330,7 @@ for model in json.loads(layout.read_text())["models"]:
 PY
 ```
 
-`hotdog_bread_pick.launch.py`는 pre-grasp 도달 뒤 TCP x/y와 목표 x/y의 오차를 검사합니다. 기본 허용 오차는 `0.03m`입니다. approximate IK는 목표 x/y를 크게 놓칠 수 있어서 기본 비활성화되어 있습니다.
+`hotdog_making.launch.py`는 pre-grasp 도달 뒤 TCP x/y와 목표 x/y의 오차를 검사합니다. 기본 허용 오차는 `0.03m`입니다. approximate IK는 목표 x/y를 크게 놓칠 수 있어서 기본 비활성화되어 있습니다.
 
 ## 실제 제조 skeleton 실행
 
