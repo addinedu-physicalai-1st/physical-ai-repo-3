@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  moca_decal — moca 카페 인테리어용 금빛 mocadesign.png 데칼 3 장.
+  포함 시 단일 인스턴스로 world (0,0,0) 에 배치. 각 link 가 절대 world pose 보유.
+
+  배치 (mapv5_mocamap 2026-05-15 중앙 정렬 이후):
+    - decal_north : openarm/바카운터 뒤 북벽 안쪽면 (y≈4.13, faces -y)
+    - decal_east  : 동측 벽 안쪽면 (x≈-34.78, faces -x)
+    - decal_floor : T02~T05 홀 바닥 (z≈0.005, faces +z)
+
+  스타일: PBR metal (metalness 0.85, roughness 0.18) + emissive 금빛 → 반짝/글로우.
+-->
+<sdf version="1.7">
+  <model name="moca_decal">
+    <static>true</static>
+
+    <!-- ============ 1) 북벽 (openarm 뒤) ============ -->
+    <link name="decal_north">
+      <pose>-36.200 4.130 1.300 0 0 0</pose>
+      <visual name="decal_north_visual">
+        <geometry>
+          <box>
+            <size>2.000 0.020 0.876</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.10 0.08 0.02 1</ambient>
+          <diffuse>0.45 0.36 0.10 1</diffuse>
+          <specular>1.0 0.90 0.40 1</specular>
+          <emissive>1.0 0.84 0.30 1</emissive>
+          <pbr>
+            <metal>
+              <albedo_map>model://moca_decal/materials/textures/mocadesign.png</albedo_map>
+              <emissive_map>model://moca_decal/materials/textures/mocadesign.png</emissive_map>
+              <metalness>0.85</metalness>
+              <roughness>0.18</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+
+    <!-- ============ 2) 동벽 ============ -->
+    <link name="decal_east">
+      <pose>-34.780 -0.500 1.300 0 0 0</pose>
+      <visual name="decal_east_visual">
+        <geometry>
+          <box>
+            <size>0.020 1.800 0.789</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.10 0.08 0.02 1</ambient>
+          <diffuse>0.45 0.36 0.10 1</diffuse>
+          <specular>1.0 0.90 0.40 1</specular>
+          <emissive>1.0 0.84 0.30 1</emissive>
+          <pbr>
+            <metal>
+              <albedo_map>model://moca_decal/materials/textures/mocadesign.png</albedo_map>
+              <emissive_map>model://moca_decal/materials/textures/mocadesign.png</emissive_map>
+              <metalness>0.85</metalness>
+              <roughness>0.18</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+
+    <!-- ============ 3) T02~T05 홀 바닥 ============ -->
+    <link name="decal_floor">
+      <pose>-42.500 -0.100 0.005 0 0 0</pose>
+      <visual name="decal_floor_visual">
+        <geometry>
+          <box>
+            <size>4.000 1.750 0.010</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.12 0.10 0.03 1</ambient>
+          <diffuse>0.55 0.44 0.12 1</diffuse>
+          <specular>1.0 0.92 0.45 1</specular>
+          <emissive>0.85 0.70 0.25 1</emissive>
+          <pbr>
+            <metal>
+              <albedo_map>model://moca_decal/materials/textures/mocadesign.png</albedo_map>
+              <emissive_map>model://moca_decal/materials/textures/mocadesign.png</emissive_map>
+              <metalness>0.92</metalness>
+              <roughness>0.15</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

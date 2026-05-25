@@ -1,0 +1,193 @@
+# tests/regression/catalog.yaml
+# moca 회귀 테스트 인덱스. test-supervisor 에이전트가 read/write.
+# 새 테스트는 supervisor 가 sub-tester 호출 후 자동 인덱싱.
+
+version: 1
+generated: 2026-05-19
+categories:
+- id: perception
+  handler: perception-tester
+  description: GEVA, rapport_tracker, decision_rule, person_tracking_pkg
+- id: dialog
+  handler: dialog-tester
+  description: persona_manager, tts_node, face_avatar_node
+- id: navigation
+  handler: navigation-tester
+  description: Nav2, serving_dispatcher, follow_controller, person_detector
+- id: safety
+  handler: safety-tester
+  description: safety_zone_monitor, twist_mux, /scan, /battery_state
+- id: minigame
+  handler: minigame-tester
+  description: RPS + 3 games (rps_evolution, speed_counter, cafe_ninja)
+- id: mode_e2e
+  handler: mode-e2e-tester
+  description: mode_npc / mode_serving / mode_follow / teleop_ui full launch
+- id: infra_readonly
+  handler: safety-tester
+  description: vic_pinky read-only checks, RPi ping (§0-A 활성 시 skip)
+policy_blocks_vocabulary:
+- rpi_ssh
+- live_robot
+- vic_pinky_write
+- internet_required
+tests:
+- id: geva_webcam_smoke
+  category: perception
+  file: perception/geva_webcam_smoke.md
+  depth: smoke
+  tags:
+  - geva
+  - webcam
+  - phase2
+  - perception
+  duration_estimate_sec: 15
+  requires:
+  - device: camera_1
+  - package: dobi_npc_emotion
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: null
+  last_run: null
+- id: mode_idle_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_idle_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - idle
+  - mode_manager
+  duration_estimate_sec: 15
+  requires:
+  - package: dobi_npc_bringup
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:25:36'
+- id: mode_serving_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_serving_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - serving
+  - dispatcher
+  duration_estimate_sec: 20
+  requires:
+  - package: dobi_npc_bringup
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:26:00'
+- id: mode_patrol_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_patrol_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - patrol
+  - scheduler
+  - table_occupancy
+  duration_estimate_sec: 25
+  requires:
+  - package: dobi_npc_bringup
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:26:30'
+- id: mode_guiding_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_guiding_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - guiding
+  - person_detector
+  duration_estimate_sec: 25
+  requires:
+  - package: dobi_npc_bringup
+  - package: dobi_npc_emotion
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:33:54'
+  last_fail_reason: ''
+- id: mode_engaging_smoke
+  category: mode_e2e
+  file: mode_e2e/mode_engaging_smoke.md
+  depth: smoke
+  tags:
+  - mode
+  - engaging
+  - bt_executor
+  - minigame_runner
+  duration_estimate_sec: 25
+  requires:
+  - package: dobi_npc_bringup
+  - package: dobi_npc_bt
+  - package: dobi_npc_minigame
+  policy:
+    blocks: []
+  added: '2026-05-19'
+  last_status: pass
+  last_run: '2026-05-19T20:27:55'
+- id: rapport_ema_smoke
+  category: perception
+  file: perception/rapport_ema_smoke.md
+  depth: smoke
+  tags:
+  - rapport
+  - ema
+  - smoothing
+  - perception
+  duration_estimate_sec: 20
+  requires:
+  - package: dobi_npc_emotion
+  policy:
+    blocks: []
+  added: '2026-05-20'
+  last_status: null
+  last_run: null
+- id: track_id_integration_smoke
+  category: perception
+  file: perception/track_id_integration_smoke.md
+  depth: smoke
+  tags:
+  - track_id
+  - group_id
+  - person_tracking
+  - perception
+  duration_estimate_sec: 25
+  requires:
+  - package: dobi_npc_emotion
+  - package: dobi_npc_msgs
+  - package: person_tracking_pkg
+  policy:
+    blocks: []
+  added: '2026-05-21'
+  last_status: null
+  last_run: null
+- id: engagement_timeline_smoke
+  category: perception
+  file: perception/engagement_timeline_smoke.md
+  depth: smoke
+  tags:
+  - engagement_timeline
+  - opserver
+  - ws_payload
+  - perception
+  duration_estimate_sec: 25
+  requires:
+  - package: dobi_npc_emotion
+  - package: dobi_npc_msgs
+  - package: moca_opserver
+  policy:
+    blocks: []
+  added: '2026-05-21'
+  last_status: null
+  last_run: null

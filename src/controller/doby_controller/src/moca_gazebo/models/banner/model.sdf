@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  banner — moca 카페 자립형 광고 배너 (roll-up X 스타일).
+  footprint 0.40 x 1.00 m, 총높이 1.325 m. +x = 광고면 (벽 앞에 세우고 yaw 로 방향 조정).
+  구조: foot slab + 중앙 mast + 상단 panel(텍스처 mocanewdesign.png).
+  panel 비율 1.00 W x 0.79 H ≈ 487:385 (이미지 원본 aspect 1.27:1) → 늘림 없이 표시.
+-->
+<sdf version="1.7">
+  <model name="banner">
+    <static>true</static>
+
+    <!-- 1) 베이스 풋 (얇은 직사각 판, 안정성) -->
+    <link name="foot">
+      <pose>0 0 0.015 0 0 0</pose>
+      <visual name="foot_visual">
+        <geometry>
+          <box><size>0.400 1.000 0.030</size></box>
+        </geometry>
+        <material>
+          <ambient>0.18 0.18 0.20 1</ambient>
+          <diffuse>0.26 0.26 0.28 1</diffuse>
+          <specular>0.20 0.20 0.20 1</specular>
+        </material>
+      </visual>
+      <collision name="foot_collision">
+        <geometry>
+          <box><size>0.400 1.000 0.030</size></box>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- 2) 중앙 마스트 (실버 알루미늄, 패널 받침) -->
+    <link name="mast">
+      <pose>0 0 0.280 0 0 0</pose>
+      <visual name="mast_visual">
+        <geometry>
+          <box><size>0.040 0.040 0.500</size></box>
+        </geometry>
+        <material>
+          <ambient>0.55 0.55 0.58 1</ambient>
+          <diffuse>0.72 0.72 0.75 1</diffuse>
+          <specular>0.55 0.55 0.55 1</specular>
+        </material>
+      </visual>
+      <collision name="mast_collision">
+        <geometry>
+          <box><size>0.040 0.040 0.500</size></box>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- 3) 상단 패널 — 광고 텍스처. thin in X, 광고면 = +x. -->
+    <link name="panel">
+      <pose>0 0 0.925 0 0 0</pose>
+      <visual name="panel_visual">
+        <geometry>
+          <box><size>0.050 1.000 0.790</size></box>
+        </geometry>
+        <material>
+          <ambient>0.85 0.85 0.85 1</ambient>
+          <diffuse>1.00 1.00 1.00 1</diffuse>
+          <specular>0.10 0.10 0.10 1</specular>
+          <pbr>
+            <metal>
+              <albedo_map>model://banner/materials/textures/mocanewdesign.png</albedo_map>
+              <metalness>0.0</metalness>
+              <roughness>0.80</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>테이블 — MOCA</title>
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/reset.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/layout.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260517r">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar__brand"><h1>MoCa</h1><p>Mobile Catering Snack Bar</p></div>
+      <nav class="sidebar__nav" aria-label="페이지 네비게이션">
+        <a class="sidebar__nav-item" href="/static/pages/dashboard.html"><span>대시보드</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/modes.html"><span>모드 제어</span></a>
+        <a class="sidebar__nav-item sidebar__nav-item--active" href="/static/pages/tables.html"><span>테이블</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/events.html"><span>이벤트</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/analytics.html"><span>통계</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/settings.html"><span>설정</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/debug.html"><span>디버그</span></a>
+      </nav>
+      <div class="sidebar__status">
+        <div class="sidebar__status-line">
+          <span class="sidebar__status-dot" id="footer-dot"></span>
+          <span id="footer-online">Doby…</span>
+        </div>
+      </div>
+    </aside>
+    <header class="header" id="header">
+      <mode-badge></mode-badge>
+      <battery-gauge></battery-gauge>
+      <safety-indicator></safety-indicator>
+      <robot-status name="Doby" store-key="online"></robot-status>
+      <robot-status name="DDooby"></robot-status>
+      <div class="header__right"><header-clock></header-clock></div>
+    </header>
+    <main class="main">
+      <div class="card" style="margin-bottom: var(--space-4);">
+        <h3>테이블 점유 현황</h3>
+        <p class="card__small">최근 patrol 사이클의 occupancy 결과. patrol 미실행 시 unknown.</p>
+      </div>
+
+      <div class="tables-grid">
+        <table-card table-id="T01"></table-card>
+        <table-card table-id="T02"></table-card>
+        <table-card table-id="T03"></table-card>
+        <table-card table-id="T04"></table-card>
+        <table-card table-id="T05"></table-card>
+      </div>
+    </main>
+  </div>
+  <script src="/static/js/utils.js?v=20260517r"></script>
+  <script src="/static/js/ws.js?v=20260517r"></script>
+  <script src="/static/js/store.js?v=20260517r"></script>
+  <script src="/static/components/mode-badge.js?v=20260517r"></script>
+  <script src="/static/components/battery-gauge.js?v=20260517r"></script>
+  <script src="/static/components/safety-indicator.js?v=20260517r"></script>
+  <script src="/static/components/robot-status.js?v=20260517r"></script>
+  <script src="/static/components/header-clock.js?v=20260517r"></script>
+  <script src="/static/components/table-card.js?v=20260517r"></script>
+  <script>
+    (function () {
+      const dot = document.getElementById('footer-dot');
+      const lbl = document.getElementById('footer-online');
+      const header = document.getElementById('header');
+      store.on('online', (on) => {
+        if (on) { dot.classList.add('sidebar__status-dot--online'); lbl.textContent='Doby Online'; header.classList.remove('header--offline'); }
+        else { dot.classList.remove('sidebar__status-dot--online'); lbl.textContent='Doby Offline'; header.classList.add('header--offline'); }
+      });
+    })();
+  </script>
+</body>
+</html>

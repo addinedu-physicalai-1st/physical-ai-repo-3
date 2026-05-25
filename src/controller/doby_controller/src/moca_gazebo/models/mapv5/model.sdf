@@ -1,0 +1,42 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+  mapv5 model - mocamap occupancy 를 wall mesh 로 extrude.
+  Source: maps/mapv5_mocamap.pgm (user hand-edited from raw SLAM).
+  Mesh: walls_high.stl (9648 triangles), extrusion 2.0m.
+  Display scale 0.25 -> rendered wall height 0.5m (cafe interior style).
+  Regenerate: python3 scripts/pgm_to_walls_stl.py maps/mapv5_mocamap.pgm \
+                       src/moca_gazebo/models/mapv5/meshes/walls_high.stl
+-->
+<sdf version="1.7">
+  <model name="mapv5">
+    <static>true</static>
+    <link name="walls_high">
+      <visual name="walls_high_visual">
+        <geometry>
+          <mesh>
+            <uri>model://mapv5/meshes/walls_high.stl</uri>
+            <scale>1 1 0.25</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.30 0.30 0.30 1</ambient>
+          <diffuse>0.40 0.40 0.40 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <collision name="walls_high_collision">
+        <geometry>
+          <mesh>
+            <uri>model://mapv5/meshes/walls_high.stl</uri>
+            <scale>1 1 0.25</scale>
+          </mesh>
+        </geometry>
+        <surface>
+          <contact>
+            <collide_bitmask>0x01</collide_bitmask>
+          </contact>
+        </surface>
+      </collision>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>디버그 — MOCA</title>
+  <link rel="stylesheet" href="/static/css/tokens.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/reset.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/layout.css?v=20260517r">
+  <link rel="stylesheet" href="/static/css/components.css?v=20260521b">
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <h1>MoCa</h1>
+        <p>Mobile Catering Snack Bar</p>
+      </div>
+      <nav class="sidebar__nav" aria-label="페이지 네비게이션">
+        <a class="sidebar__nav-item" href="/static/pages/dashboard.html"><span>대시보드</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/modes.html"><span>모드 제어</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/tables.html"><span>테이블</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/events.html"><span>이벤트</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/analytics.html"><span>통계</span></a>
+        <a class="sidebar__nav-item" href="/static/pages/settings.html"><span>설정</span></a>
+        <a class="sidebar__nav-item sidebar__nav-item--active" href="/static/pages/debug.html"><span>디버그</span></a>
+      </nav>
+      <div class="sidebar__status">
+        <div class="sidebar__status-line">
+          <span class="sidebar__status-dot" id="footer-dot"></span>
+          <span id="footer-online">Doby…</span>
+        </div>
+        <div class="sidebar__status-line">
+          <span class="label">BATT</span>
+          <span id="footer-battery">—</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Header -->
+    <header class="header" id="header">
+      <mode-badge></mode-badge>
+      <battery-gauge></battery-gauge>
+      <safety-indicator></safety-indicator>
+      <robot-status name="Doby" store-key="online"></robot-status>
+      <robot-status name="DDooby"></robot-status>
+      <div class="header__right">
+        <header-clock></header-clock>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="main debug-page">
+
+      <p class="analytics-banner">
+        dev 전용 — raw API / WS / status / queue / event stream. 점주에게 노출 권장 X
+        (사이드바 항목 가림은 LocalStorage dev_mode=false 시 후속 작업으로 7 페이지 일괄 수정 예정).
+      </p>
+
+      <!-- Dev mode 토글 -->
+      <section class="card">
+        <h3>Dev Mode</h3>
+        <div class="form-row">
+          <span class="card__small">LocalStorage <code>dev_mode</code>:</span>
+          <span id="dev-mode-state" class="ev-tag ev-tag--info">—</span>
+          <button class="btn btn--ghost" id="btn-dev-toggle">토글</button>
+          <span class="card__small" style="color:var(--text-muted)">
+            true 일 때 향후 사이드바에서 본 항목 visible
+          </span>
+        </div>
+      </section>
+
+      <!-- 외부 서버 안내 -->
+      <section class="card">
+        <h3>외부 서버 연동</h3>
+        <p class="card__small">
+          본 페이지는 <code>moca_opserver</code> (port 8800) 의 raw 컨트롤만 제공.
+          emotion v/a 산점도, rapport raw, 카메라 라이브, BT tick rate, follow 조이스틱 등은
+          <strong>teleop_server.py (port 8765)</strong> 의 <code>operator.html</code> 참조.
+        </p>
+        <div class="form-row">
+          <a class="btn btn--ghost" href="http://localhost:8765" target="_blank" rel="noopener">
+            http://localhost:8765
+          </a>
+          <a class="btn btn--ghost" href="http://localhost:8765/operator" target="_blank" rel="noopener">
+            http://localhost:8765/operator
+          </a>
+        </div>
+      </section>
+
+      <!-- Raw 모드 요청 -->
+      <section class="card">
+        <h3>Raw 모드 요청 (POST /api/v1/mode)</h3>
+        <div class="form-row">
+          <label class="form-label" for="raw-mode">mode</label>
+          <select class="form-select" id="raw-mode">
+            <option>idle</option><option>serving</option><option>patrol</option>
+            <option>guiding</option><option>engaging</option>
+          </select>
+          <label class="form-check">
+            <input type="checkbox" id="raw-override" checked><span>override_priority</span>
+          </label>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="raw-params">params (JSON)</label>
+          <input type="text" class="form-input form-input--grow" id="raw-params"
+                 placeholder='{"waypoint":"T03","via_pickup":true}' value="{}">
+          <button class="btn btn--primary" id="btn-raw-mode-send">전송</button>
+        </div>
+        <pre class="json-pre" id="raw-mode-result">—</pre>
+      </section>
+
+      <!-- Raw WS 송신 -->
+      <section class="card">
+        <h3>Raw WS 송신 (/ws/dashboard)</h3>
+        <div class="form-row">
+          <label class="form-label" for="raw-ws-type">type</label>
+          <select class="form-select" id="raw-ws-type">
+            <option>set_mode</option><option>emergency_stop</option><option>utter</option>
+            <option>skip_table</option><option>set_config</option><option>ack_alarm</option>
+          </select>
+          <button class="btn btn--ghost" id="btn-raw-ws-template">템플릿 채우기</button>
+        </div>
+        <div class="form-row">
+          <textarea class="form-input form-input--grow" id="raw-ws-body" rows="4"
+            style="min-height:80px;font-family:var(--font-mono);font-size:var(--fs-xs)"
+            placeholder='{"type":"set_mode","mode":"patrol","params":{},"override_priority":true}'>
+{"type":"set_mode","mode":"patrol","params":{},"override_priority":true}</textarea>
+        </div>
+        <div class="form-row">
+          <button class="btn btn--primary" id="btn-raw-ws-send">전송</button>
+          <span class="card__small" id="raw-ws-status" style="color:var(--text-muted)">대기</span>
+        </div>
+      </section>
+
+      <!-- Status snapshot raw -->
+      <section class="card">
+        <h3>Status Snapshot (GET /api/v1/status)</h3>
+        <div class="form-row">
+          <button class="btn btn--ghost" id="btn-status-refresh">새로고침</button>
+          <label class="form-check">
+            <input type="checkbox" id="status-auto" checked><span>자동 (3초)</span>
+          </label>
+          <span class="card__small" id="status-last">—</span>
+        </div>
+        <pre class="json-pre" id="status-pre">로드 중…</pre>
+      </section>
+
+      <!-- Queue raw -->
+      <section class="card">
+        <h3>큐 Raw Dump</h3>
+        <div class="json-grid">
+          <div>
+            <h4>serving</h4>
+            <pre class="json-pre" id="q-serving">—</pre>
+          </div>
+          <div>
+            <h4>guiding</h4>
+            <pre class="json-pre" id="q-guiding">—</pre>
+          </div>
+          <div>
+            <h4>order</h4>
+            <pre class="json-pre" id="q-order">—</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Console log — operator.html line 351 패턴 포팅 (2026-05-20) -->
+      <section class="card">
+        <h3>Console Log (client-side)</h3>
+        <p class="card__small">
+          브라우저 console.log/warn/error/info 를 페이지에서 표시 (최근 50건).
+          + WS open/close 이벤트 + alarm.
+        </p>
+        <div class="form-row">
+          <span class="card__small" id="console-log-count">0건</span>
+          <button class="btn btn--ghost" id="btn-console-clear">화면 비우기</button>
+          <label class="form-check">
+            <input type="checkbox" id="console-log-pause"><span>일시정지</span>
+          </label>
+        </div>
+        <div class="console-log" id="console-log"></div>
+      </section>
+
+      <!-- Event raw stream -->
+      <section class="card">
+        <h3>Event Raw Stream (WS event_log)</h3>
+        <div class="form-row">
+          <span class="card__small" id="ev-stream-count">0건</span>
+          <button class="btn btn--ghost" id="btn-ev-clear">화면 비우기</button>
+          <label class="form-check">
+            <input type="checkbox" id="ev-stream-pause"><span>일시정지</span>
+          </label>
+        </div>
+        <pre class="json-pre json-pre--stream" id="ev-stream"></pre>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- JS -->
+  <script src="/static/js/utils.js?v=20260517r"></script>
+  <script src="/static/js/ws.js?v=20260517r"></script>
+  <script src="/static/js/store.js?v=20260517r"></script>
+  <script src="/static/js/api.js?v=20260517r"></script>
+  <script src="/static/js/toast.js?v=20260517r"></script>
+  <script src="/static/components/mode-badge.js?v=20260517r"></script>
+  <script src="/static/components/battery-gauge.js?v=20260517r"></script>
+  <script src="/static/components/safety-indicator.js?v=20260517r"></script>
+  <script src="/static/components/robot-status.js?v=20260517r"></script>
+  <script src="/static/components/header-clock.js?v=20260517r"></script>
+
+  <script>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+
+      // ───── 사이드바 / 헤더 ─────
+      store.on('online', (on) => {
+        const dot = $('footer-dot');
+        const lbl = $('footer-online');
+        const hdr = $('header');
+        if (on) {
+          dot.classList.add('sidebar__status-dot--online');
+          lbl.textContent = 'Doby Online';
+          hdr.classList.remove('header--offline');
+        } else {
+          dot.classList.remove('sidebar__status-dot--online');
+          lbl.textContent = 'Doby Offline';
+          hdr.classList.add('header--offline');
+        }
+      });
+      store.on('battery', (b) => {
+        const batt = $('footer-battery');
+        if (b && typeof b.percentage === 'number' && b.percentage >= 0) {
+          batt.textContent = `${Math.round(b.percentage * 100)}%`;
+        } else { batt.textContent = '—'; }
+      });
+
+      // ───── Dev mode 토글 ─────
+      function renderDevMode() {
+        const v = localStorage.getItem('dev_mode') === 'true';
+        const el = $('dev-mode-state');
+        el.textContent = v ? 'TRUE' : 'FALSE';
+        el.className = `ev-tag ${v ? 'ev-tag--warn' : 'ev-tag--info'}`;
+      }
+      $('btn-dev-toggle').addEventListener('click', () => {
+        const cur = localStorage.getItem('dev_mode') === 'true';
+        localStorage.setItem('dev_mode', cur ? 'false' : 'true');
+        renderDevMode();
+        toast(`dev_mode = ${!cur}`, 'info');
+      });
+      renderDevMode();
+
+      // ───── Raw 모드 요청 ─────
+      $('btn-raw-mode-send').addEventListener('click', () => {
+        const mode = $('raw-mode').value;
+        const override = $('raw-override').checked;
+        let params = {};
+        try {
+          const raw = $('raw-params').value.trim();
+          if (raw) params = JSON.parse(raw);
+          if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+            throw new Error('params 가 object 가 아님');
+          }
+        } catch (e) {
+          toast('params JSON 파싱 실패: ' + e.message, 'error');
+          return;
+        }
+        if (!confirm(`POST /api/v1/mode\nmode=${mode}\nparams=${JSON.stringify(params)}\noverride=${override}\n\n전송하시겠습니까?`)) return;
+        api.post('/mode', { mode, params, override_priority: override })
+          .then(r => {
+            $('raw-mode-result').textContent = JSON.stringify(r, null, 2);
+            toast('모드 요청 OK', 'info');
+          })
+          .catch(e => {
+            $('raw-mode-result').textContent = JSON.stringify(
+              { status: 'error', http_status: e.status, payload: e.payload }, null, 2);
+            toast(`모드 요청 실패 (${e.status || 'NET'})`, 'error');
+          });
+      });
+
+      // ───── Raw WS 송신 ─────
+      const WS_TEMPLATES = {
+        set_mode: { type: 'set_mode', mode: 'patrol', params: {}, override_priority: true },
+        emergency_stop: { type: 'emergency_stop' },
+        utter: { type: 'utter', text: '안녕하세요!', face_expression: 'hello' },
+        skip_table: { type: 'skip_table', table_id: 'T01' },
+        set_config: { type: 'set_config', patrol_enabled: true, patrol_interval_minutes: 5 },
+        ack_alarm: { type: 'ack_alarm', alarm_code: 'battery_low' },
+      };
+      $('btn-raw-ws-template').addEventListener('click', () => {
+        const t = $('raw-ws-type').value;
+        $('raw-ws-body').value = JSON.stringify(WS_TEMPLATES[t] || { type: t }, null, 2);
+      });
+      $('btn-raw-ws-send').addEventListener('click', () => {
+        let obj = null;
+        try {
+          obj = JSON.parse($('raw-ws-body').value);
+        } catch (e) {
+          toast('JSON 파싱 실패: ' + e.message, 'error');
+          return;
+        }
+        if (!obj || typeof obj.type !== 'string') {
+          toast('type 필드 필요', 'warn'); return;
+        }
+        if (!confirm(`WS send\n${JSON.stringify(obj, null, 2)}\n\n전송?`)) return;
+        const ok = wsClient.send(obj);
+        $('raw-ws-status').textContent = ok ? `전송 ${utils.formatTime(new Date().toISOString())}` : 'Doby Offline';
+        toast(ok ? 'WS 전송 OK' : 'WS 연결 끊김', ok ? 'info' : 'warn');
+      });
+
+      // ───── Status snapshot 자동 갱신 ─────
+      let statusTimer = null;
+      let _lastSnapshot = null;
+
+      function refreshStatus() {
+        api.get('/status').then(r => {
+          const data = (r && r.data) || {};
+          _lastSnapshot = data;
+          $('status-pre').textContent = JSON.stringify(data, null, 2);
+          $('status-last').textContent =
+            '갱신: ' + utils.formatTime(new Date().toISOString());
+          // 큐 dump
+          const q = data.queue || {};
+          $('q-serving').textContent = JSON.stringify(q.serving || [], null, 2);
+          $('q-guiding').textContent = JSON.stringify(q.guiding || [], null, 2);
+          $('q-order').textContent = JSON.stringify(q.order || [], null, 2);
+        }).catch(() => {
+          $('status-pre').textContent = '(fetch 실패)';
+        });
+      }
+
+      function setupAutoStatus() {
+        if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+        if ($('status-auto').checked) {
+          statusTimer = setInterval(refreshStatus, 3000);
+        }
+      }
+
+      $('btn-status-refresh').addEventListener('click', refreshStatus);
+      $('status-auto').addEventListener('change', setupAutoStatus);
+
+      refreshStatus();
+      setupAutoStatus();
+
+      // ───── Event raw stream ─────
+      const STREAM_MAX = 100;
+      const streamBuf = [];
+
+      function streamRender() {
+        $('ev-stream').textContent = streamBuf.join('\n');
+        $('ev-stream-count').textContent = `${streamBuf.length}건`;
+      }
+
+      wsClient.on('event_log', (msg) => {
+        if ($('ev-stream-pause').checked) return;
+        const line = `${msg.ts || ''}  ` + JSON.stringify(msg.data || {});
+        streamBuf.unshift(line);
+        while (streamBuf.length > STREAM_MAX) streamBuf.pop();
+        streamRender();
+      });
+
+      $('btn-ev-clear').addEventListener('click', () => {
+        streamBuf.length = 0;
+        streamRender();
+      });
+
+      // ───── Console log (operator.html line 351 패턴 포팅) ─────
+      const LOG_MAX = 50;
+      const logBuf = [];
+      function renderLog() {
+        $('console-log').innerHTML = logBuf.map(r =>
+          `<div class="log-${r.level}">[${r.ts}] ${r.msg}</div>`
+        ).join('');
+        $('console-log-count').textContent = `${logBuf.length}건`;
+      }
+      function pushLog(level, parts) {
+        if ($('console-log-pause').checked) return;
+        const ts = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+        const msg = parts.map(a =>
+          (typeof a === 'object' && a !== null) ? JSON.stringify(a) : String(a)
+        ).join(' ');
+        logBuf.unshift({ ts, level, msg });
+        while (logBuf.length > LOG_MAX) logBuf.pop();
+        renderLog();
+      }
+      // console.* intercept
+      const _origConsole = {};
+      ['log', 'info', 'warn', 'error'].forEach(lv => {
+        _origConsole[lv] = console[lv].bind(console);
+        console[lv] = (...args) => {
+          pushLog({ log: 'info', info: 'info', warn: 'warn', error: 'err' }[lv], args);
+          _origConsole[lv](...args);
+        };
+      });
+      // WS lifecycle
+      wsClient.on('ws:open', () => pushLog('ok', ['ws open /ws/dashboard']));
+      wsClient.on('ws:close', (m) => pushLog('warn', ['ws close code=' + (m.data && m.data.code)]));
+      wsClient.on('alarm', (msg) => pushLog('warn', ['alarm', msg.data || {}]));
+      $('btn-console-clear').addEventListener('click', () => {
+        logBuf.length = 0;
+        renderLog();
+      });
+      renderLog();
+    })();
+  </script>
+</body>
+</html>

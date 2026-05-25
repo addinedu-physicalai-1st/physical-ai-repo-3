@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  cafe_funnel_v1.xml
+  Dobi Barista 호객 행위 BT (Phase 2 W4)
+
+  === 학술 근거 ===
+    - Layer 1 (Isla 2005): BT 패러다임
+    - Layer 5 (Marzinotto 2014): BT 형식화 (Fallback에 priority safety/emotion 가장 왼쪽)
+    - Layer 2 (Russell 1980) + Layer 3 (Salichs 2014): EmotionMonitor abort 트리거
+
+  === 루트 구조 (ReactiveFallback Alarm 패턴) ===
+    ReactiveFallback (= 매 tick마다 모든 자식을 왼쪽부터 재평가)
+      ├── SafetyCheck     배터리/장애물 알람 (정상 FAILURE / 위험 SUCCESS)
+      ├── EmotionMonitor  /rapport/event 구독 → abort_trigger 시 SUCCESS
+      └── cafe_funnel     호객 6단계 Sequence
+
+    ReactiveFallback 채택 이유: Sequence가 RUNNING 중이어도 매 tick마다
+      SafetyCheck/EmotionMonitor를 다시 평가해야 abort가 즉시 작동.
+      plain Fallback은 앞 자식의 RUNNING/FAILURE 한 번 본 뒤 latch.
+
+  === Phase 진화 ===
+    Phase 2 후속: EmotionMonitor에 hysteresis_ms / rapport_delta 출력 포트
+    Phase 3: Minigame 노드를 RPS subtree로 교체
+-->
+<root BTCPP_format="4">
+
+  <BehaviorTree ID="MainTree">
+    <ReactiveFallback name="root_alarm_fallback">
+
+      <!-- Stage 0a: 물리 안전 알람 (배터리 + /scan 1.0m 가드) -->
+      <!-- scan_min_range 0.25: vicpinky 섀시(0.18~0.21m 자기반사) 마스킹.
+           라이브 테스트 후 실측 기반 재튜닝 — 회고 2026-05-04_safety_check_scan.md -->
+      <SafetyCheck name="safety_alarm"
+                   battery_min="0.20"
+                   scan_min_dist="1.0"
+                   scan_min_range="0.25"
+                   scan_alarm_enabled="true"/>
+
+      <!-- Stage 0b: 감정 안전 알람 (Phase 2 W4 신규) -->
+      <EmotionMonitor name="emotion_alarm"/>
+
+      <!-- 호객 funnel: 두 알람 모두 FAILURE(=정상) 시에만 진입 -->
+      <Sequence name="cafe_funnel">
+
+        <!-- Stage 1: 고객 후보 탐지 — person_tracking /tracks 5 frames 안정 -->
+        <!-- Phase 2 W4 후속 (2026-05-20): person_tracking_pkg 통합. 토픽 stale guard 포함 -->
+        <IdleScan name="stage1_idle_scan"
+                  stable_frames="5"
+                  msg_timeout_sec="0.5"
+                  customer_id="{customer_id}"/>
+
+        <!-- Stage 2: bh 안정 SUCCESS / lost 시 FAILURE / /approach/enable 토글 -->
+        <!-- Phase 2 W4 후속 (2026-05-20): Nav2 액션 폐기 → approach_controller PD 게이트 -->
+        <Approach name="stage2_approach"
+                  customer_id="{customer_id}"
+                  bh_threshold="0.6"
+                  stable_frames="5"
+                  lost_timeout_sec="2.0"/>
+
+        <!-- Stage 3: 인사 발화 (W3: 페르소나 phrase pool) -->
+        <IceBreak name="stage3_ice_break"
+                  phrase_pool_id="casual_browser"/>
+
+        <!-- Stage 4: 미니게임 (Phase 3: rotate — rps ↔ speed_counter 순환) -->
+        <!-- game_type 옵션: 'rps' | 'speed_counter' (직접 선택) /
+             'rotate' (cycle 순환) / 'random' (매번 무작위) -->
+        <Minigame name="stage4_minigame"
+                  game_type="random"
+                  rapport_delta="{rapport_delta}"/>
+
+        <!-- Stage 5: 메뉴 제안 (W3: 페르소나별 추천) -->
+        <Offer name="stage5_offer"
+               menu_category="default"/>
+
+        <!-- Stage 6: 카운터 안내 (W2: Nav2 goal) -->
+        <LeadIn name="stage6_lead_in"
+                counter_pose_id="counter_default"/>
+
+      </Sequence>
+
+    </ReactiveFallback>
+  </BehaviorTree>
+
+</root>
