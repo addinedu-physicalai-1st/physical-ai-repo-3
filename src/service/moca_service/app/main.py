@@ -21,7 +21,7 @@ from app.repository.catalog_repo import (
 from app.repository.db import Database, DbConfig
 from app.repository.order_repo import OrderItemRepository, OrderRepository
 from app.repository.table_repo import TableRepository
-from app.scheduler.order_orchestration_runtime import OrderOrchestrationRuntime
+from app.scheduler.workflow_scheduler import OrderOrchestrationRuntime
 from app.service.menu_service import MenuService
 from app.service.order_service import OrderService
 

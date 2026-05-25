@@ -1,9 +1,15 @@
 import logging
 import threading
 import time
-from collections import deque
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Protocol
+
+from app.in_memory.workflow_inmemory_state import (
+    ManufactureOrderItem,
+    WorkItem,
+    WorkQueue,
+    WorkQueues,
+    WorkflowInmemoryState,
+)
 
 if TYPE_CHECKING:
     from pymysql.connections import Connection
@@ -14,123 +20,6 @@ else:
 
 
 TAKE_OUT_RECEIVE_TYPE = "TAKE_OUT"
-
-
-@dataclass(frozen=True)
-class ManufactureOrderItem:
-    """Controller-facing item payload used by the manufacture command."""
-
-    product_id: int
-    product_name: str
-    selected_options: list[Any]
-    quantity: int
-    unit_price: int
-
-
-@dataclass
-class WorkItem:
-    """In-memory orchestration state for one claimed order."""
-
-    order_id: int
-    receive_type: str
-    table_number: int | None
-    order_items: list[ManufactureOrderItem]
-    retry_count: int = 0
-    next_retry_at: float = 0.0
-    last_error: str | None = None
-    manufacture_command_id: str = field(init=False)
-    serving_command_id: str = field(init=False)
-
-    def __post_init__(self) -> None:
-        self.manufacture_command_id = f"manufacture:{self.order_id}"
-        self.serving_command_id = f"serving:{self.order_id}"
-
-    def snapshot(self) -> "WorkItem":
-        copied = WorkItem(
-            order_id=self.order_id,
-            receive_type=self.receive_type,
-            table_number=self.table_number,
-            order_items=list(self.order_items),
-        )
-        copied.retry_count = self.retry_count
-        copied.next_retry_at = self.next_retry_at
-        copied.last_error = self.last_error
-        return copied
-
-    def reset_retry_state(self) -> None:
-        self.retry_count = 0
-        self.next_retry_at = 0.0
-        self.last_error = None
-
-    def schedule_retry(self, retry_count: int, next_retry_at: float, exc: Exception) -> None:
-        self.retry_count = retry_count
-        self.next_retry_at = next_retry_at
-        self.last_error = str(exc)
-
-    def exhaust_retries(self, exc: Exception) -> None:
-        self.next_retry_at = float("inf")
-        self.last_error = str(exc)
-
-
-@dataclass
-class WorkQueue:
-    """Single-lane FIFO queue that keeps one current order in progress."""
-
-    name: str
-    pending: deque[int] = field(default_factory=deque)
-    current_order_id: int | None = None
-
-    def enqueue(self, order_id: int) -> None:
-        if order_id == self.current_order_id or order_id in self.pending:
-            return
-        self.pending.append(order_id)
-
-    def pop_next(self) -> int | None:
-        if self.current_order_id is not None or not self.pending:
-            return None
-        self.current_order_id = self.pending.popleft()
-        return self.current_order_id
-
-    def complete_current(self, order_id: int) -> bool:
-        if self.current_order_id != order_id:
-            return False
-        self.current_order_id = None
-        return True
-
-    def retry_current(self, order_id: int) -> bool:
-        if self.current_order_id != order_id:
-            return False
-        self.current_order_id = None
-        self.pending.appendleft(order_id)
-        return True
-
-    def remove(self, order_id: int) -> None:
-        if self.current_order_id == order_id:
-            self.current_order_id = None
-        try:
-            self.pending.remove(order_id)
-        except ValueError:
-            pass
-
-    def clear(self) -> None:
-        self.pending.clear()
-        self.current_order_id = None
-
-
-@dataclass
-class WorkQueues:
-    """Queues for each sequential orchestration step."""
-
-    manufacture: WorkQueue = field(default_factory=lambda: WorkQueue("manufacture"))
-    serving: WorkQueue = field(default_factory=lambda: WorkQueue("serving"))
-
-    def remove(self, order_id: int) -> None:
-        self.manufacture.remove(order_id)
-        self.serving.remove(order_id)
-
-    def clear(self) -> None:
-        self.manufacture.clear()
-        self.serving.clear()
 
 
 class OrderClaimRepository(Protocol):
@@ -173,11 +62,12 @@ class DobyServingPort(Protocol):
 
 
 class OrderOrchestrationContext:
-    """Shared dependencies and synchronized mutable state for orchestration threads."""
+    """Shared scheduler dependencies for orchestration threads."""
 
     def __init__(
         self,
         *,
+        state: WorkflowInmemoryState,
         database: "Database",
         order_repository: OrderClaimRepository,
         order_item_repository: OrderItemLookup,
@@ -190,6 +80,7 @@ class OrderOrchestrationContext:
         max_retry_count: int,
         time_fn: Callable[[], float],
     ) -> None:
+        self.state = state
         self.database = database
         self.order_repository = order_repository
         self.order_item_repository = order_item_repository
@@ -201,17 +92,6 @@ class OrderOrchestrationContext:
         self.backoff_sec = backoff_sec
         self.max_retry_count = max_retry_count
         self.time_fn = time_fn
-        self.items: dict[int, WorkItem] = {}
-        self.lock = threading.RLock()
-        self.condition = threading.Condition(self.lock)
-        self.stop_event = threading.Event()
-
-    def list_work_items(self) -> list[WorkItem]:
-        with self.lock:
-            return [item.snapshot() for item in self.items.values()]
-
-    def find_locked(self, order_id: int) -> WorkItem | None:
-        return self.items.get(order_id)
 
 
 class OrderLifecycle:
@@ -225,13 +105,13 @@ class OrderLifecycle:
         with self.context.database.connect() as conn:
             completed = self.context.order_repository.mark_completed(conn, item.order_id)
         if completed:
-            with self.context.condition:
+            with self.context.state.condition:
                 self._remove_locked(item.order_id)
-                self.context.condition.notify_all()
+                self.context.state.condition.notify_all()
             self.context.logger.info("order completed order_id=%s", item.order_id)
 
     def fail_order(self, item: WorkItem, exc: Exception) -> None:
-        with self.context.lock:
+        with self.context.state.lock:
             if item.retry_count >= self.context.max_retry_count:
                 item.exhaust_retries(exc)
                 self.context.logger.error(
@@ -242,7 +122,7 @@ class OrderLifecycle:
                 with self.context.database.connect() as conn:
                     self.context.order_repository.mark_failed(conn, item.order_id)
                 self._remove_locked(item.order_id)
-                self.context.condition.notify_all()
+                self.context.state.condition.notify_all()
                 return
 
             backoff_sec = self._retry_backoff_sec(item.retry_count)
@@ -251,7 +131,7 @@ class OrderLifecycle:
                 next_retry_at=self.context.time_fn() + backoff_sec,
                 exc=exc,
             )
-            self.context.condition.notify_all()
+            self.context.state.condition.notify_all()
 
         self.context.logger.warning(
             "order orchestration action failed order_id=%s retry_count=%s error=%s",
@@ -261,8 +141,8 @@ class OrderLifecycle:
         )
 
     def fail_in_progress_items(self) -> None:
-        with self.context.lock:
-            items = list(self.context.items.values())
+        with self.context.state.lock:
+            items = list(self.context.state.items.values())
 
         for item in items:
             with self.context.database.connect() as conn:
@@ -279,18 +159,17 @@ class OrderLifecycle:
                 )
 
         if items:
-            with self.context.condition:
+            with self.context.state.condition:
                 for item in items:
                     self._remove_locked(item.order_id)
-                self.context.condition.notify_all()
+                self.context.state.condition.notify_all()
 
     def _retry_backoff_sec(self, retry_count: int) -> float:
         backoff_index = min(retry_count, len(self.context.backoff_sec) - 1)
         return self.context.backoff_sec[backoff_index]
 
     def _remove_locked(self, order_id: int) -> None:
-        self.context.items.pop(order_id, None)
-        self.queues.remove(order_id)
+        self.context.state.remove_order_locked(order_id)
 
 
 class OrderOrchestrationThread:
@@ -339,12 +218,12 @@ class OrderClaimThread(OrderOrchestrationThread):
         self.queues = queues
 
     def run(self) -> None:
-        while not self.context.stop_event.is_set():
+        while not self.context.state.stop_event.is_set():
             try:
                 self.claim_new_orders()
             except Exception:
                 self.context.logger.exception("order orchestration claim failed")
-            self.context.stop_event.wait(self.context.tick_interval_sec)
+            self.context.state.stop_event.wait(self.context.tick_interval_sec)
 
     def claim_new_orders(self) -> None:
         with self.context.database.transaction() as conn:
@@ -358,12 +237,11 @@ class OrderClaimThread(OrderOrchestrationThread):
                 self._build_work_item(conn, order)
                 for order in claimed
             ]
-        with self.context.condition:
+        with self.context.state.condition:
             for work_item in work_items:
                 order_id = work_item.order_id
-                if order_id in self.context.items:
+                if not self.context.state.add_item_locked(work_item):
                     continue
-                self.context.items[order_id] = work_item
                 self.queues.manufacture.enqueue(order_id)
                 self.context.logger.info(
                     "accepted order claimed order_id=%s receive_type=%s table_number=%s item_count=%s",
@@ -372,7 +250,7 @@ class OrderClaimThread(OrderOrchestrationThread):
                     work_item.table_number,
                     len(work_item.order_items),
                 )
-            self.context.condition.notify_all()
+            self.context.state.condition.notify_all()
 
     def _build_work_item(self, conn: Connection, order: Any) -> WorkItem:
         order_id = int(order.order_id)
@@ -410,7 +288,7 @@ class QueuedOrderWorker(OrderOrchestrationThread):
         self.queue = queue
 
     def run(self) -> None:
-        while not self.context.stop_event.is_set():
+        while not self.context.state.stop_event.is_set():
             item = self.wait_for_queue_item()
             if item is None:
                 continue
@@ -424,38 +302,38 @@ class QueuedOrderWorker(OrderOrchestrationThread):
         self.queue.remove(order_id)
 
     def wait_for_queue_item(self) -> WorkItem | None:
-        with self.context.condition:
-            while not self.context.stop_event.is_set():
+        with self.context.state.condition:
+            while not self.context.state.stop_event.is_set():
                 if self.queue.current_order_id is not None:
-                    self.context.condition.wait(timeout=self.context.tick_interval_sec)
+                    self.context.state.condition.wait(timeout=self.context.tick_interval_sec)
                     continue
                 while self.queue.pending:
                     order_id = self.queue.pending[0]
-                    item = self.context.items.get(order_id)
+                    item = self.context.state.items.get(order_id)
                     if item is None:
                         self.queue.pending.popleft()
                         continue
                     delay = item.next_retry_at - self.context.time_fn()
                     if delay > 0:
-                        self.context.condition.wait(
+                        self.context.state.condition.wait(
                             timeout=min(delay, self.context.tick_interval_sec)
                         )
                         break
                     self.queue.pop_next()
                     return item
                 if not self.queue.pending:
-                    self.context.condition.wait(timeout=self.context.tick_interval_sec)
+                    self.context.state.condition.wait(timeout=self.context.tick_interval_sec)
             return None
 
     def start_item(self, item: WorkItem) -> bool:
         try:
             self.start_order(item)
         except Exception as exc:
-            with self.context.condition:
+            with self.context.state.condition:
                 self.queue.retry_current(item.order_id)
             self.lifecycle.fail_order(item, exc)
             return False
-        with self.context.condition:
+        with self.context.state.condition:
             item.reset_retry_state()
         return True
 
@@ -471,7 +349,7 @@ class QueuedOrderWorker(OrderOrchestrationThread):
     ) -> WorkItem | None:
         if command_id is not None and command_id != expected_command_id:
             return None
-        item = self.context.find_locked(order_id)
+        item = self.context.state.find_locked(order_id)
         if item is None:
             return None
         if not self.queue.complete_current(order_id):
@@ -519,7 +397,7 @@ class OrderManufactureThread(QueuedOrderWorker):
             raise RuntimeError("manufacture start rejected")
 
     def on_completed(self, order_id: int, command_id: str | None = None) -> bool:
-        with self.context.lock:
+        with self.context.state.lock:
             item = self._complete_current_locked(
                 order_id,
                 command_id,
@@ -533,7 +411,7 @@ class OrderManufactureThread(QueuedOrderWorker):
             else:
                 self.queues.serving.enqueue(order_id)
                 complete_now = False
-            self.context.condition.notify_all()
+            self.context.state.condition.notify_all()
         if complete_now:
             self.lifecycle.complete_order(item)
         return True
@@ -571,7 +449,7 @@ class OrderServingThread(QueuedOrderWorker):
             raise RuntimeError("serving start rejected")
 
     def on_completed(self, order_id: int, command_id: str | None = None) -> bool:
-        with self.context.lock:
+        with self.context.state.lock:
             item = self._complete_current_locked(
                 order_id,
                 command_id,
@@ -580,7 +458,7 @@ class OrderServingThread(QueuedOrderWorker):
             )
             if item is None:
                 return False
-            self.context.condition.notify_all()
+            self.context.state.condition.notify_all()
         self.lifecycle.complete_order(item)
         return True
 
@@ -603,7 +481,9 @@ class OrderOrchestrationRuntime:
         max_retry_count: int = 3,
         time_fn: Callable[[], float] = time.time,
     ) -> None:
+        self.state = WorkflowInmemoryState()
         self.context = OrderOrchestrationContext(
+            state=self.state,
             database=database,
             order_repository=order_repository,
             order_item_repository=order_item_repository,
@@ -616,7 +496,7 @@ class OrderOrchestrationRuntime:
             max_retry_count=max_retry_count,
             time_fn=time_fn,
         )
-        self.queues = WorkQueues()
+        self.queues = self.state.queues
         self.lifecycle = OrderLifecycle(self.context, self.queues)
         self.claim_thread = OrderClaimThread(self.context, self.queues)
         self.manufacture_thread = OrderManufactureThread(
@@ -633,16 +513,16 @@ class OrderOrchestrationRuntime:
     def start(self) -> None:
         if self.claim_thread.is_alive():
             return
-        self.context.stop_event.clear()
+        self.context.state.stop_event.clear()
         self.claim_thread.start()
         self.manufacture_thread.start()
         self.serving_thread.start()
         self.context.logger.info("order orchestration runtime started")
 
     def stop(self) -> None:
-        self.context.stop_event.set()
-        with self.context.condition:
-            self.context.condition.notify_all()
+        self.context.state.stop_event.set()
+        with self.context.state.condition:
+            self.context.state.condition.notify_all()
         for thread in (self.claim_thread, self.manufacture_thread, self.serving_thread):
             thread.join(timeout=2.0)
         self.lifecycle.fail_in_progress_items()
@@ -658,4 +538,4 @@ class OrderOrchestrationRuntime:
         return self.serving_thread.on_completed(order_id, command_id)
 
     def list_work_items(self) -> list[WorkItem]:
-        return self.context.list_work_items()
+        return self.context.state.list_work_items()
