@@ -101,6 +101,8 @@ def generate_launch_description():
                 'use_compressed': True,
                 'yolo_model_path': 'yolo26n.pt',
                 'yolo_device': 'cuda:0',
+                'yolo_conf': 0.50,
+                'yolo_iou':  0.65,   # NMS IOU (0.45→0.65: 한 사람 bbox 2개 중복탐지 억제 → 비틀거림 개선)
                 'dbscan_eps': 450.0,
             }],
         ),

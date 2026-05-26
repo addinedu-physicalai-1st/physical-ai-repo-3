@@ -3,12 +3,14 @@
 RPi(Vic Pinky)에서 실행. 노트북에서 발행된 토픽을 수신해 cmd_vel 발행.
 
 노드 구성 (2026-05-26):
-  mobility_controller_node  (C++): /dobi_controller/status 구독 (상태 모니터링)
-  approach_controller_node  (Py):  /customer_pose + /person_tracking/approach_target
-                                   → /bt/cmd_vel (그룹 접근 PD제어)
-  follow_controller_node    (Py):  /person_tracking/tracks + /customer/registry
-                                   + /follow/target + /scan + /rapport/event
-                                   → /follow/cmd_vel (1인 추종 reactive 제어)
+  mobility_controller_node    (C++): /dobi_controller/status 구독 (상태 모니터링)
+  approach_controller_node    (Py):  /customer_pose + /person_tracking/approach_target
+                                     → /bt/cmd_vel (그룹 접근 PD제어)
+  follow_controller_node      (Py):  /person_tracking/tracks + /customer/registry
+                                     + /follow/target + /scan + /rapport/event
+                                     → /follow/cmd_vel (1인 추종 reactive 제어)
+  camera_pan_controller_node  (Py):  /person_tracking/tracks + /follow/target
+                                     → 서보 P제어 (⚠ 핀번호 확인 후 활성화)
 
 토픽 흐름 (노트북 → RPi):
   노트북 person_tracking_node  → /person_tracking/tracks, /customer_pose
@@ -76,7 +78,7 @@ def generate_launch_description():
                 'kp_angular': 0.3,   # 0.5→0.3: 2026-05-26 비틀거림 개선
                 'max_angular': 0.6,
                 'align_gate': 0.0,
-                'angle_smoothing_alpha': 0.4,
+                'angle_smoothing_alpha': 0.6,   # 0.4→0.6: 2026-05-26 비틀거림 개선 (누락 수정)
                 'angle_deadband': 0.15,
                 'kp_linear': 0.8,
                 'max_linear': 0.4,
@@ -84,4 +86,20 @@ def generate_launch_description():
                 'target_dist': 0.30,
             }],
         ),
+
+        # ⚠ 카메라 Pan 서보 제어 — 내일 서보 타입/PWM 핀 확인 후 활성화
+        # Node(
+        #     package='mobility_controller',
+        #     executable='camera_pan_controller_node',
+        #     name='camera_pan_controller',
+        #     output='screen',
+        #     parameters=[{
+        #         'kp_pan':        0.05,
+        #         'pan_limit_deg': 45.0,
+        #         'deadband':      0.04,
+        #         'servo_channel': 0,      # ⚠ 핀번호 확인 필요
+        #         'servo_min_us':  500,    # ⚠ 서보 스펙 확인 필요
+        #         'servo_max_us':  2500,   # ⚠ 서보 스펙 확인 필요
+        #     }],
+        # ),
     ])

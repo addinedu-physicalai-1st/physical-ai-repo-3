@@ -28,6 +28,10 @@ install(PROGRAMS scripts/follow_controller_node.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME follow_controller_node)
 
+install(PROGRAMS scripts/camera_pan_controller_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME camera_pan_controller_node)
+
 install(DIRECTORY
   config
   launch
