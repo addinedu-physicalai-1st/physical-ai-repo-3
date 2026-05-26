@@ -1,7 +1,7 @@
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import Any, Callable, Protocol
 
 from app.in_memory.workflow_inmemory_state import (
     ManufactureOrderItem,
@@ -11,34 +11,20 @@ from app.in_memory.workflow_inmemory_state import (
     WorkflowInmemoryState,
 )
 
-if TYPE_CHECKING:
-    from pymysql.connections import Connection
-
-    from app.repository.db import Database
-else:
-    Connection = Any
-
 
 TAKE_OUT_RECEIVE_TYPE = "TAKE_OUT"
 
 
-class OrderClaimRepository(Protocol):
-    """Order repository operations required by the runtime."""
+class OrderWorkflowService(Protocol):
+    """Order service operations required by the runtime."""
 
-    def claim_accepted_orders(self, conn: Connection, limit: int = 10) -> list[Any]:
+    def claim_workflow_orders(self, limit: int = 10) -> list[Any]:
         ...
 
-    def mark_completed(self, conn: Connection, order_id: int) -> bool:
+    def complete_workflow_order(self, order_id: int) -> bool:
         ...
 
-    def mark_failed(self, conn: Connection, order_id: int) -> bool:
-        ...
-
-
-class OrderItemLookup(Protocol):
-    """Order item lookup required after an order is claimed."""
-
-    def list_by_order_id(self, conn: Connection, order_id: int) -> list[Any]:
+    def fail_workflow_order(self, order_id: int) -> bool:
         ...
 
 
@@ -68,9 +54,7 @@ class OrderOrchestrationContext:
         self,
         *,
         state: WorkflowInmemoryState,
-        database: "Database",
-        order_repository: OrderClaimRepository,
-        order_item_repository: OrderItemLookup,
+        order_service: OrderWorkflowService,
         manufacture_port: DDoobyManufacturePort,
         serving_port: DobyServingPort,
         logger: logging.Logger,
@@ -81,9 +65,7 @@ class OrderOrchestrationContext:
         time_fn: Callable[[], float],
     ) -> None:
         self.state = state
-        self.database = database
-        self.order_repository = order_repository
-        self.order_item_repository = order_item_repository
+        self.order_service = order_service
         self.manufacture_port = manufacture_port
         self.serving_port = serving_port
         self.logger = logger
@@ -102,8 +84,7 @@ class OrderLifecycle:
         self.queues = queues
 
     def complete_order(self, item: WorkItem) -> None:
-        with self.context.database.connect() as conn:
-            completed = self.context.order_repository.mark_completed(conn, item.order_id)
+        completed = self.context.order_service.complete_workflow_order(item.order_id)
         if completed:
             with self.context.state.condition:
                 self._remove_locked(item.order_id)
@@ -119,8 +100,7 @@ class OrderLifecycle:
                     item.order_id,
                     item.last_error,
                 )
-                with self.context.database.connect() as conn:
-                    self.context.order_repository.mark_failed(conn, item.order_id)
+                self.context.order_service.fail_workflow_order(item.order_id)
                 self._remove_locked(item.order_id)
                 self.context.state.condition.notify_all()
                 return
@@ -145,8 +125,7 @@ class OrderLifecycle:
             items = list(self.context.state.items.values())
 
         for item in items:
-            with self.context.database.connect() as conn:
-                failed = self.context.order_repository.mark_failed(conn, item.order_id)
+            failed = self.context.order_service.fail_workflow_order(item.order_id)
             if failed:
                 self.context.logger.info(
                     "order failed on runtime shutdown order_id=%s",
@@ -226,17 +205,10 @@ class OrderClaimThread(OrderOrchestrationThread):
             self.context.state.stop_event.wait(self.context.tick_interval_sec)
 
     def claim_new_orders(self) -> None:
-        with self.context.database.transaction() as conn:
-            claimed = self.context.order_repository.claim_accepted_orders(
-                conn,
-                self.context.claim_limit,
-            )
-            if not claimed:
-                return
-            work_items = [
-                self._build_work_item(conn, order)
-                for order in claimed
-            ]
+        claimed = self.context.order_service.claim_workflow_orders(self.context.claim_limit)
+        if not claimed:
+            return
+        work_items = [self._build_work_item(order) for order in claimed]
         with self.context.state.condition:
             for work_item in work_items:
                 order_id = work_item.order_id
@@ -252,7 +224,7 @@ class OrderClaimThread(OrderOrchestrationThread):
                 )
             self.context.state.condition.notify_all()
 
-    def _build_work_item(self, conn: Connection, order: Any) -> WorkItem:
+    def _build_work_item(self, order: Any) -> WorkItem:
         order_id = int(order.order_id)
         order_items = [
             ManufactureOrderItem(
@@ -262,7 +234,7 @@ class OrderClaimThread(OrderOrchestrationThread):
                 quantity=int(item.quantity),
                 unit_price=int(item.unit_price),
             )
-            for item in self.context.order_item_repository.list_by_order_id(conn, order_id)
+            for item in order.order_items
         ]
         return WorkItem(
             order_id=order_id,
@@ -469,9 +441,7 @@ class OrderOrchestrationRuntime:
     def __init__(
         self,
         *,
-        database: "Database",
-        order_repository: OrderClaimRepository,
-        order_item_repository: OrderItemLookup,
+        order_service: OrderWorkflowService,
         manufacture_port: DDoobyManufacturePort,
         serving_port: DobyServingPort,
         logger: logging.Logger,
@@ -484,9 +454,7 @@ class OrderOrchestrationRuntime:
         self.state = WorkflowInmemoryState()
         self.context = OrderOrchestrationContext(
             state=self.state,
-            database=database,
-            order_repository=order_repository,
-            order_item_repository=order_item_repository,
+            order_service=order_service,
             manufacture_port=manufacture_port,
             serving_port=serving_port,
             logger=logger,

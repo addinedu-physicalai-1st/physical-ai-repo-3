@@ -120,9 +120,7 @@ def main() -> None:
     )
     manufacture_port = DDoobyActionManufacturePort(ddooby_controller_runtime, logger)
     order_orchestration_runtime = OrderOrchestrationRuntime(
-        database=database,
-        order_repository=order_repository,
-        order_item_repository=order_item_repository,
+        order_service=order_service,
         manufacture_port=manufacture_port,
         serving_port=DobyModeServingPort(doby_controller_runtime, logger),
         logger=logger,
