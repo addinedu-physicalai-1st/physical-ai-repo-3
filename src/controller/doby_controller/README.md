@@ -53,8 +53,8 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 
 | 카메라 | 위치 | 용도 |
 |---|---|---|
-| 1 | 노트북 내장 | GEVA 얼굴 표정 → V·A 감정 |
-| 2 | RPi 직결 (abko FHD1080p) | GEFA 자세/follow person detection |
+| 1 | 노트북 내장 | GEVA 얼굴 표정 → V·A 감정 + insightface ArcFace 얼굴 ReID |
+| 2 | RPi 직결 (SNAP U2) | YOLO26 GPU 사람 감지 + BoT-SORT 추적 + follow person detection |
 | 3 | 노트북 외장 (RPC-20F) | 게임 손 인식 (RPS minigame) |
 
 상세: `docs/cafe_npc_camera_architecture.md`.
@@ -95,13 +95,14 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 │   │       ├── vicpinky_gazebo            ❌ COLCON_IGNORE (moca_gazebo 로 대체)
 │   │       └── vicpinky_emotion           ❌ COLCON_IGNORE (PinkyPro LCD 전용, vicpinky LCD 없음 — gif 자산만 face_avatar 재활용)
 │   │
-│   ├── dobi_npc/                          ← 모객 BT 시스템 (6 패키지)
-│   │   ├── dobi_npc_msgs                  (커스텀 메시지 4종 + SetMode srv)
+│   ├── dobi_npc/                          ← 모객 BT 시스템 (7 패키지)
+│   │   ├── dobi_npc_msgs                  (커스텀 메시지 + CustomerIdentity/CustomerRegistry 포함 + SetMode srv)
 │   │   ├── dobi_npc_bt                    (C++ BT 노드, cafe_funnel_v1.xml)
 │   │   ├── dobi_npc_emotion               (GEVA face V·A + rapport_tracker + decision_rule)
 │   │   ├── dobi_npc_dialog                (persona_manager + tts_node + face_avatar 풀스크린)
 │   │   ├── dobi_npc_minigame              (RPS evolution + speed_counter + cafe_ninja, minigame_runner subprocess)
-│   │   └── dobi_npc_bringup               (mode_manager + 5 mode launch + serving_dispatcher + follow_controller + patrol_scheduler + guiding_controller)
+│   │   ├── dobi_npc_bringup               (mode_manager + 5 mode launch + serving_dispatcher + follow_controller + patrol_scheduler + guiding_controller)
+│   │   └── dobi_npc_identity              (customer_identity_node — insightface ArcFace 얼굴 ReID + 영속 customer_id 부여)
 │   │
 │   ├── moca_gazebo/                       ← 시뮬 (mapv5_moca.world + 가구 SDF 모델)
 │   ├── moca_navigation/                   ← Nav2 wrapper (vicpinky_navigation patch)
@@ -218,7 +219,7 @@ bash scripts/record_demo.sh
 
 ---
 
-## Phase 진행 상황 (2026-05-17 기준)
+## Phase 진행 상황 (2026-05-22 기준)
 
 **두 트랙 동시 진행:**
 - **학술 트랙 (Phase 0~5)** — `docs/cafe_npc_implementation_plan.md` SoT
@@ -244,6 +245,7 @@ bash scripts/record_demo.sh
 | M2 | 2026-05-16 | ✓ | guiding_controller (lock-on/lag 감지) + patrol_scheduler + table_occupancy_detector (M2 YOLO person, M3 식기 후속) + completion_watcher |
 | M3 | 2026-05-16 | ✓ | Web Dashboard 7 페이지 (vanilla JS, 빌드 도구 없음) + NTP 6대 sync 토폴로지 + floorplan 동적 마커 |
 | M4 | 2026-05-17~ | 진행 중 | DB schema v0.1 초안 (PG 5090 설치 보류, 팀 협의 대기) + Gazebo wall 정합 진단 (sim AMCL fundamental 한계 확정, 5 patches 적용, RPi 라이브 검증 대기) |
+| follower | 2026-05-19~22 | 진행 중 | YOLO26 GPU + DBSCAN 그룹 탐지 + PD 제어 그룹 접근 + BoT-SORT 1인 ID 고정 + insightface ArcFace customer_id 부여 (실물 테스트 대기) |
 
 상세: `docs/daily/` 회고 (시간 역순) + `docs/cafe_npc_implementation_plan.md` (학술) + `docs/moca_mode_and_opserver_plan.md` (운영).
 
@@ -300,4 +302,4 @@ bash scripts/record_demo.sh
 
 ---
 
-*마지막 갱신: 2026-05-17 (M3 dashboard 완성 + M4 진입, AMCL sim 한계 진단 직후)*
+*마지막 갱신: 2026-05-22 (follower 시스템 — YOLO26 GPU + insightface ArcFace customer_id + dobi_npc_identity 패키지 추가)*
