@@ -334,6 +334,51 @@ PY
 
 `hotdog_making.launch.py`는 pre-grasp 도달 뒤 TCP x/y와 목표 x/y의 오차를 검사합니다. 기본 허용 오차는 `0.03m`입니다. approximate IK는 목표 x/y를 크게 놓칠 수 있어서 기본 비활성화되어 있습니다.
 
+## 실물 OpenArm 연동
+
+실물 OpenArm에서는 Gazebo를 띄우지 않고, OpenArm MoveIt/ros2_control 스택과 제조 planning scene만 연결합니다. 이 절차는 로봇을 움직이지 않습니다. 실제 제조 이동은 `hotdog_making.launch.py`에서 `dry_run:=false`로 실행할 때 발생하므로, 이동 실행은 작업자가 직접 진행합니다.
+
+CAN 인터페이스는 OpenArm 공식 CAN CLI 절차에 따라 먼저 확인합니다.
+
+```bash
+openarm-can-cli -i can0 can_configure
+openarm-can-cli -i can0 discover
+openarm-can-cli -i can0 can_configure
+openarm-can-cli -i can0 show_param
+
+openarm-can-cli -i can1 can_configure
+openarm-can-cli -i can1 discover
+openarm-can-cli -i can1 can_configure
+openarm-can-cli -i can1 show_param
+```
+
+실물 MoveIt을 이미 실행해둔 경우에는 제조 collision scene만 반영합니다.
+
+```bash
+ros2 launch ddooby_controller manufacturing_openarm.launch.py start_moveit:=false
+```
+
+MoveIt/ros2_control까지 함께 시작해야 할 때는 아래처럼 실행합니다. 이 launch 자체는 trajectory를 보내지 않습니다.
+
+```bash
+ros2 launch ddooby_controller manufacturing_openarm.launch.py \
+  start_moveit:=true \
+  use_fake_hardware:=false \
+  right_can_interface:=can0 \
+  left_can_interface:=can1
+```
+
+실물 환경에서 hotdog 제조 노드의 계산만 확인하려면 `use_sim_time:=false`와 `dry_run:=true`를 사용합니다.
+
+```bash
+ros2 launch ddooby_controller hotdog_making.launch.py \
+  use_sim_time:=false \
+  target:=bread \
+  arm:=left \
+  stop_after_stage:=work \
+  dry_run:=true
+```
+
 ## 실제 제조 skeleton 실행
 
 현재 제조 시나리오 골격만 빠르게 확인하려면 action server를 아래처럼 실행합니다.

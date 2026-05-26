@@ -26,6 +26,9 @@ controller_manager:
     left_forward_velocity_controller:
       type: forward_command_controller/ForwardCommandController
 
+    left_forward_effort_controller:
+      type: forward_command_controller/ForwardCommandController
+
     left_joint_trajectory_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
@@ -36,6 +39,9 @@ controller_manager:
       type: forward_command_controller/ForwardCommandController
 
     right_forward_velocity_controller:
+      type: forward_command_controller/ForwardCommandController
+
+    right_forward_effort_controller:
       type: forward_command_controller/ForwardCommandController
 
     right_joint_trajectory_controller:
@@ -77,6 +83,22 @@ left_forward_velocity_controller:
     state_interfaces:
       - velocity
 
+left_forward_effort_controller:
+  ros__parameters:
+    joints:
+      - openarm_left_joint1
+      - openarm_left_joint2
+      - openarm_left_joint3
+      - openarm_left_joint4
+      - openarm_left_joint5
+      - openarm_left_joint6
+      - openarm_left_joint7
+    interface_name: effort
+    command_interfaces:
+      - effort
+    state_interfaces:
+      - effort
+
 left_joint_trajectory_controller:
   ros__parameters:
     joints:
@@ -87,19 +109,16 @@ left_joint_trajectory_controller:
       - openarm_left_joint5
       - openarm_left_joint6
       - openarm_left_joint7
-    interface_name: position
     command_interfaces:
       - position
     state_interfaces:
       - position
-
-    state_publish_rate: 50.0 # Defaults to 50
-    action_monitor_rate: 50.0 # Defaults to 20
-
-    allow_partial_joints_goal: false # Defaults to false
+    state_publish_rate: 50.0
+    action_monitor_rate: 50.0
+    allow_partial_joints_goal: false
     constraints:
-      stopped_velocity_tolerance: 0.01 # Defaults to 0.01
-      goal_time: 0.0 # Defaults to 0.0 (start immediately)
+      stopped_velocity_tolerance: 0.01
+      goal_time: 0.0
 
 left_gripper_controller:
   ros__parameters:
@@ -142,6 +161,22 @@ right_forward_velocity_controller:
     state_interfaces:
       - velocity
 
+right_forward_effort_controller:
+  ros__parameters:
+    joints:
+      - openarm_right_joint1
+      - openarm_right_joint2
+      - openarm_right_joint3
+      - openarm_right_joint4
+      - openarm_right_joint5
+      - openarm_right_joint6
+      - openarm_right_joint7
+    interface_name: effort
+    command_interfaces:
+      - effort
+    state_interfaces:
+      - effort
+
 right_joint_trajectory_controller:
   ros__parameters:
     joints:
@@ -152,19 +187,16 @@ right_joint_trajectory_controller:
       - openarm_right_joint5
       - openarm_right_joint6
       - openarm_right_joint7
-    interface_name: position
     command_interfaces:
       - position
     state_interfaces:
       - position
-
-    state_publish_rate: 50.0 # Defaults to 50
-    action_monitor_rate: 50.0 # Defaults to 20
-
-    allow_partial_joints_goal: false # Defaults to false
+    state_publish_rate: 50.0
+    action_monitor_rate: 50.0
+    allow_partial_joints_goal: false
     constraints:
-      stopped_velocity_tolerance: 0.01 # Defaults to 0.01
-      goal_time: 0.0 # Defaults to 0.0 (start immediately)
+      stopped_velocity_tolerance: 0.01
+      goal_time: 0.0
 
 right_gripper_controller:
   ros__parameters:

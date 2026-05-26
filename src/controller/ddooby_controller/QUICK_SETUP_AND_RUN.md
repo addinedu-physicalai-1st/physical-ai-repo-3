@@ -285,6 +285,40 @@ ros2 launch ddooby_controller manifacture_action_server.launch.py execution_back
 DDooby manufacture action server ready: ddooby/manifacture
 ```
 
+### 실물 OpenArm MoveIt 연동. 이동 실행 없음
+
+실물 로봇을 이미 MoveIt으로 띄워둔 경우 제조 collision scene만 반영합니다.
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+ros2 launch ddooby_controller manufacturing_openarm.launch.py start_moveit:=false
+```
+
+MoveIt/ros2_control까지 함께 시작해야 할 때만 아래를 사용합니다. 이 launch는 trajectory를 보내지 않습니다.
+
+```bash
+ros2 launch ddooby_controller manufacturing_openarm.launch.py \
+  start_moveit:=true \
+  use_fake_hardware:=false \
+  right_can_interface:=can0 \
+  left_can_interface:=can1
+```
+
+실물 환경에서 제조 노드 계산만 확인하려면 반드시 `dry_run:=true`를 사용합니다.
+
+```bash
+ros2 launch ddooby_controller hotdog_making.launch.py \
+  use_sim_time:=false \
+  target:=bread \
+  arm:=left \
+  stop_after_stage:=work \
+  dry_run:=true
+```
+
 ### 추가 터미널. 뉴욕 핫도그 pick 검증
 
 터미널 2에서 `manufacturing_world_gz.launch.py with_rviz:=true`를 실행하고, planning scene sync 로그까지 확인한 뒤 실행합니다.

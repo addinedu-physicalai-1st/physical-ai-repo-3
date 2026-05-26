@@ -76,6 +76,35 @@ struct PickTuningPreset
   GripperJointPreset gripper_close;
 };
 
+struct MotionScalingPreset
+{
+  // MoveIt arm trajectory 최대 속도 비율.
+  double arm_velocity_scaling;
+
+  // MoveIt arm trajectory 최대 가속도 비율.
+  double arm_acceleration_scaling;
+
+  // MoveIt gripper trajectory 최대 속도 비율.
+  double gripper_velocity_scaling;
+
+  // MoveIt gripper trajectory 최대 가속도 비율.
+  double gripper_acceleration_scaling;
+};
+
+// Gazebo와 실물 OpenArm에 공통 적용되는 기본 이동 속도 preset.
+inline constexpr MotionScalingPreset kDefaultMotionScaling{
+  0.05,
+  0.05,
+  0.12,
+  0.12
+};
+
+// joint limit에 딱 붙지 않도록 안쪽으로 유지할 최소 margin.
+inline constexpr double kDefaultJointLimitSafetyMargin = 0.00005;
+
+// pre-grasp 도달 후 pick 진행을 허용할 최대 TCP xy 오차(m).
+inline constexpr double kDefaultMaxPreGraspXyError = 0.035;
+
 inline constexpr const char * stageName(ManufacturingStage stage)
 {
   switch (stage) {

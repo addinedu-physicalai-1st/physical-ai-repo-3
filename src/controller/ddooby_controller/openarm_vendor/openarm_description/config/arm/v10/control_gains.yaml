@@ -25,20 +25,20 @@ joint3:
   kd: 2.0
 
 joint4:
-  kp: 60.0
-  kd: 2.0
+  kp: 75.0
+  kd: 2.5
 
 joint5:
-  kp: 10.0
-  kd: 0.7
+  kp: 16.0
+  kd: 0.9
 
 joint6:
-  kp: 10.0
-  kd: 0.6
+  kp: 16.0
+  kd: 0.9
 
 joint7:
-  kp: 10.0
-  kd: 0.5
+  kp: 18.0
+  kd: 1.0
 
 hand:
   kp: 5.0

@@ -40,6 +40,12 @@ def generate_robot_description(
     use_fake_hardware,
     right_can_interface,
     left_can_interface,
+    hardware_plugin,
+    return_to_zero_on_activate,
+    hold_current_on_activate,
+    enable_gravity_comp,
+    enable_coriolis_comp,
+    gravity_comp_start_delay_sec,
     arm_prefix,
 ):
     """Render Xacro and return XML string."""
@@ -49,6 +55,12 @@ def generate_robot_description(
     use_fake_hardware_str = context.perform_substitution(use_fake_hardware)
     right_can_interface_str = context.perform_substitution(right_can_interface)
     left_can_interface_str = context.perform_substitution(left_can_interface)
+    hardware_plugin_str = context.perform_substitution(hardware_plugin)
+    return_to_zero_on_activate_str = context.perform_substitution(return_to_zero_on_activate)
+    hold_current_on_activate_str = context.perform_substitution(hold_current_on_activate)
+    enable_gravity_comp_str = context.perform_substitution(enable_gravity_comp)
+    enable_coriolis_comp_str = context.perform_substitution(enable_coriolis_comp)
+    gravity_comp_start_delay_sec_str = context.perform_substitution(gravity_comp_start_delay_sec)
     arm_prefix_str = context.perform_substitution(arm_prefix)
 
     xacro_path = os.path.join(
@@ -67,6 +79,12 @@ def generate_robot_description(
             "ros2_control": "true",
             "left_can_interface": left_can_interface_str,
             "right_can_interface": right_can_interface_str,
+            "hardware_plugin": hardware_plugin_str,
+            "return_to_zero_on_activate": return_to_zero_on_activate_str,
+            "hold_current_on_activate": hold_current_on_activate_str,
+            "enable_gravity_comp": enable_gravity_comp_str,
+            "enable_coriolis_comp": enable_coriolis_comp_str,
+            "gravity_comp_start_delay_sec": gravity_comp_start_delay_sec_str,
             # arm_prefix unused inside xacro but kept for completeness
         },
     ).toprettyxml(indent="  ")
@@ -83,6 +101,12 @@ def robot_nodes_spawner(
     controllers_file,
     right_can_interface,
     left_can_interface,
+    hardware_plugin,
+    return_to_zero_on_activate,
+    hold_current_on_activate,
+    enable_gravity_comp,
+    enable_coriolis_comp,
+    gravity_comp_start_delay_sec,
     arm_prefix,
 ):
     robot_description = generate_robot_description(
@@ -93,6 +117,12 @@ def robot_nodes_spawner(
         use_fake_hardware,
         right_can_interface,
         left_can_interface,
+        hardware_plugin,
+        return_to_zero_on_activate,
+        hold_current_on_activate,
+        enable_gravity_comp,
+        enable_coriolis_comp,
+        gravity_comp_start_delay_sec,
         arm_prefix,
     )
 
@@ -105,6 +135,7 @@ def robot_nodes_spawner(
         name="robot_state_publisher",
         output="screen",
         parameters=[robot_description_param],
+        remappings=[("/robot_description", "/openarm_robot_description")],
     )
 
     control_node = Node(
@@ -112,6 +143,7 @@ def robot_nodes_spawner(
         executable="ros2_control_node",
         output="both",
         parameters=[robot_description_param, controllers_file_str],
+        remappings=[("/robot_description", "/openarm_robot_description")],
     )
 
     return [robot_state_pub_node, control_node]
@@ -163,6 +195,19 @@ def generate_launch_description():
         DeclareLaunchArgument("right_can_interface", default_value="can0"),
         DeclareLaunchArgument("left_can_interface", default_value="can1"),
         DeclareLaunchArgument(
+            "hardware_plugin",
+            default_value="openarm_hardware/OpenArmHW",
+            choices=[
+                "openarm_hardware/OpenArm_v10HW",
+                "openarm_hardware/OpenArmHW",
+            ],
+        ),
+        DeclareLaunchArgument("return_to_zero_on_activate", default_value="false"),
+        DeclareLaunchArgument("hold_current_on_activate", default_value="true"),
+        DeclareLaunchArgument("enable_gravity_comp", default_value="true"),
+        DeclareLaunchArgument("enable_coriolis_comp", default_value="false"),
+        DeclareLaunchArgument("gravity_comp_start_delay_sec", default_value="8.0"),
+        DeclareLaunchArgument(
             "controllers_file",
             default_value="openarm_v10_bimanual_controllers.yaml",
         ),
@@ -177,6 +222,12 @@ def generate_launch_description():
     controllers_file = LaunchConfiguration("controllers_file")
     right_can_interface = LaunchConfiguration("right_can_interface")
     left_can_interface = LaunchConfiguration("left_can_interface")
+    hardware_plugin = LaunchConfiguration("hardware_plugin")
+    return_to_zero_on_activate = LaunchConfiguration("return_to_zero_on_activate")
+    hold_current_on_activate = LaunchConfiguration("hold_current_on_activate")
+    enable_gravity_comp = LaunchConfiguration("enable_gravity_comp")
+    enable_coriolis_comp = LaunchConfiguration("enable_coriolis_comp")
+    gravity_comp_start_delay_sec = LaunchConfiguration("gravity_comp_start_delay_sec")
     arm_prefix = LaunchConfiguration("arm_prefix")
 
     controllers_file = PathJoinSubstitution(
@@ -194,6 +245,12 @@ def generate_launch_description():
             controllers_file,
             right_can_interface,
             left_can_interface,
+            hardware_plugin,
+            return_to_zero_on_activate,
+            hold_current_on_activate,
+            enable_gravity_comp,
+            enable_coriolis_comp,
+            gravity_comp_start_delay_sec,
             arm_prefix,
         ],
     )
@@ -215,10 +272,9 @@ def generate_launch_description():
                    "right_gripper_controller", "-c", "/controller_manager"],
     )
 
-    delayed_jsb = TimerAction(period=2.0, actions=[jsb_spawner])
-    delayed_arm_ctrl = TimerAction(
-        period=1.0, actions=[controller_spawner_func])
-    delayed_gripper = TimerAction(period=1.0, actions=[gripper_spawner])
+    delayed_jsb = TimerAction(period=1.0, actions=[jsb_spawner])
+    delayed_arm_ctrl = TimerAction(period=2.5, actions=[controller_spawner_func])
+    delayed_gripper = TimerAction(period=4.0, actions=[gripper_spawner])
 
     moveit_config = MoveItConfigsBuilder(
         "openarm", package_name="openarm_bimanual_moveit_config"

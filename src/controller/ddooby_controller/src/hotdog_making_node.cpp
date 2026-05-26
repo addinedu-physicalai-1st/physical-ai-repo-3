@@ -1,5 +1,6 @@
-#include <chrono>
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <fstream>
@@ -625,6 +626,42 @@ PickPlan makeHorizontalPickPlan(
     tcp_y};
 }
 
+double boundedJointLimitMargin(const moveit::core::VariableBounds & bounds, double requested_margin)
+{
+  if (!bounds.position_bounded_ || requested_margin <= 0.0) {
+    return 0.0;
+  }
+
+  const double range = bounds.max_position_ - bounds.min_position_;
+  if (range <= 0.0) {
+    return 0.0;
+  }
+
+  const double max_margin = range * 0.49;
+  return requested_margin < max_margin ? requested_margin : max_margin;
+}
+
+double clampInsideJointLimitMargin(
+  double value,
+  const moveit::core::VariableBounds & bounds,
+  double requested_margin)
+{
+  const double margin = boundedJointLimitMargin(bounds, requested_margin);
+  if (margin <= 0.0 || !std::isfinite(value)) {
+    return value;
+  }
+
+  const double lower = bounds.min_position_ + margin;
+  const double upper = bounds.max_position_ - margin;
+  if (value < lower) {
+    return lower;
+  }
+  if (value > upper) {
+    return upper;
+  }
+  return value;
+}
+
 void setBoundedStartState(moveit::planning_interface::MoveGroupInterface & group)
 {
   auto current_state = group.getCurrentState(2.0);
@@ -633,9 +670,70 @@ void setBoundedStartState(moveit::planning_interface::MoveGroupInterface & group
     return;
   }
 
-  current_state->enforceBounds();
+  const auto * joint_model_group = current_state->getJointModelGroup(group.getName());
+  if (joint_model_group != nullptr) {
+    current_state->enforceBounds(joint_model_group);
+    for (const auto & variable_name : joint_model_group->getVariableNames()) {
+      const auto & bounds = current_state->getRobotModel()->getVariableBounds(variable_name);
+      const double current_value = current_state->getVariablePosition(variable_name);
+      const double bounded_value = clampInsideJointLimitMargin(
+        current_value,
+        bounds,
+        task_presets::kDefaultJointLimitSafetyMargin);
+      if (bounded_value != current_value) {
+        current_state->setVariablePosition(variable_name, bounded_value);
+      }
+    }
+  } else {
+    current_state->enforceBounds();
+  }
   current_state->update();
   group.setStartState(*current_state);
+}
+
+bool planRespectsJointLimitMargin(
+  const rclcpp::Logger & logger,
+  const moveit::planning_interface::MoveGroupInterface & group,
+  const moveit::planning_interface::MoveGroupInterface::Plan & plan,
+  double requested_margin)
+{
+  if (requested_margin <= 0.0) {
+    return true;
+  }
+
+  const auto robot_model = group.getRobotModel();
+  if (!robot_model) {
+    return true;
+  }
+
+  const auto & trajectory = plan.trajectory.joint_trajectory;
+  for (const auto & point : trajectory.points) {
+    const size_t count = std::min(trajectory.joint_names.size(), point.positions.size());
+    for (size_t i = 0; i < count; ++i) {
+      const auto & joint_name = trajectory.joint_names[i];
+      const auto & bounds = robot_model->getVariableBounds(joint_name);
+      const double margin = boundedJointLimitMargin(bounds, requested_margin);
+      if (margin <= 0.0 || !std::isfinite(point.positions[i])) {
+        continue;
+      }
+
+      const double lower = bounds.min_position_ + margin;
+      const double upper = bounds.max_position_ - margin;
+      if (point.positions[i] < lower || point.positions[i] > upper) {
+        RCLCPP_WARN(
+          logger,
+          "%s plan rejected: joint '%s' position %.6f is outside safety bounds [%.6f, %.6f]",
+          group.getName().c_str(),
+          joint_name.c_str(),
+          point.positions[i],
+          lower,
+          upper);
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 bool planAndExecute(
@@ -650,6 +748,25 @@ bool planAndExecute(
       RCLCPP_ERROR(
         logger,
         "Failed to plan %s%s",
+        label.c_str(),
+        attempt < max_attempts ? "; retrying from refreshed state" : "");
+      if (attempt < max_attempts) {
+        rclcpp::sleep_for(300ms);
+        setBoundedStartState(group);
+        continue;
+      }
+      return false;
+    }
+
+    if (!planRespectsJointLimitMargin(
+        logger,
+        group,
+        plan,
+        task_presets::kDefaultJointLimitSafetyMargin))
+    {
+      RCLCPP_ERROR(
+        logger,
+        "%s plan reached joint limit safety margin%s",
         label.c_str(),
         attempt < max_attempts ? "; retrying from refreshed state" : "");
       if (attempt < max_attempts) {
@@ -784,6 +901,15 @@ bool executeCartesian(
 
   moveit::planning_interface::MoveGroupInterface::Plan plan;
   plan.trajectory = trajectory;
+  if (!planRespectsJointLimitMargin(
+      logger,
+      group,
+      plan,
+      task_presets::kDefaultJointLimitSafetyMargin))
+  {
+    RCLCPP_ERROR(logger, "%s Cartesian path reached joint limit safety margin", label.c_str());
+    return false;
+  }
   if (group.execute(plan) != moveit::core::MoveItErrorCode::SUCCESS) {
     RCLCPP_ERROR(logger, "Failed to execute %s Cartesian path", label.c_str());
     return false;
@@ -917,10 +1043,18 @@ public:
         1.0783557656423297});
     planning_time_sec_ = declare_parameter<double>("planning_time_sec", 8.0);
     planning_attempts_ = declare_parameter<int>("planning_attempts", 8);
-    velocity_scaling_ = declare_parameter<double>("velocity_scaling", 0.15);
-    acceleration_scaling_ = declare_parameter<double>("acceleration_scaling", 0.15);
-    gripper_velocity_scaling_ = declare_parameter<double>("gripper_velocity_scaling", 0.4);
-    gripper_acceleration_scaling_ = declare_parameter<double>("gripper_acceleration_scaling", 0.4);
+    velocity_scaling_ = declare_parameter<double>(
+      "velocity_scaling",
+      task_presets::kDefaultMotionScaling.arm_velocity_scaling);
+    acceleration_scaling_ = declare_parameter<double>(
+      "acceleration_scaling",
+      task_presets::kDefaultMotionScaling.arm_acceleration_scaling);
+    gripper_velocity_scaling_ = declare_parameter<double>(
+      "gripper_velocity_scaling",
+      task_presets::kDefaultMotionScaling.gripper_velocity_scaling);
+    gripper_acceleration_scaling_ = declare_parameter<double>(
+      "gripper_acceleration_scaling",
+      task_presets::kDefaultMotionScaling.gripper_acceleration_scaling);
     pre_grasp_height_ = declare_parameter<double>("pre_grasp_height", 0.12);
     case_pre_grasp_distance_ = declare_parameter<double>("case_pre_grasp_distance", 0.10);
     lift_height_ = declare_parameter<double>("lift_height", 0.12);
@@ -938,7 +1072,9 @@ public:
     allow_position_only_pre_grasp_ = declare_parameter<bool>("allow_position_only_pre_grasp", true);
     adapt_grasp_orientation_to_reached_pre_grasp_ =
       declare_parameter<bool>("adapt_grasp_orientation_to_reached_pre_grasp", true);
-    max_pre_grasp_xy_error_ = declare_parameter<double>("max_pre_grasp_xy_error", 0.03);
+    max_pre_grasp_xy_error_ = declare_parameter<double>(
+      "max_pre_grasp_xy_error",
+      task_presets::kDefaultMaxPreGraspXyError);
     dry_run_ = declare_parameter<bool>("dry_run", false);
 
     try {
@@ -1859,10 +1995,10 @@ private:
   std::vector<double> right_ready_joints_;
   double planning_time_sec_{8.0};
   int planning_attempts_{8};
-  double velocity_scaling_{0.15};
-  double acceleration_scaling_{0.15};
-  double gripper_velocity_scaling_{0.4};
-  double gripper_acceleration_scaling_{0.4};
+  double velocity_scaling_{task_presets::kDefaultMotionScaling.arm_velocity_scaling};
+  double acceleration_scaling_{task_presets::kDefaultMotionScaling.arm_acceleration_scaling};
+  double gripper_velocity_scaling_{task_presets::kDefaultMotionScaling.gripper_velocity_scaling};
+  double gripper_acceleration_scaling_{task_presets::kDefaultMotionScaling.gripper_acceleration_scaling};
   double pre_grasp_height_{0.12};
   double case_pre_grasp_distance_{0.10};
   double lift_height_{0.12};

@@ -13,6 +13,8 @@ def generate_launch_description():
     stop_after_stage = LaunchConfiguration("stop_after_stage")
     gripper_grasp_target = LaunchConfiguration("gripper_grasp_target")
     dry_run = LaunchConfiguration("dry_run")
+    use_sim_time = LaunchConfiguration("use_sim_time")
+    max_pre_grasp_xy_error = LaunchConfiguration("max_pre_grasp_xy_error")
 
     target_arg = DeclareLaunchArgument(
         "target",
@@ -55,6 +57,17 @@ def generate_launch_description():
         choices=["true", "false"],
         description="Compute the target grasp plan without constructing MoveIt interfaces.",
     )
+    use_sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time",
+        default_value="true",
+        choices=["true", "false"],
+        description="Use simulated time. Set false for physical OpenArm hardware.",
+    )
+    max_pre_grasp_xy_error_arg = DeclareLaunchArgument(
+        "max_pre_grasp_xy_error",
+        default_value="0.035",
+        description="Maximum TCP xy error allowed after pre-grasp before continuing to pick.",
+    )
 
     moveit_config = MoveItConfigsBuilder(
         "openarm", package_name="openarm_bimanual_moveit_config"
@@ -68,7 +81,7 @@ def generate_launch_description():
         parameters=[
             moveit_config.to_dict(),
             {
-                "use_sim_time": True,
+                "use_sim_time": use_sim_time,
                 "scenario_only": False,
                 "target": target,
                 "arm": arm,
@@ -77,6 +90,7 @@ def generate_launch_description():
                 "stop_after_stage": stop_after_stage,
                 "gripper_grasp_target": gripper_grasp_target,
                 "dry_run": dry_run,
+                "max_pre_grasp_xy_error": max_pre_grasp_xy_error,
             },
         ],
     )
@@ -89,5 +103,7 @@ def generate_launch_description():
         stop_after_stage_arg,
         gripper_grasp_target_arg,
         dry_run_arg,
+        use_sim_time_arg,
+        max_pre_grasp_xy_error_arg,
         hotdog_making_node,
     ])
