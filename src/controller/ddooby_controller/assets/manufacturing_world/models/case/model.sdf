@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="case">
+    <static>false</static>
+    <link name="case_link">
+      <inertial>
+        <mass>0.100000</mass>
+        <inertia>
+          <ixx>0.000100000</ixx>
+          <iyy>0.000100000</iyy>
+          <izz>0.000100000</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="case_visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/case.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.212500 0.162500 0.055000 1.000000</ambient>
+          <diffuse>0.850000 0.650000 0.220000 1.000000</diffuse>
+          <specular>0.120000 0.120000 0.120000 1.000000</specular>
+        </material>
+      </visual>
+      <collision name="case_case_back_collision">
+        <pose>0.075190008 -0.000125006 0.002869010 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.004999995 0.070000000 0.030000001</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <collision name="case_case_bottom_collision">
+        <pose>0.000042975 0.000124991 -0.014937997 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.155000001 0.070000000 0.004999999</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <collision name="case_case_left_collision">
+        <pose>-0.002302885 0.032314375 0.002514750 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.150000006 0.005000001 0.030000001</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <collision name="case_case_right_collision">
+        <pose>-0.002302885 -0.032288611 0.002514750 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.150000006 0.005000001 0.030000001</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+    </link>
+  </model>
+</sdf>

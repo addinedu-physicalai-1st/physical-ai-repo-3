@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="kachup">
+    <static>false</static>
+    <link name="kachup_link">
+      <inertial>
+        <mass>0.200000</mass>
+        <inertia>
+          <ixx>0.000200000</ixx>
+          <iyy>0.000200000</iyy>
+          <izz>0.000200000</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="kachup_visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/kachup.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.205000 0.012500 0.010000 1.000000</ambient>
+          <diffuse>0.820000 0.050000 0.040000 1.000000</diffuse>
+          <specular>0.120000 0.120000 0.120000 1.000000</specular>
+        </material>
+      </visual>
+      <collision name="kachup_kachup_collision">
+        <pose>0.000000000 0.000000000 0.000000000 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.050000001 0.050000001 0.150000006</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+    </link>
+  </model>
+</sdf>
