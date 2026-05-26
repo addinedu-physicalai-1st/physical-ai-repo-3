@@ -52,9 +52,9 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'linear_speed':    0.15,
-                'angular_gain':    0.8,   # Kp (1.8→0.8: 2026-05-26 비틀거림 개선)
+                'angular_gain':    0.6,   # Kp (1.8→0.6: 2026-05-26 비틀거림 개선)
                 'derivative_gain': 0.5,   # Kd (0.3→0.5: 댐핑 강화)
-                'ema_alpha':       0.3,
+                'ema_alpha':       0.5,   # (0.3→0.5: 목표 위치 스무딩)
                 'dead_zone':       0.05,
                 'close_threshold': 0.999,
                 'pose_timeout':    0.3,   # 1.0→0.3: 사라질 때 빠르게 정지
