@@ -52,12 +52,12 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'linear_speed':    0.15,
-                'angular_gain':    1.8,   # Kp
-                'derivative_gain': 0.3,   # Kd
+                'angular_gain':    0.8,   # Kp (1.8→0.8: 2026-05-26 비틀거림 개선)
+                'derivative_gain': 0.5,   # Kd (0.3→0.5: 댐핑 강화)
                 'ema_alpha':       0.3,
                 'dead_zone':       0.05,
                 'close_threshold': 0.999,
-                'pose_timeout':    1.0,
+                'pose_timeout':    0.3,   # 1.0→0.3: 사라질 때 빠르게 정지
             }],
         ),
 
@@ -69,10 +69,11 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'target_height_ratio': 0.33,
+                'detection_lost_sec': 0.3,   # 1.0→0.3: 사라질 때 빠르게 정지
                 'image_width':  640,
                 'image_height': 360,
                 'scan_stop_dist': 0.30,
-                'kp_angular': 0.5,
+                'kp_angular': 0.3,   # 0.5→0.3: 2026-05-26 비틀거림 개선
                 'max_angular': 0.6,
                 'align_gate': 0.0,
                 'angle_smoothing_alpha': 0.4,

@@ -96,11 +96,11 @@ class ApproachControllerNode(Node):
         pose_stale = (now - self._last_pose_t) > self._pose_timeout
         if self._target < 0 or pose_stale:
             # 타깃 없을 때 PD 상태 리셋 (재진입 시 튀는 D항 방지).
-            # publish 하지 않고 return → twist_mux pose_timeout(0.5s) 후 /bt/cmd_vel
-            # 비활성화 → follow/cmd_vel 등 하위 채널이 우선권 확보.
+            # Twist(0,0) 명시 발행 → 사라질 때 즉시 정지 (방향 틀림 방지).
             self._prev_err_x = 0.0
             self._d_filtered = 0.0
             self._prev_tick_t = now
+            self._pub.publish(Twist())  # 즉시 정지
             return
 
         err_x = self._cx - 0.5
