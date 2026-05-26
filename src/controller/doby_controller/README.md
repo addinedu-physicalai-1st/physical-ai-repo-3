@@ -252,7 +252,7 @@ bash scripts/record_demo.sh
 | follower 2026-05-26 | 2026-05-26 | ✓ | 추종 시나리오 전체 연동 — 카메라 단일화(로봇 카메라) + EmotionState track_id 추가 + GEVA 로봇 카메라 전환 + target_selector_node 신설 + follow_controller customer_id 기반 추종 (실물 테스트 대기) |
 | mobility 2026-05-26 | 2026-05-26 | ✓ | 주행 제어 RPi 이관 — approach_controller + follow_controller 를 mobility_controller (RPi) 로 이관. 노트북은 AI 연산만, RPi는 cmd_vel 발행만 담당 |
 | follow-tune 2026-05-26 | 2026-05-26 | ✓ | 추종 게인 튜닝 + 소실 대응 개선 — angular_gain 1.8→0.6, ema_alpha 0.5, pose_timeout 0.3s, 타깃 소실 시 Twist(0,0) 즉시 발행. run_follower.sh/stop_follower.sh 전면 개편 (kill-then-start, 중복 노드 방지). close_threshold 0.999→0.45 (대화 거리 ~1.2m 정지) |
-| pan-motor-prep 2026-05-26 | 2026-05-26 | ✓ | 카메라 Pan 모터 준비 + 비틀거림 근본 수정 — camera_pan_controller_node 뼈대 작성 (follow > approach 우선순위 서보 P제어, 핀번호 TODO). YOLO iou 0.45→0.65 (bbox 중복탐지 억제). angle_smoothing_alpha 누락 수정(0.4→0.6). min_group_size 2→1 (1인 손님 포함) |
+| pan-motor-prep 2026-05-26 | 2026-05-26 | ✓ | 카메라 Pan 모터 준비 + 비틀거림 근본 수정 — camera_pan_controller_node 뼈대 작성 (follow > approach 우선순위 서보 P제어, 핀번호 TODO). YOLO iou 0.45→0.65 (bbox 중복탐지 억제). angle_smoothing_alpha 누락 수정(0.4→0.6). min_group_size 2→1 (1인 손님 포함). viz_tracking.py 신설 (bbox+group_id 오버레이 시각화) |
 
 상세: `docs/daily/` 회고 (시간 역순) + `docs/cafe_npc_implementation_plan.md` (학술) + `docs/moca_mode_and_opserver_plan.md` (운영).
 

@@ -125,7 +125,7 @@ kp_linear               = 0.8
 
 ---
 
-## 2-2. 짜투리 세션 추가 수정 (노트북 전용)
+## 2-2. 짜투리 세션 추가 수정 (노트북 전용 + RPi 연결)
 
 ### YOLO NMS IOU 명시 설정 — bbox 중복탐지 억제
 **원인 분석**: 오늘 1인 테스트에서 비틀거림 잔존 원인이 YOLO 이중탐지로 추정.
@@ -152,6 +152,14 @@ kp_linear               = 0.8
 - 서보 연결 방식 (RPi GPIO 직접 vs PCA9685 I2C 보드)
 - PWM 핀 번호 / I2C 채널 번호
 - 서보 스펙 (동작 각도, 펄스폭 min/max us)
+
+### viz_tracking.py — 사람 탐지/그룹 시각화 스크립트 신설
+- [scripts/viz_tracking.py](../../../scripts/viz_tracking.py)
+- `/robot_cam/image_raw/compressed` + `/person_tracking/tracks` + `/person_tracking/approach_target` 구독
+- 그룹별 고유 색상 bbox, `track_id:N  group_id:N(M명)` 라벨
+- 접근 타겟 그룹 ★ 강조 + 좌상단 HUD (인원수/그룹수/타겟)
+- 실행: `python3 scripts/viz_tracking.py`  (q/ESC 종료)
+- person_tracking_node 선행 실행 필요
 
 ---
 
@@ -196,17 +204,26 @@ aab3c88 feat(mobility): migrate driving controllers to RPi mobility_controller
 
 ## 6. 다음 세션 진입점 (2026-05-27 수요일)
 
-1. **카메라 Pan 모터 완성** — 서보 타입/핀번호 확인 → `_init_servo()` 구현 → launch stub 활성화 → RPi 배포 테스트
-2. **추종 시나리오 전체 테스트** (Pan 모터 붙인 상태)
-   - 그룹탐지 → 접근 (YOLO iou=0.65 효과 확인)
-   - GEVA 얼굴 인식 (카메라가 따라다니면 잘림 개선 기대)
-   - target_selector → follow_controller 1:1 추종
-3. **데모 촬영**
-   - ① 사람 탐지/그룹 클러스터링 — 사진
-   - ② 사람 접근 — 영상
-   - ③ 1인 customer_id 고정 — 사진
-   - ④ 거리/방향 유지 추종 — 영상
-4. 목표: **금요일(2026-05-29)까지 4단계 데모 완성**
+**작업 우선순위 (완료되면 바로 다음으로)**
+
+### 🥇 1순위 — 비틀거림 최종 확인
+- `yolo_iou=0.65` 실물 효과 검증
+- viz_tracking.py로 bbox 중복탐지 여부 시각 확인
+
+### 🥈 2순위 — GEVA + 1:1 추종 full flow
+- 카메라 마운트 각도 조정 (얼굴 잘림 해결)
+- target_selector → /follow/target → follow_controller 연동
+
+### 🏁 3순위 — 데모 촬영
+- ① 사람 탐지/그룹 클러스터링 — 사진 (viz_tracking.py 화면 캡처 가능)
+- ② 사람 접근 — 영상
+- ③ 1인 customer_id 고정 — 사진
+- ④ 거리/방향 유지 추종 — 영상
+
+### 🎁 4순위 (보너스) — 카메라 Pan 모터
+- 서보 타입/핀번호 확인 → `_init_servo()` 구현 → launch stub 활성화
+
+**목표: 금요일(2026-05-29)까지 1~3순위 완성**
 
 ---
 
