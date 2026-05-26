@@ -245,7 +245,10 @@ bash scripts/record_demo.sh
 | M2 | 2026-05-16 | ✓ | guiding_controller (lock-on/lag 감지) + patrol_scheduler + table_occupancy_detector (M2 YOLO person, M3 식기 후속) + completion_watcher |
 | M3 | 2026-05-16 | ✓ | Web Dashboard 7 페이지 (vanilla JS, 빌드 도구 없음) + NTP 6대 sync 토폴로지 + floorplan 동적 마커 |
 | M4 | 2026-05-17~ | 진행 중 | DB schema v0.1 초안 (PG 5090 설치 보류, 팀 협의 대기) + Gazebo wall 정합 진단 (sim AMCL fundamental 한계 확정, 5 patches 적용, RPi 라이브 검증 대기) |
-| follower | 2026-05-19~22 | 진행 중 | YOLO26 GPU + DBSCAN 그룹 탐지 + PD 제어 그룹 접근 + BoT-SORT 1인 ID 고정 + insightface ArcFace customer_id 부여 (실물 테스트 대기) |
+| follower 2026-05-19 | 2026-05-19 | ✓ | approach 지그재그 수정 — MediaPipe 제거 + YOLO26 GPU 전환 (6.9ms) + EMA 필터 + 거리 비례 Kp 추가 |
+| follower 2026-05-20 | 2026-05-20 | ✓ | follower 시스템 전체 검증 — run_robot_cam.sh if false 버그 수정 + dbscan_eps 450.0 + min_group_size 2 + 카메라 SNAP U2 교체 + 실물 그룹 탐지→접근 확인 |
+| follower 2026-05-21 | 2026-05-21 | ✓ | follow 모드 카메라 토픽 수정 — input_topic /robot_cam/image_raw + use_compressed:True + dev 브랜치 머지 + Git 워크플로우 정립 |
+| follower 2026-05-22 | 2026-05-22 | 진행 중 | Customer ReID P0 — dobi_npc_identity 패키지 신설 + insightface ArcFace customer_registry TDD(pytest 9개) + face_embedder + customer_identity_node + /customer/registry 발행 (실물 재식별 테스트 대기) |
 
 상세: `docs/daily/` 회고 (시간 역순) + `docs/cafe_npc_implementation_plan.md` (학술) + `docs/moca_mode_and_opserver_plan.md` (운영).
 
