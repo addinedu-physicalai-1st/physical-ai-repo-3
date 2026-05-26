@@ -53,8 +53,8 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 
 | 카메라 | 위치 | 용도 |
 |---|---|---|
-| 1 | 노트북 내장 | GEVA 얼굴 표정 → V·A 감정 + insightface ArcFace 얼굴 ReID |
-| 2 | RPi 직결 (SNAP U2) | YOLO26 GPU 사람 감지 + BoT-SORT 추적 + follow person detection |
+| 1 | 노트북 내장 | (engaging 모드) 얼굴 표정 GEVA — 호객 중 감정 분석 |
+| 2 | RPi 직결 (SNAP U2) | YOLO26 GPU 사람 감지 + BoT-SORT 추적 + **GEVA (follow 모드)** + insightface ArcFace 얼굴 ReID (2026-05-26 통일) |
 | 3 | 노트북 외장 (RPC-20F) | 게임 손 인식 (RPS minigame) |
 
 상세: `docs/cafe_npc_camera_architecture.md`.
@@ -248,7 +248,8 @@ bash scripts/record_demo.sh
 | follower 2026-05-19 | 2026-05-19 | ✓ | approach 지그재그 수정 — MediaPipe 제거 + YOLO26 GPU 전환 (6.9ms) + EMA 필터 + 거리 비례 Kp 추가 |
 | follower 2026-05-20 | 2026-05-20 | ✓ | follower 시스템 전체 검증 — run_robot_cam.sh if false 버그 수정 + dbscan_eps 450.0 + min_group_size 2 + 카메라 SNAP U2 교체 + 실물 그룹 탐지→접근 확인 |
 | follower 2026-05-21 | 2026-05-21 | ✓ | follow 모드 카메라 토픽 수정 — input_topic /robot_cam/image_raw + use_compressed:True + dev 브랜치 머지 + Git 워크플로우 정립 |
-| follower 2026-05-22 | 2026-05-22 | 진행 중 | Customer ReID P0 — dobi_npc_identity 패키지 신설 + insightface ArcFace customer_registry TDD(pytest 9개) + face_embedder + customer_identity_node + /customer/registry 발행 (실물 재식별 테스트 대기) |
+| follower 2026-05-22 | 2026-05-22 | ✓ | Customer ReID P0 — dobi_npc_identity 패키지 신설 + insightface ArcFace customer_registry TDD(pytest 9개) + face_embedder + customer_identity_node + /customer/registry 발행 |
+| follower 2026-05-26 | 2026-05-26 | ✓ | 추종 시나리오 전체 연동 — 카메라 단일화(로봇 카메라) + EmotionState track_id 추가 + GEVA 로봇 카메라 전환 + target_selector_node 신설 + follow_controller customer_id 기반 추종 (실물 테스트 대기) |
 
 상세: `docs/daily/` 회고 (시간 역순) + `docs/cafe_npc_implementation_plan.md` (학술) + `docs/moca_mode_and_opserver_plan.md` (운영).
 
@@ -305,4 +306,4 @@ bash scripts/record_demo.sh
 
 ---
 
-*마지막 갱신: 2026-05-22 (follower 시스템 — YOLO26 GPU + insightface ArcFace customer_id + dobi_npc_identity 패키지 추가)*
+*마지막 갱신: 2026-05-26 (follower 시스템 — 추종 시나리오 전체 연동 완료: 카메라 통일 + target_selector + customer_id 기반 follow)*
