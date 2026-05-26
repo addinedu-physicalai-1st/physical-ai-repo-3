@@ -111,12 +111,27 @@ kp_linear               = 0.8
 
 ---
 
+## 2-1. 추가 수정 — min_group_size 2→1
+
+**배경**: `min_group_size=2` 이면 혼자인 손님에게 접근 안 됨.
+오늘 1인 테스트에서 접근이 됐던 건 YOLO 이중탐지 노이즈 덕분 (불안정).
+스낵바 호객 시나리오에서는 1인 손님도 대상이므로 1로 변경.
+여러 그룹이 있으면 여전히 인원 많은 쪽 우선.
+
+```python
+# dev_common.launch.py
+'min_group_size': 1,   # 2→1 (2026-05-26)
+```
+
+---
+
 ## 3. 남은 과제
 
 | 항목 | 상태 |
 |---|---|
 | GEVA 얼굴 인식 → target_selector → follow_controller 1:1 추종 | ⏳ 카메라 각도 조정 필요 |
 | 카메라 Pan 모터 — 얼굴 추적 (서보 + camera_pan_controller_node) | 📋 다음 세션 |
+| 그룹 vs 단독 실물 비교 테스트 (min_group_size=1 검증) | 📋 다음 테스트 |
 | 사람 사라진 후 방향 유지 추적 (마지막 방향으로 천천히 탐색) | 📋 추후 |
 
 ---
