@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="stir_stick">
+    <static>false</static>
+    <link name="stir_stick_link">
+      <inertial>
+        <mass>0.018</mass>
+        <inertia>
+          <ixx>0.00007</ixx>
+          <iyy>0.00007</iyy>
+          <izz>0.000003</izz>
+        </inertia>
+      </inertial>
+      <collision name="stick_collision">
+        <geometry>
+          <cylinder>
+            <radius>0.008</radius>
+            <length>0.18</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>2.0</mu>
+              <mu2>2.0</mu2>
+            </ode>
+          </friction>
+          <contact>
+            <collide_bitmask>0x02</collide_bitmask>
+          </contact>
+        </surface>
+      </collision>
+      <visual name="stick_visual">
+        <geometry>
+          <cylinder>
+            <radius>0.008</radius>
+            <length>0.18</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.78 0.62 0.36 1.0</ambient>
+          <diffuse>0.78 0.62 0.36 1.0</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

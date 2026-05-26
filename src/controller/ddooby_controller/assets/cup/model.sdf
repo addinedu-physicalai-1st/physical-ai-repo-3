@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="cup">
+    <static>false</static>
+    <link name="cup_link">
+      <pose>0 0 0 0 0 0</pose>
+      <inertial>
+        <mass>0.05</mass>
+        <inertia>
+          <ixx>0.00008</ixx>
+          <iyy>0.00008</iyy>
+          <izz>0.00005</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="cup_body">
+        <geometry>
+          <cylinder>
+            <radius>0.035</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.92 0.92 0.92 0.85</ambient>
+          <diffuse>0.92 0.92 0.92 0.85</diffuse>
+        </material>
+      </visual>
+      <collision name="cup_collision">
+        <geometry>
+          <cylinder>
+            <radius>0.035</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.8</mu>
+              <mu2>0.8</mu2>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <kp>100000</kp>
+              <kd>10</kd>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+      <visual name="liquid_marker">
+        <pose>0 0 0.025 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.050</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.2 0.45 1.0 0.75</ambient>
+          <diffuse>0.2 0.45 1.0 0.75</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

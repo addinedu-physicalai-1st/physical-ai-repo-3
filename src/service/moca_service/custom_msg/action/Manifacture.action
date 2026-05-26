@@ -1,0 +1,6 @@
+custom_msg/ManufactureItem[] items
+---
+bool success
+string message
+---
+string status

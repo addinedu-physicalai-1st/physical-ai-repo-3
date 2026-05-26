@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="openarm_robot_gz"
+    params="arm_type
+            joint_limits
+            kinematics
+            kinematics_link
+            kinematics_offset
+            inertials
+            body_type
+            body_inertials
+            body_kinematics
+            body_kinematics_link
+            bimanual:=true
+            right_arm_base_xyz:='0 0 0'
+            left_arm_base_xyz:='0 0 0'
+            right_arm_base_rpy:='0 0 0'
+            left_arm_base_rpy:='0 0 0'">
+
+    <xacro:include filename="$(find openarm_description)/urdf/arm/openarm_macro.xacro"/>
+    <xacro:include filename="$(find openarm_description)/urdf/arm/openarm_arm.xacro"/>
+    <xacro:include filename="$(find openarm_description)/urdf/body/openarm_body_macro.xacro"/>
+    <xacro:include filename="$(find openarm_description)/urdf/body/openarm_body.xacro"/>
+    <xacro:include filename="$(find openarm_description)/urdf/ee/openarm_hand.xacro"/>
+    <xacro:include filename="$(find openarm_description)/urdf/ee/openarm_hand_macro.xacro"/>
+    <xacro:include filename="$(find openarm_description)/urdf/ee/openarm_hand_arguments.xacro"/>
+
+    <xacro:openarm_body
+      body_type="${body_type}"
+      body_prefix=""
+      no_prefix="false"
+      description_pkg="openarm_description"
+      connected_to="world"
+      xyz="0 0 0"
+      rpy="0 0 0"
+      inertials="${body_inertials}"
+      kinematics="${body_kinematics}"
+      kinematics_link="${body_kinematics_link}"/>
+
+    <xacro:openarm_arm
+      arm_type="${arm_type}"
+      arm_prefix="left_"
+      no_prefix="false"
+      description_pkg="openarm_description"
+      connected_to="openarm_body_link0"
+      xyz="${left_arm_base_xyz}"
+      rpy="${left_arm_base_rpy}"
+      joint_limits="${joint_limits}"
+      inertials="${inertials}"
+      kinematics="${kinematics}"
+      kinematics_link="${kinematics_link}"
+      kinematics_offset="${kinematics_offset}"/>
+
+    <xacro:openarm_arm
+      arm_type="${arm_type}"
+      arm_prefix="right_"
+      no_prefix="false"
+      description_pkg="openarm_description"
+      connected_to="openarm_body_link0"
+      xyz="${right_arm_base_xyz}"
+      rpy="${right_arm_base_rpy}"
+      joint_limits="${joint_limits}"
+      inertials="${inertials}"
+      kinematics="${kinematics}"
+      kinematics_link="${kinematics_link}"
+      kinematics_offset="${kinematics_offset}"/>
+
+    <xacro:openarm_hand
+      connected_to="openarm_left_link7"
+      arm_type="${arm_type}"
+      arm_prefix="left_"
+      ee_type="openarm_hand"
+      ee_kinematics_link="${xacro.load_yaml('$(find openarm_description)/config/hand/openarm_hand/kinematics_link.yaml')}"
+      ee_inertials="${xacro.load_yaml('$(find openarm_gazebo)/config/hand/openarm_hand/inertials.yaml')}"
+      rpy_ee="$(arg rpy_ee)"
+      xyz_ee="$(arg xyz_ee)"
+      tcp_xyz="$(arg tcp_xyz)"
+      tcp_rpy="$(arg tcp_rpy)"
+      description_pkg="openarm_description"/>
+
+    <xacro:openarm_hand
+      connected_to="openarm_right_link7"
+      arm_type="${arm_type}"
+      arm_prefix="right_"
+      ee_type="openarm_hand"
+      ee_kinematics_link="${xacro.load_yaml('$(find openarm_description)/config/hand/openarm_hand/kinematics_link.yaml')}"
+      ee_inertials="${xacro.load_yaml('$(find openarm_gazebo)/config/hand/openarm_hand/inertials.yaml')}"
+      rpy_ee="$(arg rpy_ee)"
+      xyz_ee="$(arg xyz_ee)"
+      tcp_xyz="$(arg tcp_xyz)"
+      tcp_rpy="$(arg tcp_rpy)"
+      description_pkg="openarm_description"/>
+  </xacro:macro>
+</robot>

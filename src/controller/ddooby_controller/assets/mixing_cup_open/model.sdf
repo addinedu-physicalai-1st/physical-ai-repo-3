@@ -1,0 +1,85 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="mixing_cup_open">
+    <static>false</static>
+    <link name="cup_link">
+      <pose>0 0 0 0 0 0</pose>
+      <inertial>
+        <mass>0.12</mass>
+        <inertia>
+          <ixx>0.00018</ixx>
+          <iyy>0.00018</iyy>
+          <izz>0.00011</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+
+      <visual name="cup_body_visual">
+        <geometry>
+          <cylinder>
+            <radius>0.036</radius>
+            <length>0.110</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.92 0.92 0.92 0.38</ambient>
+          <diffuse>0.92 0.92 0.92 0.38</diffuse>
+        </material>
+      </visual>
+
+      <visual name="cup_bottom_visual">
+        <pose>0 0 -0.052 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.032</radius>
+            <length>0.006</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.92 0.92 0.92 0.85</ambient>
+          <diffuse>0.92 0.92 0.92 0.85</diffuse>
+        </material>
+      </visual>
+
+      <visual name="liquid_marker">
+        <pose>0 0 -0.020 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.029</radius>
+            <length>0.025</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.2 0.45 1.0 0.45</ambient>
+          <diffuse>0.2 0.45 1.0 0.45</diffuse>
+        </material>
+      </visual>
+
+      <collision name="cup_grasp_collision">
+        <geometry>
+          <cylinder>
+            <radius>0.035</radius>
+            <length>0.110</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.9</mu>
+              <mu2>0.9</mu2>
+            </ode>
+          </friction>
+          <contact>
+            <collide_bitmask>0x01</collide_bitmask>
+            <ode>
+              <kp>80000</kp>
+              <kd>8</kd>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+    </link>
+  </model>
+</sdf>

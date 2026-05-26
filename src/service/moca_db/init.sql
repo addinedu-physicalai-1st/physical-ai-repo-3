@@ -69,34 +69,70 @@ CREATE TABLE IF NOT EXISTS product_allergy (
         ON DELETE CASCADE
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS store_table (
-    table_id INT AUTO_INCREMENT PRIMARY KEY,
-    table_number INT NOT NULL,
-    pos_x DECIMAL(10, 3) NOT NULL,
-    pos_y DECIMAL(10, 3) NOT NULL,
-    CONSTRAINT uq_store_table_table_number
-        UNIQUE (table_number),
-    CONSTRAINT chk_store_table_table_number
-        CHECK (table_number > 0)
+CREATE TABLE IF NOT EXISTS map (
+    map_id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(64) NOT NULL,
+    width DECIMAL(10, 3) NOT NULL,
+    height DECIMAL(10, 3) NOT NULL,
+    address DECIMAL(10, 3) NOT NULL
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-INSERT INTO store_table (table_id, table_number, pos_x, pos_y) VALUES
-    (1, 1, 0.000, 0.000),
-    (2, 2, 0.000, 0.000),
-    (3, 3, 0.000, 0.000),
-    (4, 4, 0.000, 0.000)
+CREATE TABLE IF NOT EXISTS store_table (
+    table_id INT AUTO_INCREMENT PRIMARY KEY,
+    map_id INT NOT NULL,
+    table_number VARCHAR(32) NOT NULL,
+    pos_x DECIMAL(10, 3) NOT NULL,
+    pos_y DECIMAL(10, 3) NOT NULL,
+    CONSTRAINT uq_store_table_map_table_number
+        UNIQUE (map_id, table_number),
+    CONSTRAINT fk_store_table_map
+        FOREIGN KEY (map_id) REFERENCES map(map_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS workspace (
+    workspace_id INT AUTO_INCREMENT PRIMARY KEY,
+    map_id INT NOT NULL,
+    name VARCHAR(64) NOT NULL,
+    CONSTRAINT fk_workspace_map
+        FOREIGN KEY (map_id) REFERENCES map(map_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+INSERT INTO map (map_id, name, width, height, address) VALUES
+    (1, 'main', 0.000, 0.000, 0.000)
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    width = VALUES(width),
+    height = VALUES(height),
+    address = VALUES(address);
+
+INSERT INTO store_table (table_id, map_id, table_number, pos_x, pos_y) VALUES
+    (1, 1, '1', 0.000, 0.000),
+    (2, 1, '2', 0.000, 0.000),
+    (3, 1, '3', 0.000, 0.000),
+    (4, 1, '4', 0.000, 0.000)
 ON DUPLICATE KEY UPDATE
     table_id = VALUES(table_id),
+    map_id = VALUES(map_id),
     table_number = VALUES(table_number),
     pos_x = VALUES(pos_x),
     pos_y = VALUES(pos_y);
+
+INSERT INTO workspace (workspace_id, map_id, name) VALUES
+    (1, 1, 'main')
+ON DUPLICATE KEY UPDATE
+    map_id = VALUES(map_id),
+    name = VALUES(name);
 
 CREATE TABLE IF NOT EXISTS orders (
     order_id INT AUTO_INCREMENT PRIMARY KEY,
     order_source ENUM('COUNTER', 'TABLE') NOT NULL,
     receive_type ENUM('PENDING', 'DINE_IN', 'TAKE_OUT') NOT NULL DEFAULT 'PENDING',
     table_id INT NULL,
-    order_status ENUM('PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED', 'CANCELED') NOT NULL DEFAULT 'PENDING',
+    order_status ENUM('PENDING', 'ACCEPTED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELED') NOT NULL DEFAULT 'PENDING',
     payment_status ENUM('PENDING', 'PAID', 'CANCELED', 'REFUNDED') NOT NULL DEFAULT 'PENDING',
     total_price INT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

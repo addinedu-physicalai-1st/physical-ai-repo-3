@@ -5,7 +5,6 @@
 # markdown
 **/AGENTS.md
 
-
 # === ROS2 build artifacts ===
 build/
 install/
@@ -42,19 +41,31 @@ rosbag2_*/
 
 # === Heavy assets (Phase 0-A에서 가져온 cabot 자산) ===
 # 이 디렉토리들은 별도 관리 (git-lfs 또는 다운로드 스크립트)
-# root anchor — src/moca_gazebo/models/ 등 sub-디렉토리 추적 가능
 **/maps/
 **/datasets/
 **/web/
 **/tools/
 **/models/
 !src/service/web_service/app/models/
+!src/service/web_service/app/models/**
+!src/service/web_service/app/models/**
+!src/controller/ddooby_controller/assets/manufacturing_world/models/
+!src/controller/ddooby_controller/assets/manufacturing_world/models/**
+
+# OpenArm CAN upstream Launchpad release packaging encrypted files; not needed for this demo.
+src/controller/ddooby_controller/openarm_vendor/openarm_can/packages/launchpad-account.asc.kou
+src/controller/ddooby_controller/openarm_vendor/openarm_can/packages/release-key.asc.kou
+
+# ddooby local modeling workspace.
+# Gazebo runtime uses assets/manufacturing_world/layout.json and generated model.sdf files instead.
+src/controller/ddooby_controller/modeling/
 
 # === ML model assets (mediapipe .task/.tflite 등) — download_models.sh 로 별도 관리 ===
-src/dobi_npc/**/models/
 *.pt              # YOLO weights
 *.pth             # PyTorch checkpoints
 *.onnx
+*.task
+*.tflite
 *.gguf            # LLM weights
 *.bin
 # audio assets (TTS reference 등) — 별도 다운로드 스크립트로 관리
