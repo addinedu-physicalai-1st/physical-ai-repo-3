@@ -16,3 +16,6 @@ string source         # "face" | "voice" | "fused"
 
 # 융합 시 발생한 신호
 string[] flags        # 예: ["mask_smile", "voice_only", "agree", "conflict"]
+
+# 추종 대상 연동 (2026-05-26): person_tracking track_id. -1 = 미식별
+int32 track_id        # -1 = unknown, 0+ = BoT-SORT track_id

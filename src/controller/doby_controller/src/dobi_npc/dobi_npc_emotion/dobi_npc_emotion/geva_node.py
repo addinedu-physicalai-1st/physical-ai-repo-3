@@ -3,12 +3,17 @@
 
 Phase 2 W4. EyeCon v3.5 vision.py + analyzer._classify_emotion 포팅.
 
+2026-05-26 수정: 노트북 웹캠 → 로봇 카메라(/robot_cam/image_raw) 통일.
+person_tracking tracks 의 각 bbox 안에서 표정 분석 후 track_id 포함 발행.
+→ customer_identity_node 와 연동해 추종 대상 특정 가능.
+
 파이프라인:
-  1) cv2.VideoCapture(camera_index)로 노트북 웹캠 1프레임 캡처
-  2) MediaPipe FaceLandmarker (IMAGE 모드, output_face_blendshapes=True)
-  3) Blendshapes 규칙 엔진으로 7감정 점수(softmax)
-  4) Russell circumplex 좌표(Posner 2005 근사)로 가중평균 → (V, A)
-  5) /emotion/state (dobi_npc_msgs/EmotionState) 발행
+  1) /robot_cam/image_raw (또는 compressed) 구독 → 최신 프레임 보관
+  2) /person_tracking/tracks 수신 시 각 track bbox ROI 추출
+  3) MediaPipe FaceLandmarker (IMAGE 모드, output_face_blendshapes=True)
+  4) Blendshapes 규칙 엔진으로 7감정 점수(softmax)
+  5) Russell circumplex 좌표(Posner 2005 근사)로 가중평균 → (V, A)
+  6) valence 가장 높은 track 의 /emotion/state (track_id 포함) 발행
 
 Source 필드: "face". Phase 2 후속 GEFA(자세/접근/회피)와 decision_rule_node에서
 Salichs 2014 fusion으로 합쳐진다.
@@ -29,7 +34,10 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 
-from dobi_npc_msgs.msg import EmotionState
+from cv_bridge import CvBridge
+from sensor_msgs.msg import Image, CompressedImage
+
+from dobi_npc_msgs.msg import EmotionState, PersonTrackArray
 
 
 EMOTIONS = ["happy", "sad", "angry", "surprise", "fear", "disgust", "neutral"]
@@ -129,23 +137,19 @@ def emotion_scores_to_va(scores: dict) -> tuple[float, float, float]:
 
 
 class GevaNode(Node):
-    """GEVA 노드 — 노트북 웹캠 → 표정 → V·A → /emotion/state."""
+    """GEVA 노드 — 로봇 카메라 + person_tracking tracks → 표정 → V·A → /emotion/state."""
 
     def __init__(self):
         super().__init__('geva_node')
 
-        self.declare_parameter('camera_index', 0)
-        self.declare_parameter('publish_rate_hz', 10.0)
+        self.declare_parameter('image_topic', '/robot_cam/image_raw')
+        self.declare_parameter('use_compressed', True)
         self.declare_parameter('model_path', '')  # 비우면 share/models/face_landmarker.task
         self.declare_parameter('min_detection_confidence', 0.5)
         self.declare_parameter('min_tracking_confidence', 0.5)
-        # 카메라 분리 (2026-05-06): 게임은 카메라 3 (외장 RPC-20F) 별도
-        # 점유 → GEVA 가 카메라 1 (내장) 을 게임 중에도 그대로 보유. 따라서
-        # /geva/suspend|resume 인터페이스 폐기. 단일 카메라로 회귀할 일이
-        # 생기면 git history 의 suspend/resume 패턴 (~2026-05-05) 복원.
 
-        self._camera_index = self.get_parameter('camera_index').value
-        publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
+        image_topic = self.get_parameter('image_topic').value
+        use_compressed = bool(self.get_parameter('use_compressed').value)
         model_path = self.get_parameter('model_path').value or self._default_model_path()
         min_det = float(self.get_parameter('min_detection_confidence').value)
         min_trk = float(self.get_parameter('min_tracking_confidence').value)
@@ -156,14 +160,8 @@ class GevaNode(Node):
                 f"`scripts/download_models.sh` 실행 필요."
             )
 
-        self.cap = cv2.VideoCapture(self._camera_index)
-        if not self.cap.isOpened():
-            raise RuntimeError(f"웹캠 열기 실패: index={self._camera_index}")
-        self.get_logger().info(
-            f"웹캠 열림 (index={self._camera_index}) — "
-            f"{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
-            f"{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
-        )
+        self._bridge = CvBridge()
+        self._latest_bgr = None
 
         base_options = mp_python.BaseOptions(model_asset_path=model_path)
         options = mp_vision.FaceLandmarkerOptions(
@@ -179,67 +177,124 @@ class GevaNode(Node):
         self.landmarker = mp_vision.FaceLandmarker.create_from_options(options)
         self.get_logger().info("FaceLandmarker 초기화 완료 (Blendshapes ON)")
 
+        # 이미지 구독 — 로봇 카메라 (person_tracking과 동일 소스)
+        if use_compressed:
+            self.create_subscription(
+                CompressedImage,
+                image_topic + '/compressed',
+                self._on_compressed, 10)
+        else:
+            self.create_subscription(
+                Image,
+                image_topic,
+                self._on_image, 10)
+
+        # person_tracking tracks 구독 → bbox별 감정 분석 트리거
+        self.create_subscription(
+            PersonTrackArray,
+            '/person_tracking/tracks',
+            self._on_tracks, 10)
+
         self.pub = self.create_publisher(EmotionState, '/emotion/state', 10)
-        self.timer = self.create_timer(1.0 / publish_rate_hz, self._tick)
 
         self._frames = 0
         self._faces_detected = 0
         self._last_log = time.time()
+
+        self.get_logger().info(
+            f"geva_node ready: image={image_topic} "
+            f"compressed={use_compressed}"
+        )
 
     @staticmethod
     def _default_model_path() -> str:
         share = get_package_share_directory('dobi_npc_emotion')
         return os.path.join(share, 'models', 'face_landmarker.task')
 
-    def _tick(self):
-        if self.cap is None:
+    # ── 이미지 콜백 ────────────────────────────────────────────
+
+    def _on_compressed(self, msg: CompressedImage):
+        import numpy as np
+        arr = np.frombuffer(msg.data, np.uint8)
+        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if frame is not None:
+            self._latest_bgr = frame
+
+    def _on_image(self, msg: Image):
+        try:
+            self._latest_bgr = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
+        except Exception as e:
+            self.get_logger().warn(f'image 변환 실패: {e}')
+
+    # ── tracks 콜백 → bbox별 감정 분석 ────────────────────────
+
+    def _on_tracks(self, msg: PersonTrackArray):
+        if self._latest_bgr is None:
             return
-        ok, frame = self.cap.read()
-        if not ok:
-            self.get_logger().warning("웹캠 read 실패")
+        if not msg.tracks:
             return
+
+        h, w = self._latest_bgr.shape[:2]
+        best_msg = None
+        best_valence = -2.0
         self._frames += 1
 
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        for track in msg.tracks:
+            x1, y1, x2, y2 = (int(v) for v in track.bbox)
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+            if x2 <= x1 or y2 <= y1:
+                continue
 
-        try:
-            result = self.landmarker.detect(mp_image)
-        except Exception as e:
-            self.get_logger().warning(f"FaceLandmarker.detect 실패: {e}")
-            return
+            roi = self._latest_bgr[y1:y2, x1:x2]
+            rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-        msg = EmotionState()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = "camera_laptop"
-        msg.source = "face"
+            try:
+                result = self.landmarker.detect(mp_image)
+            except Exception as e:
+                self.get_logger().warn(f'FaceLandmarker.detect 실패 (track {track.track_id}): {e}')
+                continue
 
-        if not result.face_landmarks or not result.face_blendshapes:
-            msg.valence = 0.0
-            msg.arousal = 0.0
-            msg.confidence = 0.0
-            msg.flags = ["no_face"]
-            self.pub.publish(msg)
-            self._maybe_log()
-            return
+            if not result.face_landmarks or not result.face_blendshapes:
+                continue  # 이 bbox 안에 얼굴 없음 → 다음 track
 
-        self._faces_detected += 1
-        bs = {cat.category_name: cat.score for cat in result.face_blendshapes[0]}
-        scores = classify_emotion_from_blendshapes(bs)
-        v, a, top = emotion_scores_to_va(scores)
-        top_emotion = max(scores, key=scores.get)
+            self._faces_detected += 1
+            bs = {cat.category_name: cat.score for cat in result.face_blendshapes[0]}
+            scores = classify_emotion_from_blendshapes(bs)
+            v, a, top = emotion_scores_to_va(scores)
+            top_emotion = max(scores, key=scores.get)
 
-        msg.valence = v
-        msg.arousal = a
-        msg.confidence = top
-        msg.flags = [f"top:{top_emotion}"]
-        self.pub.publish(msg)
+            emotion_msg = EmotionState()
+            emotion_msg.header.stamp = self.get_clock().now().to_msg()
+            emotion_msg.header.frame_id = 'robot_cam_link'
+            emotion_msg.source = 'face'
+            emotion_msg.track_id = int(track.track_id)
+            emotion_msg.valence = v
+            emotion_msg.arousal = a
+            emotion_msg.confidence = top
+            emotion_msg.flags = [f'top:{top_emotion}']
+
+            # valence 가장 높은 사람 선택 (가장 호감 있는 사람)
+            if v > best_valence:
+                best_valence = v
+                best_msg = emotion_msg
+
+        if best_msg is not None:
+            self.pub.publish(best_msg)
+            self.get_logger().debug(
+                f'emotion: track_id={best_msg.track_id} '
+                f'v={best_msg.valence:.2f} a={best_msg.arousal:.2f} '
+                f'conf={best_msg.confidence:.2f} flags={best_msg.flags}'
+            )
+
         self._maybe_log()
 
     def _maybe_log(self):
         now = time.time()
         if now - self._last_log >= 5.0:
-            rate = self._frames / (now - self._last_log)
+            elapsed = now - self._last_log
+            rate = self._frames / elapsed
             det_rate = (self._faces_detected / max(1, self._frames)) * 100
             self.get_logger().info(
                 f"frames={self._frames} "
@@ -250,8 +305,6 @@ class GevaNode(Node):
             self._last_log = now
 
     def destroy_node(self):
-        if hasattr(self, 'cap') and self.cap is not None:
-            self.cap.release()
         if hasattr(self, 'landmarker') and self.landmarker is not None:
             self.landmarker.close()
         super().destroy_node()
