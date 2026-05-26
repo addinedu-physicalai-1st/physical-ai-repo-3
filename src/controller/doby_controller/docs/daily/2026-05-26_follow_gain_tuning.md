@@ -92,7 +92,12 @@ ema_alpha       = 0.5   # 목표 위치 EMA 스무딩
 pose_timeout    = 0.3   # 소실 후 정지까지 (초)
 linear_speed    = 0.15
 dead_zone       = 0.05
+close_threshold = 0.45  # bbox 높이 비율 임계값 — 대화 거리 ~1.2m에서 전진 정지 (0.999→0.45)
 ```
+
+**close_threshold 변경 배경**: 기존 0.999는 사실상 멈추지 않는 값 → 코앞까지 접근.
+0.45 로 줄여 대화가 자연스러운 거리(약 1.2m)에서 전진 정지.
+bbox 높이 비율은 카메라 각도·거리에 따라 달라지므로 실물 캘리브 기준값임 (2026-05-26 확정).
 
 ### follow_controller (RPi)
 ```python
@@ -131,6 +136,9 @@ bash src/controller/doby_controller/scripts/stop_follower.sh
 ## 5. 커밋
 
 ```
+8311439 tune(approach): close_threshold 0.999→0.45 (대화 거리 ~1.2m 정지)
+ffb13f4 fix(follow): sync angular_gain 0.6, ema_alpha 0.5 to laptop source
+3e8f43e docs: 2026-05-26 추종 게인 튜닝 작업기록 + README 갱신
 95af629 tune(follow): approach controller gain tuning + stop-on-lost fix
 aab3c88 feat(mobility): migrate driving controllers to RPi mobility_controller
 ```
