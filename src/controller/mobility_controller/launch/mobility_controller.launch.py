@@ -56,7 +56,7 @@ def generate_launch_description():
                 'derivative_gain': 0.5,   # Kd (0.3→0.5: 댐핑 강화)
                 'ema_alpha':       0.5,   # (0.3→0.5: 목표 위치 스무딩)
                 'dead_zone':       0.05,
-                'close_threshold': 0.999,
+                'close_threshold': 0.45,   # 0.999→0.45: 대화 거리 ~1.2m에서 멈춤
                 'pose_timeout':    0.3,   # 1.0→0.3: 사라질 때 빠르게 정지
             }],
         ),
