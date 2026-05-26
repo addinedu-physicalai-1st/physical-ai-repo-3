@@ -251,6 +251,7 @@ bash scripts/record_demo.sh
 | follower 2026-05-22 | 2026-05-22 | ✓ | Customer ReID P0 — dobi_npc_identity 패키지 신설 + insightface ArcFace customer_registry TDD(pytest 9개) + face_embedder + customer_identity_node + /customer/registry 발행 |
 | follower 2026-05-26 | 2026-05-26 | ✓ | 추종 시나리오 전체 연동 — 카메라 단일화(로봇 카메라) + EmotionState track_id 추가 + GEVA 로봇 카메라 전환 + target_selector_node 신설 + follow_controller customer_id 기반 추종 (실물 테스트 대기) |
 | mobility 2026-05-26 | 2026-05-26 | ✓ | 주행 제어 RPi 이관 — approach_controller + follow_controller 를 mobility_controller (RPi) 로 이관. 노트북은 AI 연산만, RPi는 cmd_vel 발행만 담당 |
+| follow-tune 2026-05-26 | 2026-05-26 | ✓ | 추종 게인 튜닝 + 소실 대응 개선 — angular_gain 1.8→0.6, ema_alpha 0.5, pose_timeout 0.3s, 타깃 소실 시 Twist(0,0) 즉시 발행. run_follower.sh/stop_follower.sh 전면 개편 (kill-then-start, 중복 노드 방지) |
 
 상세: `docs/daily/` 회고 (시간 역순) + `docs/cafe_npc_implementation_plan.md` (학술) + `docs/moca_mode_and_opserver_plan.md` (운영).
 
