@@ -86,9 +86,25 @@ class DobyModeServingPort:
         self.logger = logger
 
     def start_serving(self, command_id: str, order_id: int, table_number: int | None) -> bool:
+        waypoint = self._table_number_to_waypoint(table_number)
+        if waypoint is None:
+            self.logger.warning(
+                "doby serving start request rejected command_id=%s order_id=%s table_number=%s",
+                command_id,
+                order_id,
+                table_number,
+            )
+            return False
+
+        params = {
+            "waypoint": waypoint,
+            "via_pickup": True,
+            "command_id": command_id,
+            "order_id": order_id,
+        }
         result = self.doby_runtime.request_mode_change(
             "serving",
-            {"command_id": command_id, "order_id": order_id, "table_number": table_number},
+            params,
         )
         ok = bool(result.get("ok"))
         if not ok:
@@ -99,3 +115,9 @@ class DobyModeServingPort:
                 result,
             )
         return ok
+
+    @staticmethod
+    def _table_number_to_waypoint(table_number: int | None) -> str | None:
+        if table_number is None or int(table_number) <= 0:
+            return None
+        return f"T{int(table_number):02d}"

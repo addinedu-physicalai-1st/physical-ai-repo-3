@@ -63,6 +63,7 @@ export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-${MOCA_DO
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
 MOCA_ROS_WS="${MOCA_ROS_WS:-${MOCA_SERVICE_DIR}/.ros_ws}"
 MOCA_CUSTOM_MSG_PACKAGE="${MOCA_CUSTOM_MSG_PACKAGE:-${MOCA_SERVICE_DIR}/custom_msg}"
+MOCA_DOBI_NPC_MSGS_PACKAGE="${MOCA_DOBI_NPC_MSGS_PACKAGE:-${MOCA_CUSTOM_MSG_PACKAGE}/dobi_npc_msgs}"
 MOCA_CUSTOM_MSG_SETUP="${MOCA_CUSTOM_MSG_SETUP:-${MOCA_ROS_WS}/install/setup.bash}"
 DOBY_CONTROLLER_SETUP="${DOBY_CONTROLLER_SETUP:-${SCRIPT_DIR}/../controller/doby_controller/install/setup.bash}"
 
@@ -84,6 +85,16 @@ if [[ "${MOCA_DOBY_CONTROLLER_ROS_ENABLED}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]] 
       --packages-select custom_msg
   else
     echo "custom_msg package not found: ${MOCA_CUSTOM_MSG_PACKAGE}" >&2
+  fi
+  if [[ -d "${MOCA_DOBI_NPC_MSGS_PACKAGE}" ]]; then
+    echo "Installing dobi_npc_msgs ROS interfaces into ${MOCA_ROS_WS}"
+    colcon --log-base "${MOCA_ROS_WS}/log" build \
+      --base-paths "${MOCA_DOBI_NPC_MSGS_PACKAGE}" \
+      --build-base "${MOCA_ROS_WS}/build" \
+      --install-base "${MOCA_ROS_WS}/install" \
+      --packages-select dobi_npc_msgs
+  else
+    echo "dobi_npc_msgs package not found: ${MOCA_DOBI_NPC_MSGS_PACKAGE}" >&2
   fi
   if [[ -f "${MOCA_CUSTOM_MSG_SETUP}" ]]; then
     set +u

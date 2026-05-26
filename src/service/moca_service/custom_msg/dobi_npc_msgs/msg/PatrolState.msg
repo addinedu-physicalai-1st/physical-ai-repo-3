@@ -1,0 +1,7 @@
+std_msgs/Header header
+string current_state
+string current_table
+uint32 tables_visited
+uint32 tables_total
+float32 progress
+builtin_interfaces/Time started_at
