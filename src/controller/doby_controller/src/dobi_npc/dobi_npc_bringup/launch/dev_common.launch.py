@@ -108,7 +108,7 @@ def generate_launch_description():
             package='person_tracking_pkg', executable='group_approach_node',
             name='group_approach_node', output='screen',
             parameters=[{
-                'min_group_size': 2,
+                'min_group_size': 1,   # 1인 포함 모든 손님에게 접근 (스낵바 호객, 2→1: 2026-05-26)
             }],
         ),
         # approach_controller_node → RPi mobility_controller.launch.py 로 이관 (2026-05-26)
