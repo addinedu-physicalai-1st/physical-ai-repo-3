@@ -1,7 +1,7 @@
 """dev_common.launch.py — 공통 always-on 층 (B 단계).
 
 mode_manager 가 모드별 stack 을 spawn/kill 할 때 살아있어야 하는 노드들.
-모드와 무관하게 항상 켜져 있는 인지/표현/오케스트레이션 10 노드.
+모드와 무관하게 항상 켜져 있는 인지/표현/오케스트레이션 9 노드.
 
 구성:
   geva_node                 (웹캠 → /emotion/state)
@@ -13,7 +13,10 @@ mode_manager 가 모드별 stack 을 spawn/kill 할 때 살아있어야 하는 �
   mode_manager              (/mode/request, /mode/state, mode stack spawn/kill)
   person_tracking_node      (/robot_cam/image_raw → /person_tracking/tracks)
   group_approach_node       (/person_tracking/tracks → /person_tracking/approach_target)
-  approach_controller_node  (/person_tracking/approach_target → /cmd_vel, bbox 기반 PD 제어)
+
+주행 제어 노드는 RPi mobility_controller.launch.py 로 이관 (2026-05-26):
+  approach_controller_node  → mobility_controller (RPi)
+  follow_controller_node    → mobility_controller (RPi)
 
 person_tracking_node 전제: run_robot_cam.sh 로 /robot_cam/image_raw 가 발행 중이어야 함.
 
@@ -108,17 +111,5 @@ def generate_launch_description():
                 'min_group_size': 2,
             }],
         ),
-        Node(
-            package='person_tracking_pkg', executable='approach_controller_node',
-            name='approach_controller_node', output='screen',
-            parameters=[{
-                'linear_speed':    0.15,
-                'angular_gain':    1.8,   # Kp
-                'derivative_gain': 0.3,   # Kd
-                'ema_alpha':       0.3,   # D항 노이즈 필터 (작을수록 강한 필터)
-                'dead_zone':       0.05,
-                'close_threshold': 0.999,  # bbox 높이 비율 기준 (0~1, 클수록 가까움)
-                'pose_timeout':    1.0,
-            }],
-        ),
+        # approach_controller_node → RPi mobility_controller.launch.py 로 이관 (2026-05-26)
     ])

@@ -6,6 +6,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(controller_status_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -18,9 +19,19 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# 주행 제어 Python 노드 설치 (approach / follow)
+install(PROGRAMS scripts/approach_controller_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME approach_controller_node)
+
+install(PROGRAMS scripts/follow_controller_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME follow_controller_node)
+
 install(DIRECTORY
   config
   launch
+  scripts
   DESTINATION share/${PROJECT_NAME}
 )
 

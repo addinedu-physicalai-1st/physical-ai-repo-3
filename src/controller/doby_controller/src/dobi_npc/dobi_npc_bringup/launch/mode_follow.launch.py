@@ -10,29 +10,21 @@ mode_manager 가 SetMode("follow", {...}) 요청 시 spawn. RPi v4l2_camera_node
                                                 → /customer/registry (customer_id + track_id)
   - target_selector        (dobi_npc_bringup):  /emotion/state + /customer/registry
                                                 → /follow/target (customer_id 자동 선택)
-  - follow_controller      (dobi_npc_bringup):  /follow/target + /person_tracking/tracks
-                                                + /scan + /rapport/event
-                                                → /follow/cmd_vel
+
+follow_controller 는 RPi mobility_controller.launch.py 로 이관 (2026-05-26).
+  /follow/target 을 mobility_controller 의 follow_controller 가 직접 수신.
 
 추종 흐름:
   GEVA → /emotion/state (valence + track_id)
        → target_selector → /follow/target (customer_id)
-       → follow_controller → /follow/cmd_vel
+       → [RPi] follow_controller → /follow/cmd_vel
 """
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    params_arg = DeclareLaunchArgument(
-        'params_json', default_value='',
-        description='SetMode 서비스로 받은 JSON params 그대로')
-
     return LaunchDescription([
-        params_arg,
 
         # 사람 감지 (bbox → /robot_cam/persons)
         Node(
@@ -67,27 +59,5 @@ def generate_launch_description():
                 'lock_duration_sec': 5.0,
             }],
         ),
-
-        # 추종 제어 (/follow/cmd_vel)
-        Node(
-            package='dobi_npc_bringup', executable='follow_controller',
-            name='follow_controller', output='screen',
-            parameters=[{
-                'target_height_ratio': 0.33,
-                'image_width': 640,
-                'image_height': 360,
-                'scan_stop_dist': 0.30,
-                'kp_angular': 0.5,
-                'max_angular': 0.6,
-                'align_gate': 0.0,
-                'angle_smoothing_alpha': 0.4,
-                'angle_deadband': 0.15,
-                'kp_linear': 0.8,
-                'max_linear': 0.4,
-                'dist_deadband': 0.02,
-                'target_dist': 0.30,
-                'params_json': ParameterValue(
-                    LaunchConfiguration('params_json'), value_type=str),
-            }],
-        ),
+        # follow_controller → RPi mobility_controller.launch.py 로 이관 (2026-05-26)
     ])
