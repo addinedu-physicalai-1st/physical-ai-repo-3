@@ -104,6 +104,9 @@ def generate_launch_description():
                 'yolo_conf': 0.50,
                 'yolo_iou':  0.65,   # NMS IOU (0.45→0.65: 한 사람 bbox 2개 중복탐지 억제 → 비틀거림 개선)
                 'dbscan_eps': 450.0,
+                'frame_skip': 3,     # YOLO 10회/초 처리 → 탐지 딜레이 개선 (1→2→5→3: 2026-05-27)
+                'image_width':  640,
+                'image_height': 360, # 480→360: 30fps 지원 해상도 (2026-05-27)
             }],
         ),
         Node(

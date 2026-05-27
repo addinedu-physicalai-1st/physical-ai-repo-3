@@ -81,6 +81,14 @@ class TrackingVizNode(Node):
         with self._lock:
             self._approach = msg.data
 
+    @staticmethod
+    def _put_text(frame, text, pos, scale, color, thickness=2):
+        """검정 아웃라인 + 컬러 텍스트 — 어떤 배경에서도 선명하게 보임."""
+        cv2.putText(frame, text, pos,
+                    cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), thickness + 2)
+        cv2.putText(frame, text, pos,
+                    cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness)
+
     def get_viz_frame(self):
         with self._lock:
             if self._frame is None:
@@ -118,7 +126,7 @@ class TrackingVizNode(Node):
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, thick)
 
-            # 라벨: track_id / group
+            # 라벨: track_id / group (아웃라인 적용)
             label = f'track_id:{tid}'
             if gid >= 0:
                 label += f'  group_id:{gid}({group_counts.get(gid, 1)}명)'
@@ -126,19 +134,19 @@ class TrackingVizNode(Node):
                 label += ' ★'
 
             label_y = max(y1 - 8, 16)
-            cv2.putText(frame, label, (x1, label_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+            self._put_text(frame, label, (x1, label_y), 0.55, color)
 
         # 좌상단 HUD
         total   = len(tracks)
         n_group = len(group_counts)
         hud1 = f'People: {total}  Groups: {n_group}'
         hud2 = f'Target: Group {approach}' if approach >= 0 else 'Target: none'
-        cv2.putText(frame, hud1, (10, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        cv2.putText(frame, hud2, (10, 58),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                    TARGET_COLOR if approach >= 0 else (180, 180, 180), 2)
+
+        # People/Groups — 밝은 초록
+        self._put_text(frame, hud1, (10, 28), 0.7, (0, 230, 80))
+        # Target — 타겟 있으면 노랑, 없으면 주황
+        hud2_color = TARGET_COLOR if approach >= 0 else (0, 165, 255)
+        self._put_text(frame, hud2, (10, 58), 0.7, hud2_color)
 
         return frame
 
@@ -155,11 +163,18 @@ def main():
     cv2.namedWindow('Tracking Viz', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('Tracking Viz', 960, 540)
 
+    # 대기 화면 (카메라/노드 준비 전)
+    wait_frame = np.zeros((360, 640, 3), dtype=np.uint8)
+    TrackingVizNode._put_text(wait_frame, 'Waiting for camera...', (160, 170), 0.8, (0, 230, 80))
+    TrackingVizNode._put_text(wait_frame, 'YOLO loading (~8s)', (195, 210), 0.6, (0, 165, 255))
+
     try:
         while rclpy.ok():
             frame = node.get_viz_frame()
             if frame is not None:
                 cv2.imshow('Tracking Viz', frame)
+            else:
+                cv2.imshow('Tracking Viz', wait_frame)
             key = cv2.waitKey(30)
             if key == 27 or key == ord('q'):  # ESC or q
                 break

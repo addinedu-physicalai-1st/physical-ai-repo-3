@@ -8,6 +8,7 @@
 #   2026-05-19 최초 작성 (run_3stage.sh DDS env fix wrapper)
 #   2026-05-26 업데이트 — Nav2 제거, 중복 노드 kill 추가,
 #              RPi mobility_controller 시동 추가, mode_follow 추가
+#   2026-05-27 ROS 노드 백그라운드 실행 — Tracking Viz 창 하나만 표시
 #
 # 추종 시나리오 (Nav2 불필요):
 #   ① 사람 탐지/그룹 클러스터링 (dev_common)
@@ -23,6 +24,14 @@
 #   [3/4] 카메라 (run_robot_cam.sh)
 #   [4/4] 노트북 dev_common + mode_follow
 #   [auto] follow 모드 자동 전환
+#   [viz] Tracking Viz 창 하나만 팝업
+#
+# 로그 파일 (문제 발생 시 확인):
+#   /tmp/log_rpi_bringup.log
+#   /tmp/log_mobility_ctrl.log
+#   /tmp/log_robot_cam.log
+#   /tmp/log_dev_common.log
+#   /tmp/log_mode_follow.log
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,7 +50,7 @@ echo " LAPTOP_IP  : $LAPTOP_IP"
 echo " DOMAIN_ID  : 22"
 echo "------------------------------------------------------"
 
-# 터미널 에뮬레이터 확인
+# 터미널 에뮬레이터 확인 (Tracking Viz 창 전용)
 if command -v gnome-terminal >/dev/null 2>&1; then
     TERM_CMD="gnome-terminal"
 elif command -v xterm >/dev/null 2>&1; then
@@ -75,128 +84,67 @@ pkill -f "customer_identity"     2>/dev/null
 pkill -f "person_detector"       2>/dev/null
 pkill -f "dev_common.launch"     2>/dev/null
 pkill -f "mode_follow.launch"    2>/dev/null
+pkill -f "viz_tracking"          2>/dev/null
 sleep 3
 echo " → 정리 완료"
 
 # ============================================================
-# [1/4] RPi vicpinky bringup
+# [1/4] RPi vicpinky bringup (백그라운드, 창 없음)
 # ============================================================
 echo ""
 echo "[1/4] RPi vicpinky bringup 시동..."
-if [ "$TERM_CMD" = "gnome-terminal" ]; then
-    gnome-terminal --title="1. RPi Bringup" -- bash -c "
-        source /opt/ros/jazzy/setup.bash
-        export ROS_DOMAIN_ID=22
-        bash $SCRIPT_DIR/run_vic_bringup.sh
-        echo '--- 종료. Enter로 창 닫기 ---'
-        read
-    " &
-else
-    xterm -title "1. RPi Bringup" -e bash -c "
-        source /opt/ros/jazzy/setup.bash
-        export ROS_DOMAIN_ID=22
-        bash $SCRIPT_DIR/run_vic_bringup.sh
-        echo '--- 종료. Enter로 창 닫기 ---'
-        read
-    " &
-fi
+bash -c "
+    source /opt/ros/jazzy/setup.bash
+    export ROS_DOMAIN_ID=22
+    bash $SCRIPT_DIR/run_vic_bringup.sh
+" > /tmp/log_rpi_bringup.log 2>&1 &
 sleep 12
 
 # ============================================================
-# [2/4] RPi mobility_controller (approach + follow controller)
+# [2/4] RPi mobility_controller (백그라운드, 창 없음)
 # ============================================================
 echo ""
 echo "[2/4] RPi mobility_controller 시동..."
-if [ "$TERM_CMD" = "gnome-terminal" ]; then
-    gnome-terminal --title="2. RPi mobility_controller" -- bash -c "
-        sshpass -p '1' ssh -o StrictHostKeyChecking=no vic@$ROBOT_IP '
-            source /opt/ros/jazzy/setup.bash
-            source ~/doby_controller/install/setup.bash
-            export ROS_DOMAIN_ID=22
-            export ROS_STATIC_PEERS=$LAPTOP_IP
-            export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-            ros2 launch mobility_controller mobility_controller.launch.py
-        '
-        echo '--- 종료. Enter로 창 닫기 ---'
-        read
-    " &
-else
-    xterm -title "2. RPi mobility_controller" -e bash -c "
-        sshpass -p '1' ssh -o StrictHostKeyChecking=no vic@$ROBOT_IP '
-            source /opt/ros/jazzy/setup.bash
-            source ~/doby_controller/install/setup.bash
-            export ROS_DOMAIN_ID=22
-            export ROS_STATIC_PEERS=$LAPTOP_IP
-            export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-            ros2 launch mobility_controller mobility_controller.launch.py
-        '
-        echo '--- 종료. Enter로 창 닫기 ---'
-        read
-    " &
-fi
+sshpass -p '1' ssh -o StrictHostKeyChecking=no vic@$ROBOT_IP \
+    "source /opt/ros/jazzy/setup.bash && source ~/doby_controller/install/setup.bash && export ROS_DOMAIN_ID=22 && export ROS_STATIC_PEERS=$LAPTOP_IP && export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && ros2 launch mobility_controller mobility_controller.launch.py" \
+    > /tmp/log_mobility_ctrl.log 2>&1 &
 sleep 5
 
 # ============================================================
-# [3/4] 카메라
+# [3/4] 카메라 (터미널 유지 — SSH 세션 안정성 필요)
 # ============================================================
 echo ""
 echo "[3/4] 카메라 시동..."
 if [ "$TERM_CMD" = "gnome-terminal" ]; then
-    gnome-terminal --title="3. Camera" -- bash -c "
+    gnome-terminal --title="Camera" -- bash -c "
         $SOURCE_CMD
-        bash $SCRIPT_DIR/run_robot_cam.sh
-        echo '--- 종료. Enter로 창 닫기 ---'
+        IMAGE_HEIGHT=360 bash $SCRIPT_DIR/run_robot_cam.sh
+        echo '--- 카메라 종료. Enter로 창 닫기 ---'
         read
     " &
 else
-    xterm -title "3. Camera" -e bash -c "
+    xterm -title "Camera" -e bash -c "
         $SOURCE_CMD
-        bash $SCRIPT_DIR/run_robot_cam.sh
-        echo '--- 종료. Enter로 창 닫기 ---'
+        IMAGE_HEIGHT=360 bash $SCRIPT_DIR/run_robot_cam.sh
+        echo '--- 카메라 종료. Enter로 창 닫기 ---'
         read
     " &
 fi
 sleep 5
 
 # ============================================================
-# [4/4] 노트북 dev_common + mode_follow
+# [4/4] 노트북 dev_common + mode_follow (백그라운드, 창 없음)
 # ============================================================
 echo ""
 echo "[4/4] dev_common 시동..."
-if [ "$TERM_CMD" = "gnome-terminal" ]; then
-    gnome-terminal --title="4. dev_common" -- bash -c "
-        $SOURCE_CMD
-        ros2 launch dobi_npc_bringup dev_common.launch.py
-        echo '--- 종료. Enter로 창 닫기 ---'
-        read
-    " &
-else
-    xterm -title "4. dev_common" -e bash -c "
-        $SOURCE_CMD
-        ros2 launch dobi_npc_bringup dev_common.launch.py
-        echo '--- 종료. Enter로 창 닫기 ---'
-        read
-    " &
-fi
+bash -c "$SOURCE_CMD && ros2 launch dobi_npc_bringup dev_common.launch.py" \
+    > /tmp/log_dev_common.log 2>&1 &
 sleep 8
 
 echo ""
 echo " mode_follow 시동..."
-if [ "$TERM_CMD" = "gnome-terminal" ]; then
-    gnome-terminal --title="5. mode_follow" -- bash -c "
-        $SOURCE_CMD
-        ros2 launch dobi_npc_bringup mode_follow.launch.py
-        echo '--- 종료. Enter로 창 닫기 ---'
-        read
-    " &
-else
-    xterm -title "5. mode_follow" -e bash -c "
-        $SOURCE_CMD
-        ros2 launch dobi_npc_bringup mode_follow.launch.py
-        echo '--- 종료. Enter로 창 닫기 ---'
-        read
-    " &
-fi
+bash -c "$SOURCE_CMD && ros2 launch dobi_npc_bringup mode_follow.launch.py" \
+    > /tmp/log_mode_follow.log 2>&1 &
 sleep 8
 
 # ============================================================
@@ -214,9 +162,35 @@ ros2 service call /mode/request dobi_npc_msgs/srv/SetMode \
     "{requested_mode: 'follow', params: '{}'}" 2>/dev/null \
     | grep -E "success|current_mode" || echo " (모드 전환 응답 없음 — 수동으로: ros2 service call /mode/request dobi_npc_msgs/srv/SetMode \"{requested_mode: 'follow', params: '{}'}\""
 
+# ============================================================
+# [viz] Tracking Viz — 이 창 하나만 표시
+# ============================================================
+echo ""
+echo " Tracking Viz 시동..."
+if [ "$TERM_CMD" = "gnome-terminal" ]; then
+    gnome-terminal --title="Tracking Viz" -- bash -c "
+        $SOURCE_CMD
+        python3 $WS/src/controller/doby_controller/scripts/viz_tracking.py
+        echo '--- 종료. Enter로 창 닫기 ---'
+        read
+    " &
+else
+    xterm -title "Tracking Viz" -e bash -c "
+        $SOURCE_CMD
+        python3 $WS/src/controller/doby_controller/scripts/viz_tracking.py
+        echo '--- 종료. Enter로 창 닫기 ---'
+        read
+    " &
+fi
+
 echo ""
 echo "======================================================"
-echo " 시동 완료! 터미널 5개 실행 중"
+echo " 시동 완료! (Tracking Viz 창 하나만 표시)"
+echo ""
+echo " 문제 시 로그 확인:"
+echo "   tail -f /tmp/log_dev_common.log"
+echo "   tail -f /tmp/log_mobility_ctrl.log"
+echo "   tail -f /tmp/log_rpi_bringup.log"
 echo ""
 echo " 상태 확인:"
 echo "   ros2 topic hz /person_tracking/tracks"
