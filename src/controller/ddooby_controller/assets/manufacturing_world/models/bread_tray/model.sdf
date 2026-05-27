@@ -1,36 +1,36 @@
 <?xml version="1.0"?>
 <sdf version="1.9">
-  <model name="sausage_tray_stand">
+  <model name="bread_tray">
     <static>true</static>
-    <link name="sausage_tray_stand_link">
+    <link name="bread_tray_link">
       <inertial>
-        <mass>4.000000</mass>
+        <mass>0.250000</mass>
         <inertia>
-          <ixx>0.004000000</ixx>
-          <iyy>0.004000000</iyy>
-          <izz>0.004000000</izz>
+          <ixx>0.000250000</ixx>
+          <iyy>0.000250000</iyy>
+          <izz>0.000250000</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>
         </inertia>
       </inertial>
-      <visual name="sausage_tray_stand_visual">
+      <visual name="bread_tray_visual">
         <geometry>
           <mesh>
-            <uri>meshes/sausage_tray_stand.obj</uri>
+            <uri>meshes/bread_tray.obj</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.112500 0.112500 0.105000 1.000000</ambient>
-          <diffuse>0.450000 0.450000 0.420000 1.000000</diffuse>
+          <ambient>0.237500 0.180000 0.045000 1.000000</ambient>
+          <diffuse>0.950000 0.720000 0.180000 1.000000</diffuse>
           <specular>0.120000 0.120000 0.120000 1.000000</specular>
         </material>
       </visual>
-      <collision name="sausage_tray_stand_sausage_tray__stand_left_hook_001_collision">
-        <pose>0.000005484 0.087209642 0.032929718 0 0 0</pose>
+      <collision name="bread_tray_tray_backward_collision">
+        <pose>0.094915718 0.000060976 0.006773353 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.200000003 0.030000001 0.009999998</size>
+            <size>0.010000005 0.159999996 0.004999999</size>
           </box>
         </geometry>
         <surface>
@@ -42,11 +42,11 @@
           </friction>
         </surface>
       </collision>
-      <collision name="sausage_tray_stand_sausage_tray__stand_left_wall_collision">
-        <pose>0.000005484 0.108309686 0.000229716 0 0 0</pose>
+      <collision name="bread_tray_tray_bottom_collision">
+        <pose>0.000009209 0.000060976 -0.000502974 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.200000003 0.010000005 0.250000000</size>
+            <size>0.200000003 0.180000007 0.010000000</size>
           </box>
         </geometry>
         <surface>
@@ -58,11 +58,11 @@
           </friction>
         </surface>
       </collision>
-      <collision name="sausage_tray_stand_sausage_tray__stand_right_hook_collision">
-        <pose>0.000005484 -0.086490333 0.032929718 0 0 0</pose>
+      <collision name="bread_tray_tray_forward_collision">
+        <pose>-0.094157010 0.000060976 0.006773353 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.200000003 0.030000001 0.009999998</size>
+            <size>0.010000005 0.159999996 0.004999999</size>
           </box>
         </geometry>
         <surface>
@@ -74,11 +74,11 @@
           </friction>
         </surface>
       </collision>
-      <collision name="sausage_tray_stand_sausage_tray__stand_right_wall_collision">
-        <pose>0.000005484 -0.108390331 -0.000270277 0 0 0</pose>
+      <collision name="bread_tray_tray_left_collision">
+        <pose>0.000009209 0.084474884 0.006573379 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.200000003 0.010000005 0.250000000</size>
+            <size>0.200000003 0.010000005 0.004999999</size>
           </box>
         </geometry>
         <surface>
@@ -90,11 +90,11 @@
           </friction>
         </surface>
       </collision>
-      <collision name="sausage_tray_stand_sausage_tray__stand_top_collision">
-        <pose>0.000005484 -0.000890344 0.120129734 0 0 0</pose>
+      <collision name="bread_tray_tray_right_collision">
+        <pose>0.000009209 -0.084802628 0.006573379 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.200000003 0.204290524 0.009999998</size>
+            <size>0.200000003 0.010000005 0.004999999</size>
           </box>
         </geometry>
         <surface>

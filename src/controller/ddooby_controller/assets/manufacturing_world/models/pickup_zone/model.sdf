@@ -26,11 +26,11 @@
           <specular>0.120000 0.120000 0.120000 1.000000</specular>
         </material>
       </visual>
-      <collision name="pickup_zone_pickup_zone_table_visual_collision">
-        <pose>-0.158457279 0.000000000 -0.126734689 0 0 0</pose>
+      <collision name="pickup_zone_pickup_zone_collision">
+        <pose>0.000000000 0.000000000 0.000000000 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.649999976 0.270000011 0.039999992</size>
+            <size>1.110000014 0.234999999 0.234999999</size>
           </box>
         </geometry>
         <surface>

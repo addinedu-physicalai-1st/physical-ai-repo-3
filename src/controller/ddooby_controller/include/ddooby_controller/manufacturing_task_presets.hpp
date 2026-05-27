@@ -11,6 +11,8 @@ enum class ManufacturingTarget
 {
   Bread,
   Case,
+  Hotdog,
+  Sausage,
 };
 
 // 제조에 사용하는 팔 구분.
@@ -71,6 +73,9 @@ struct PickTuningPreset
 {
   // 자동 계산된 grasp pose에서 TCP local z축으로 더할 값(m).
   double grasp_tcp_z_offset_m;
+
+  // 접근 시점의 그리퍼 열림 설정. 비활성화 시 named open target 사용.
+  GripperJointPreset gripper_pre_open;
 
   // pick 시점의 그리퍼 닫힘 설정.
   GripperJointPreset gripper_close;
@@ -136,6 +141,10 @@ inline constexpr const char * targetName(ManufacturingTarget target)
       return "bread";
     case ManufacturingTarget::Case:
       return "case";
+    case ManufacturingTarget::Hotdog:
+      return "hotdog";
+    case ManufacturingTarget::Sausage:
+      return "sausage";
   }
   return "unknown";
 }
@@ -154,7 +163,7 @@ inline constexpr const char * armName(ArmSide arm)
 // target + arm + stage별 커스텀 TCP pose 설정 테이블.
 // 왼손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
 // 오른손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_right_hand_tcp
-inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
+inline constexpr std::array<StagePosePreset, 21> kStagePosePresets{{
   // 작업 시작 pose, 비활성화 시 기존 ready pose 사용.
   {
     ManufacturingTarget::Bread,
@@ -167,7 +176,7 @@ inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
     ManufacturingTarget::Bread,
     ArmSide::Left,
     ManufacturingStage::PreGrasp,
-    {true, 0.310, 0.189, 0.354, 1.000, -0.000, -0.004, 0.001}
+    {true, 0.391, 0.077, 0.401, 1.000, -0.001, -0.003, 0.000}
   },
   // 빵 집기 pose, 비활성화 시 빵 위치 기준 자동 계산.
   {
@@ -181,14 +190,14 @@ inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
     ManufacturingTarget::Bread,
     ArmSide::Left,
     ManufacturingStage::PullOut,
-    {true, 0.329, 0.188, 0.458, 1.000, 0.000, -0.004, 0.001}
+    {false, 0.329, 0.188, 0.458, 1.000, 0.000, -0.004, 0.001}
   },
   // 케이스 위 빵 놓기 직전 pose.
   {
     ManufacturingTarget::Bread,
     ArmSide::Left,
     ManufacturingStage::Work,
-    {true, 0.204, 0.031, 0.431, 0.708, -0.706, -0.002, 0.003}
+    {true, 0.196, 0.035, 0.446, 0.728, -0.686, -0.002, 0.003}
   },
   // 케이스 위 빵 release pose, 비활성화 시 work pose에서 drop.
   {
@@ -216,7 +225,7 @@ inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
     ManufacturingTarget::Case,
     ArmSide::Right,
     ManufacturingStage::PreGrasp,
-    {true, 0.424, -0.193, 0.425, 0.707, 0.000, 0.707, -0.000}
+    {true, 0.387, -0.201, 0.395, 0.721, -0.000, 0.693, -0.000}
   },
   // 케이스 집기 pose, 비활성화 시 케이스 위치 기준 자동 계산.
   {
@@ -230,14 +239,14 @@ inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
     ManufacturingTarget::Case,
     ArmSide::Right,
     ManufacturingStage::PullOut,
-    {true, 0.312, -0.191, 0.437, 0.707, -0.000, 0.707, -0.000}
+    {true, 0.360, -0.201, 0.405, 0.721, -0.000, 0.693, -0.000}
   },
   // 케이스를 빵 받는 위치로 내미는 pose, 비활성화 시 현재 오른손 pose 사용.
   {
     ManufacturingTarget::Case,
     ArmSide::Right,
     ManufacturingStage::Work,
-    {true, 0.207, -0.033, 0.349, -0.499, -0.501, -0.499, 0.501}
+    {true, 0.204, -0.007, 0.347, 0.504, 0.497, 0.503, -0.496}
   },
   // place pose, 현재는 비활성화.
   {
@@ -253,19 +262,76 @@ inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
     ManufacturingStage::ReturnHome,
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
+  // 작업 시작 pose, 비활성화 시 기존 left ready pose 사용.
+  {
+    ManufacturingTarget::Sausage,
+    ArmSide::Left,
+    ManufacturingStage::Home,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 소시지 위 접근 pose, 활성화 시 전체 pose 사용.
+  {
+    ManufacturingTarget::Sausage,
+    ArmSide::Left,
+    ManufacturingStage::PreGrasp,
+    {true, 0.391, 0.259, 0.401, 1.000, -0.001, -0.003, -0.000}
+  },
+  // 소시지 집기 pose, 비활성화 시 소시지 위치 기준 자동 계산.
+  {
+    ManufacturingTarget::Sausage,
+    ArmSide::Left,
+    ManufacturingStage::Pick,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 물체를 빼는 pose, 소시지 pick에서는 현재 비활성화.
+  {
+    ManufacturingTarget::Sausage,
+    ArmSide::Left,
+    ManufacturingStage::PullOut,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 빵 위 소시지 놓기 직전 pose, 비활성화 시 자동 approach pose 사용.
+  {
+    ManufacturingTarget::Sausage,
+    ArmSide::Left,
+    ManufacturingStage::Work,
+    {true, 0.203, 0.029, 0.436, -0.707, 0.707, 0.002, -0.002}
+  },
+  // 빵 위 소시지 release pose, 비활성화 시 오른손 케이스 pose 기준 자동 계산.
+  {
+    ManufacturingTarget::Sausage,
+    ArmSide::Left,
+    ManufacturingStage::Place,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 복귀 pose, 현재는 비활성화.
+  {
+    ManufacturingTarget::Sausage,
+    ArmSide::Left,
+    ManufacturingStage::ReturnHome,
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
 }};
 
 // 빵 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kLeftBreadPickTuning{
   0.0,
-  {true, 0.022}
+  {true, 0.030},
+  {true, 0.019}
 };
 
 // 케이스 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kRightCasePickTuning{
-  -0.055,
-  //{true, 0.033}
+  -0.020,
+  {true, 0.040},
   {true, 0.025}
+};
+
+// 소시지 pick 파지 세부 조정값.
+inline constexpr PickTuningPreset kLeftSausagePickTuning{
+  0.005,
+  {true, 0.024},
+  {true, 0.005}
 };
 
 inline const StagePosePreset * findStagePosePreset(
@@ -290,6 +356,9 @@ inline const PickTuningPreset * findPickTuningPreset(ManufacturingTarget target,
   }
   if (target == ManufacturingTarget::Case && arm == ArmSide::Right) {
     return &kRightCasePickTuning;
+  }
+  if (target == ManufacturingTarget::Sausage && arm == ArmSide::Left) {
+    return &kLeftSausagePickTuning;
   }
   return nullptr;
 }

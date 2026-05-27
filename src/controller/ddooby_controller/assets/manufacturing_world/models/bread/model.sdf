@@ -27,7 +27,7 @@
         </material>
       </visual>
       <collision name="bread_bread_collision">
-        <pose>0.000000000 0.000000000 0.000000000 0 0 0</pose>
+        <pose>0.000000011 -0.000000002 0.000000000 0 0 0</pose>
         <geometry>
           <box>
             <size>0.119999997 0.050000001 0.039999999</size>

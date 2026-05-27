@@ -11,8 +11,8 @@
       "model_dir": "manufacturing_world/models/table",
       "xyz": [
         0.505718,
-        0.190141,
-        0.124958
+        0.338765,
+        0.118745
       ],
       "rpy": [
         0.0,
@@ -26,9 +26,9 @@
       "collection": "Environment",
       "model_dir": "manufacturing_world/models/pickup_zone",
       "xyz": [
-        0.039925,
-        -0.565594,
-        0.35
+        0.250651,
+        -0.548924,
+        0.117725
       ],
       "rpy": [
         0.0,
@@ -38,13 +38,13 @@
       "spawn_delay_sec": 4.5
     },
     {
-      "name": "tray",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/tray",
+      "name": "beverage_stand",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/beverage_stand",
       "xyz": [
-        0.330816,
-        0.181481,
-        0.282603
+        0.681166,
+        0.01564,
+        0.361147
       ],
       "rpy": [
         0.0,
@@ -54,93 +54,93 @@
       "spawn_delay_sec": 5.0
     },
     {
-      "name": "kachup",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/kachup",
+      "name": "bread_tray_stand_left",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/bread_tray_stand_left",
       "xyz": [
-        0.709614,
-        0.182718,
-        0.571259
+        0.384743,
+        0.150329,
+        0.267104
       ],
       "rpy": [
         0.0,
-        0.0,
+        -0.0,
         0.0
       ],
       "spawn_delay_sec": 5.5
     },
     {
-      "name": "bread_tray_stand",
+      "name": "bread_tray_stand_right",
       "collection": "Environment",
-      "model_dir": "manufacturing_world/models/bread_tray_stand",
+      "model_dir": "manufacturing_world/models/bread_tray_stand_right",
       "xyz": [
-        0.64832,
-        0.183832,
-        0.36827
+        0.384743,
+        0.007729,
+        0.267104
       ],
       "rpy": [
         0.0,
-        0.0,
+        -0.0,
         0.0
       ],
       "spawn_delay_sec": 6.0
+    },
+    {
+      "name": "sausage_tray_leg_left",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/sausage_tray_leg_left",
+      "xyz": [
+        0.384789,
+        0.333496,
+        0.267104
+      ],
+      "rpy": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 6.5
+    },
+    {
+      "name": "sausage_tray_leg_right",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/sausage_tray_leg_right",
+      "xyz": [
+        0.384789,
+        0.190896,
+        0.267104
+      ],
+      "rpy": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 7.0
     },
     {
       "name": "case_stand",
       "collection": "Environment",
       "model_dir": "manufacturing_world/models/case_stand",
       "xyz": [
-        0.64832,
-        -0.187785,
-        0.36827
+        0.655983,
+        -0.200808,
+        0.311593
       ],
       "rpy": [
         0.0,
-        0.0,
-        0.0
-      ],
-      "spawn_delay_sec": 6.5
-    },
-    {
-      "name": "sausage_tray_stand",
-      "collection": "Environment",
-      "model_dir": "manufacturing_world/models/sausage_tray_stand",
-      "xyz": [
-        0.64832,
-        0.428172,
-        0.36827
-      ],
-      "rpy": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "spawn_delay_sec": 7.0
-    },
-    {
-      "name": "bread",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/bread",
-      "xyz": [
-        0.32823,
-        0.18796,
-        0.303284
-      ],
-      "rpy": [
-        0.0,
-        0.0,
+        -0.0,
         0.0
       ],
       "spawn_delay_sec": 7.5
     },
     {
-      "name": "case",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/case",
+      "name": "deco",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/deco",
       "xyz": [
-        0.569993,
-        -0.190745,
-        0.424241
+        0.735583,
+        -0.12342,
+        0.439142
       ],
       "rpy": [
         0.0,
@@ -150,29 +150,29 @@
       "spawn_delay_sec": 8.0
     },
     {
-      "name": "sausage",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/sausage",
+      "name": "deco2",
+      "collection": "Environment",
+      "model_dir": "manufacturing_world/models/deco2",
       "xyz": [
-        0.329527,
-        0.426697,
-        0.30031
+        0.735583,
+        -0.274215,
+        0.439142
       ],
       "rpy": [
-        -0.0,
-        1.570796,
+        0.0,
+        0.0,
         0.0
       ],
       "spawn_delay_sec": 8.5
     },
     {
-      "name": "sausage_tray",
+      "name": "bread_tray",
       "collection": "Object",
-      "model_dir": "manufacturing_world/models/sausage_tray",
+      "model_dir": "manufacturing_world/models/bread_tray",
       "xyz": [
-        0.330816,
-        0.426919,
-        0.282603
+        0.384734,
+        0.077268,
+        0.302179
       ],
       "rpy": [
         0.0,
@@ -180,6 +180,134 @@
         0.0
       ],
       "spawn_delay_sec": 9.0
+    },
+    {
+      "name": "sausage_tray",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/sausage_tray",
+      "xyz": [
+        0.384734,
+        0.261406,
+        0.302179
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 9.5
+    },
+    {
+      "name": "case",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/case",
+      "xyz": [
+        0.512354,
+        -0.125537,
+        0.405176
+      ],
+      "rpy": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 10.0
+    },
+    {
+      "name": "case2",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/case2",
+      "xyz": [
+        0.512354,
+        -0.274622,
+        0.405176
+      ],
+      "rpy": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 10.5
+    },
+    {
+      "name": "bread",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/bread",
+      "xyz": [
+        0.382148,
+        0.121476,
+        0.32286
+      ],
+      "rpy": [
+        0.0,
+        -0.0,
+        -3.141593
+      ],
+      "spawn_delay_sec": 11.0
+    },
+    {
+      "name": "bread2",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/bread2",
+      "xyz": [
+        0.382148,
+        0.031834,
+        0.32286
+      ],
+      "rpy": [
+        0.0,
+        -0.0,
+        -3.141593
+      ],
+      "spawn_delay_sec": 11.5
+    },
+    {
+      "name": "sausage",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/sausage",
+      "xyz": [
+        0.386061,
+        0.297042,
+        0.319885
+      ],
+      "rpy": [
+        -0.0,
+        1.570796,
+        0.0
+      ],
+      "spawn_delay_sec": 12.0
+    },
+    {
+      "name": "sausage2",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/sausage2",
+      "xyz": [
+        0.386061,
+        0.223472,
+        0.319885
+      ],
+      "rpy": [
+        -0.0,
+        1.570796,
+        0.0
+      ],
+      "spawn_delay_sec": 12.5
+    },
+    {
+      "name": "kachup",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/kachup",
+      "xyz": [
+        0.532846,
+        0.227313,
+        0.61342
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 13.0
     }
   ]
 }

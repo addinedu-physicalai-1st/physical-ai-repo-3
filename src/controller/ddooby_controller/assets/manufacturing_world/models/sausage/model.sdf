@@ -27,10 +27,10 @@
         </material>
       </visual>
       <collision name="sausage_sausage_collision">
-        <pose>-0.000000018 0.000000000 0.000000037 0 0 0</pose>
+        <pose>-0.000000016 0.000000030 0.000000041 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.020000007 0.020000000 0.160000011</size>
+            <size>0.020000007 0.020000000 0.160000026</size>
           </box>
         </geometry>
         <surface>
