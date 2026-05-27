@@ -74,9 +74,9 @@ class PersonTrackingNode(Node):
         from boxmot.trackers.botsort.botsort import BotSort
         self._tracker = BotSort(
             reid_model=None,
-            track_high_thresh=0.5,
+            track_high_thresh=0.4,   # 0.5→0.4: yolo_conf=0.50 기준으로 낮춤
             track_low_thresh=0.1,
-            new_track_thresh=0.6,
+            new_track_thresh=0.45,   # 0.6→0.45: yolo_conf(0.50)보다 낮게 → 트랙 생성 보장
             track_buffer=30,
             match_thresh=0.8,
             proximity_thresh=0.5,
