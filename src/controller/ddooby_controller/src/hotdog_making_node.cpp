@@ -18,6 +18,8 @@
 #include <geometry_msgs/msg/pose.hpp>
 #include <moveit/move_group_interface/move_group_interface.hpp>
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
+#include <moveit/robot_trajectory/robot_trajectory.hpp>
+#include <moveit/trajectory_processing/time_optimal_trajectory_generation.hpp>
 #include <moveit_msgs/msg/robot_trajectory.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -876,7 +878,9 @@ bool executeCartesian(
   const std::string & label,
   double eef_step,
   double min_fraction,
-  bool avoid_collisions)
+  bool avoid_collisions,
+  double velocity_scaling,
+  double acceleration_scaling)
 {
   group.clearPoseTargets();
   setBoundedStartState(group);
@@ -901,6 +905,29 @@ bool executeCartesian(
 
   moveit::planning_interface::MoveGroupInterface::Plan plan;
   plan.trajectory = trajectory;
+  robot_trajectory::RobotTrajectory robot_trajectory(group.getRobotModel(), group.getName());
+  robot_trajectory.setRobotTrajectoryMsg(*group.getCurrentState(), trajectory);
+  trajectory_processing::TimeOptimalTrajectoryGeneration time_parameterization;
+  if (!time_parameterization.computeTimeStamps(
+      robot_trajectory,
+      velocity_scaling,
+      acceleration_scaling))
+  {
+    RCLCPP_WARN(logger, "%s Cartesian path time parameterization failed; executing raw path", label.c_str());
+  } else {
+    robot_trajectory.getRobotTrajectoryMsg(plan.trajectory);
+    const auto & points = plan.trajectory.joint_trajectory.points;
+    if (!points.empty()) {
+      const auto duration = points.back().time_from_start;
+      RCLCPP_INFO(
+        logger,
+        "%s Cartesian path retimed: %.3fs with velocity_scale=%.3f acceleration_scale=%.3f",
+        label.c_str(),
+        static_cast<double>(duration.sec) + static_cast<double>(duration.nanosec) * 1e-9,
+        velocity_scaling,
+        acceleration_scaling);
+    }
+  }
   if (!planRespectsJointLimitMargin(
       logger,
       group,
@@ -1442,7 +1469,9 @@ private:
           config.log_label + " grasp approach",
           cartesian_eef_step_,
           min_cartesian_fraction_,
-          cartesian_avoid_collisions_))
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_))
       {
         return false;
       }
@@ -1472,7 +1501,9 @@ private:
             config.log_label + " lift",
             cartesian_eef_step_,
             min_cartesian_fraction_,
-            cartesian_avoid_collisions_))
+            cartesian_avoid_collisions_,
+            velocity_scaling_,
+            acceleration_scaling_))
         {
           return false;
         }
@@ -1499,7 +1530,9 @@ private:
           config.log_label + " pull-out",
           cartesian_eef_step_,
           min_cartesian_fraction_,
-          cartesian_avoid_collisions_))
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_))
       {
         return false;
       }
@@ -1521,7 +1554,9 @@ private:
           config.log_label + " lift",
           cartesian_eef_step_,
           min_cartesian_fraction_,
-          cartesian_avoid_collisions_))
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_))
       {
         return false;
       }
@@ -1931,7 +1966,9 @@ private:
           "bread place retreat",
           cartesian_eef_step_,
           min_cartesian_fraction_,
-          cartesian_avoid_collisions_))
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_))
       {
         return false;
       }

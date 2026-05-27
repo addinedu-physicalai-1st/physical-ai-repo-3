@@ -14,9 +14,7 @@
   <depend>control_msgs</depend>
   <depend>custom_msg</depend>
   <depend>geometry_msgs</depend>
-  <depend>kdl_parser</depend>
   <depend>moveit_msgs</depend>
-  <depend>orocos_kdl_vendor</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>trajectory_msgs</depend>

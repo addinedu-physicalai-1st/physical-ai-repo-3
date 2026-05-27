@@ -58,6 +58,9 @@ public:
     hold_after_goal_sec_ = declare_parameter<double>("hold_after_goal_sec", 0.2);
     hold_when_idle_ = declare_parameter<bool>("hold_when_idle", true);
     idle_hold_publish_rate_hz_ = declare_parameter<double>("idle_hold_publish_rate_hz", 50.0);
+    pre_hold_before_trajectory_sec_ = declare_parameter<double>("pre_hold_before_trajectory_sec", 0.15);
+    skip_zero_time_start_point_ = declare_parameter<bool>("skip_zero_time_start_point", true);
+    start_point_jump_warn_rad_ = declare_parameter<double>("start_point_jump_warn_rad", 0.05);
     goal_tolerance_rad_ = declare_parameter<double>("goal_tolerance_rad", 0.12);
     goal_settle_timeout_sec_ = declare_parameter<double>("goal_settle_timeout_sec", 3.0);
     goal_settle_required_sec_ = declare_parameter<double>("goal_settle_required_sec", 0.2);
@@ -319,6 +322,19 @@ private:
     return max_error;
   }
 
+  double maxAbsDiff(const std::vector<double> & lhs, const std::vector<double> & rhs) const
+  {
+    if (lhs.size() != rhs.size()) {
+      return std::numeric_limits<double>::infinity();
+    }
+
+    double max_diff = 0.0;
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+      max_diff = std::max(max_diff, std::abs(lhs[i] - rhs[i]));
+    }
+    return max_diff;
+  }
+
   bool waitForGoalSettled(
     const std::shared_ptr<GoalHandle> & goal_handle,
     const std::vector<double> & goal_positions,
@@ -400,13 +416,47 @@ private:
 
     std::vector<double> previous_positions = start_positions;
     double previous_time = 0.0;
-    const auto start = std::chrono::steady_clock::now();
     rclcpp::Rate rate(std::max(1.0, publish_rate_hz_));
 
+    publishCommand(start_positions);
+    const auto pre_hold_until =
+      std::chrono::steady_clock::now() +
+      std::chrono::milliseconds(static_cast<int64_t>(pre_hold_before_trajectory_sec_ * 1000.0));
+    while (rclcpp::ok() && std::chrono::steady_clock::now() < pre_hold_until) {
+      if (goal_handle->is_canceling()) {
+        auto result = std::make_shared<FollowJointTrajectory::Result>();
+        result->error_code = FollowJointTrajectory::Result::SUCCESSFUL;
+        result->error_string = "Canceled before trajectory start";
+        goal_handle->canceled(result);
+        clear_execution();
+        return;
+      }
+      publishCommand(start_positions);
+      rate.sleep();
+    }
+
+    const auto start = std::chrono::steady_clock::now();
+
+    bool first_point = true;
     for (const auto & point : goal->trajectory.points) {
       const auto target_positions = reorderPoint(point, goal_indices);
       const double target_time = durationToSec(point.time_from_start);
       const double segment_duration = std::max(0.0, target_time - previous_time);
+
+      if (first_point && skip_zero_time_start_point_ && target_time <= 1e-6) {
+        const double start_jump = maxAbsDiff(start_positions, target_positions);
+        if (start_jump > start_point_jump_warn_rad_) {
+          RCLCPP_WARN(
+            get_logger(),
+            "Skipping zero-time trajectory start point: max joint delta %.4f rad from current state",
+            start_jump);
+        }
+        previous_positions = start_positions;
+        previous_time = target_time;
+        first_point = false;
+        continue;
+      }
+      first_point = false;
 
       while (rclcpp::ok()) {
         if (goal_handle->is_canceling()) {
@@ -478,6 +528,9 @@ private:
   double hold_after_goal_sec_;
   bool hold_when_idle_;
   double idle_hold_publish_rate_hz_;
+  double pre_hold_before_trajectory_sec_;
+  bool skip_zero_time_start_point_;
+  double start_point_jump_warn_rad_;
   double goal_tolerance_rad_;
   double goal_settle_timeout_sec_;
   double goal_settle_required_sec_;

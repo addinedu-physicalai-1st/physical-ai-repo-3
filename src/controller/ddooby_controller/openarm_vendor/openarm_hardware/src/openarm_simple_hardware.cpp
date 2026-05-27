@@ -69,6 +69,20 @@ bool OpenArmHW::parse_config(const hardware_interface::HardwareInfo& info) {
     can_fd_ = parse_bool(it->second, true);
   }
 
+  it = info.hardware_parameters.find("enable_gravity_comp");
+  if (it == info.hardware_parameters.end()) {
+    enable_gravity_comp_ = false;
+  } else {
+    enable_gravity_comp_ = parse_bool(it->second, false);
+  }
+
+  it = info.hardware_parameters.find("enable_coriolis_comp");
+  if (it == info.hardware_parameters.end()) {
+    enable_coriolis_comp_ = false;
+  } else {
+    enable_coriolis_comp_ = parse_bool(it->second, false);
+  }
+
   it = info.hardware_parameters.find("return_to_zero_on_activate");
   if (it == info.hardware_parameters.end()) {
     return_to_zero_on_activate_ = false;
@@ -109,11 +123,27 @@ bool OpenArmHW::parse_config(const hardware_interface::HardwareInfo& info) {
     }
   }
 
+  it = info.hardware_parameters.find("root_link");
+  root_link_ = (it != info.hardware_parameters.end()) ? it->second : "openarm_body_link0";
+
+  it = info.hardware_parameters.find("tip_link");
+  if (it != info.hardware_parameters.end()) {
+    tip_link_ = it->second;
+  } else if (arm_prefix_.empty()) {
+    tip_link_ = "openarm_hand";
+  } else if (arm_prefix_ == "left_") {
+    tip_link_ = "openarm_left_hand";
+  } else {
+    tip_link_ = "openarm_right_hand";
+  }
+
   RCLCPP_INFO(
       rclcpp::get_logger("OpenArmHW"),
-      "Configuration: CAN=%s, arm_prefix=%s, hand=%s, can_fd=%s, return_to_zero_on_activate=%s, hold_current_on_activate=%s",
+      "Configuration: CAN=%s, arm_prefix=%s, hand=%s, can_fd=%s, gravity_comp=%s, coriolis_comp=%s, return_to_zero_on_activate=%s, hold_current_on_activate=%s",
       can_interface_.c_str(), arm_prefix_.c_str(),
       hand_ ? "enabled" : "disabled", can_fd_ ? "enabled" : "disabled",
+      enable_gravity_comp_ ? "enabled" : "disabled",
+      enable_coriolis_comp_ ? "enabled" : "disabled",
       return_to_zero_on_activate_ ? "true" : "false",
       hold_current_on_activate_ ? "true" : "false");
   return true;
@@ -196,6 +226,18 @@ hardware_interface::CallbackReturn OpenArmHW::on_init(
   pos_states_.resize(total_joints, 0.0);
   vel_states_.resize(total_joints, 0.0);
   tau_states_.resize(total_joints, 0.0);
+
+  if (enable_gravity_comp_ || enable_coriolis_comp_) {
+    dynamics_ = std::make_unique<Dynamics>(info.original_xml, root_link_, tip_link_, true);
+    if (!dynamics_->Init()) {
+      RCLCPP_ERROR(rclcpp::get_logger("OpenArmHW"), "Failed to initialize dynamics solver");
+      return CallbackReturn::ERROR;
+    }
+    RCLCPP_INFO(
+        rclcpp::get_logger("OpenArmHW"),
+        "Internal dynamics compensation ready: root=%s, tip=%s",
+        root_link_.c_str(), tip_link_.c_str());
+  }
 
   RCLCPP_INFO(rclcpp::get_logger("OpenArmHW"),
               "OpenArm V10 Simple HW initialized successfully");
@@ -339,11 +381,22 @@ hardware_interface::return_type OpenArmHW::write(
     return hardware_interface::return_type::OK;
   }
 
+  std::vector<double> gravity_torque(ARM_DOF, 0.0);
+  std::vector<double> coriolis_torque(ARM_DOF, 0.0);
+  if (dynamics_) {
+    if (enable_gravity_comp_) {
+      dynamics_->GetGravity(pos_states_.data(), gravity_torque.data());
+    }
+    if (enable_coriolis_comp_) {
+      dynamics_->GetCoriolis(pos_states_.data(), vel_states_.data(), coriolis_torque.data());
+    }
+  }
+
   // Control arm motors with MIT control
   std::vector<openarm::damiao_motor::MITParam> arm_params;
   for (size_t i = 0; i < ARM_DOF; ++i) {
-    arm_params.push_back(
-        {kp_[i], kd_[i], pos_commands_[i], vel_commands_[i], tau_commands_[i]});
+    const double tau_ff = tau_commands_[i] + gravity_torque[i] + coriolis_torque[i];
+    arm_params.push_back({kp_[i], kd_[i], pos_commands_[i], vel_commands_[i], tau_ff});
   }
   openarm_->get_arm().mit_control_all(arm_params);
   // Control gripper if enabled

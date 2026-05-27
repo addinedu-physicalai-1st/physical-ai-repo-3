@@ -19,10 +19,6 @@ def generate_launch_description():
     hold_current_on_activate = LaunchConfiguration("hold_current_on_activate")
     enable_gravity_comp = LaunchConfiguration("enable_gravity_comp")
     enable_coriolis_comp = LaunchConfiguration("enable_coriolis_comp")
-    gravity_comp_start_delay_sec = LaunchConfiguration("gravity_comp_start_delay_sec")
-    gravity_comp_torque_scale = LaunchConfiguration("gravity_comp_torque_scale")
-    gravity_comp_max_abs_torque = LaunchConfiguration("gravity_comp_max_abs_torque")
-    gravity_comp_publish_rate_hz = LaunchConfiguration("gravity_comp_publish_rate_hz")
     robot_controller = LaunchConfiguration("robot_controller")
     scene_wait_timeout_sec = LaunchConfiguration("scene_wait_timeout_sec")
     frame_id = LaunchConfiguration("frame_id")
@@ -64,10 +60,9 @@ def generate_launch_description():
         "hardware_plugin",
         default_value="openarm_hardware/OpenArmHW",
         choices=[
-            "openarm_hardware/OpenArm_v10HW",
             "openarm_hardware/OpenArmHW",
         ],
-        description="OpenArm ros2_control hardware plugin. Use OpenArmHW for legacy A/B checks.",
+        description="OpenArm ros2_control hardware plugin with internal gravity compensation.",
     )
     return_to_zero_on_activate_arg = DeclareLaunchArgument(
         "return_to_zero_on_activate",
@@ -92,26 +87,6 @@ def generate_launch_description():
         default_value="false",
         choices=["true", "false"],
         description="Enable KDL Coriolis compensation in the OpenArm hardware interface.",
-    )
-    gravity_comp_start_delay_arg = DeclareLaunchArgument(
-        "gravity_comp_start_delay_sec",
-        default_value="8.0",
-        description="Delay gravity compensation until arm controllers have loaded.",
-    )
-    gravity_comp_torque_scale_arg = DeclareLaunchArgument(
-        "gravity_comp_torque_scale",
-        default_value="0.60",
-        description="Scale applied to computed gravity feedforward torque.",
-    )
-    gravity_comp_max_abs_torque_arg = DeclareLaunchArgument(
-        "gravity_comp_max_abs_torque",
-        default_value="3.0",
-        description="Per-joint absolute torque limit for gravity feedforward.",
-    )
-    gravity_comp_publish_rate_arg = DeclareLaunchArgument(
-        "gravity_comp_publish_rate_hz",
-        default_value="50.0",
-        description="Gravity compensation effort command publish rate.",
     )
     robot_controller_arg = DeclareLaunchArgument(
         "robot_controller",
@@ -148,7 +123,6 @@ def generate_launch_description():
             "hold_current_on_activate": hold_current_on_activate,
             "enable_gravity_comp": enable_gravity_comp,
             "enable_coriolis_comp": enable_coriolis_comp,
-            "gravity_comp_start_delay_sec": gravity_comp_start_delay_sec,
             "robot_controller": robot_controller,
         }.items(),
         condition=IfCondition(start_moveit),
@@ -181,62 +155,11 @@ def generate_launch_description():
         condition=IfCondition(sync_planning_scene),
     )
 
-    gravity_condition = IfCondition(PythonExpression([
-        "'", start_moveit, "' == 'true' and '", enable_gravity_comp, "' == 'true'"
-    ]))
     forward_trajectory_bridge_condition = IfCondition(PythonExpression([
         "'", start_moveit, "' == 'true' and '",
         robot_controller,
         "' == 'forward_position_controller'",
     ]))
-
-    gravity_effort_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "left_forward_effort_controller",
-            "right_forward_effort_controller",
-            "-c",
-            "/controller_manager",
-        ],
-        condition=gravity_condition,
-    )
-
-    gravity_compensation = Node(
-        package="ddooby_controller",
-        executable="openarm_gravity_compensation_node",
-        name="openarm_gravity_compensation",
-        output="screen",
-        parameters=[
-            {
-                "enabled": enable_gravity_comp,
-                "start_delay_sec": gravity_comp_start_delay_sec,
-                "publish_rate_hz": gravity_comp_publish_rate_hz,
-                "torque_scale": gravity_comp_torque_scale,
-                "max_abs_torque": gravity_comp_max_abs_torque,
-                "left_root_link": "openarm_body_link0",
-                "left_tip_link": "openarm_left_hand",
-                "right_root_link": "openarm_body_link0",
-                "right_tip_link": "openarm_right_hand",
-                "left_command_topic": "/left_forward_effort_controller/commands",
-                "right_command_topic": "/right_forward_effort_controller/commands",
-                "robot_description_topic": "/openarm_robot_description",
-            }
-        ],
-        condition=gravity_condition,
-    )
-
-    delayed_gravity_effort_spawner = TimerAction(
-        period=5.5,
-        actions=[gravity_effort_spawner],
-        condition=gravity_condition,
-    )
-
-    delayed_gravity_compensation = TimerAction(
-        period=6.5,
-        actions=[gravity_compensation],
-        condition=gravity_condition,
-    )
 
     left_forward_trajectory_bridge = Node(
         package="ddooby_controller",
@@ -262,6 +185,9 @@ def generate_launch_description():
                 "hold_after_goal_sec": 0.2,
                 "hold_when_idle": True,
                 "idle_hold_publish_rate_hz": 50.0,
+                "pre_hold_before_trajectory_sec": 0.15,
+                "skip_zero_time_start_point": True,
+                "start_point_jump_warn_rad": 0.05,
                 "goal_tolerance_rad": 0.08,
                 "goal_settle_timeout_sec": 5.0,
                 "goal_settle_required_sec": 0.35,
@@ -294,6 +220,9 @@ def generate_launch_description():
                 "hold_after_goal_sec": 0.2,
                 "hold_when_idle": True,
                 "idle_hold_publish_rate_hz": 50.0,
+                "pre_hold_before_trajectory_sec": 0.15,
+                "skip_zero_time_start_point": True,
+                "start_point_jump_warn_rad": 0.05,
                 "goal_tolerance_rad": 0.08,
                 "goal_settle_timeout_sec": 5.0,
                 "goal_settle_required_sec": 0.35,
@@ -320,16 +249,10 @@ def generate_launch_description():
         hold_current_on_activate_arg,
         enable_gravity_comp_arg,
         enable_coriolis_comp_arg,
-        gravity_comp_start_delay_arg,
-        gravity_comp_torque_scale_arg,
-        gravity_comp_max_abs_torque_arg,
-        gravity_comp_publish_rate_arg,
         robot_controller_arg,
         scene_wait_timeout_arg,
         frame_id_arg,
         openarm_moveit,
         delayed_forward_trajectory_bridges,
-        delayed_gravity_effort_spawner,
-        delayed_gravity_compensation,
         delayed_planning_scene_sync,
     ])

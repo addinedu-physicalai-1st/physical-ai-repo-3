@@ -25,6 +25,7 @@
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
+#include "openarm_hardware/dynamics.hpp"
 #include "openarm_hardware/visibility_control.h"
 #include "rclcpp/macros.hpp"
 #include "rclcpp_lifecycle/state.hpp"
@@ -120,12 +121,17 @@ class OpenArmHW : public hardware_interface::SystemInterface {
   std::string ee_type_;
   bool hand_;
   bool can_fd_;
+  bool enable_gravity_comp_{false};
+  bool enable_coriolis_comp_{false};
   bool return_to_zero_on_activate_;
   bool hold_current_on_activate_;
   bool commands_initialized_{false};
+  std::string root_link_{"openarm_body_link0"};
+  std::string tip_link_{"openarm_hand"};
 
   // OpenArm instance
   std::unique_ptr<openarm::can::socket::OpenArm> openarm_;
+  std::unique_ptr<Dynamics> dynamics_;
 
   // Generated joint names for this arm instance
   std::vector<std::string> joint_names_;

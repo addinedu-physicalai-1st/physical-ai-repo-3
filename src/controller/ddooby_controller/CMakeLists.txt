@@ -7,10 +7,8 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(custom_msg REQUIRED)
-find_package(kdl_parser REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
-find_package(orocos_kdl_vendor REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(gz-msgs10 REQUIRED)
@@ -38,15 +36,6 @@ ament_target_dependencies(hotdog_making_node
 add_executable(drink_serving_node src/drink_serving_node.cpp)
 ament_target_dependencies(drink_serving_node
   rclcpp
-)
-
-add_executable(openarm_gravity_compensation_node src/openarm_gravity_compensation_node.cpp)
-ament_target_dependencies(openarm_gravity_compensation_node
-  kdl_parser
-  orocos_kdl_vendor
-  rclcpp
-  sensor_msgs
-  std_msgs
 )
 
 add_executable(forward_joint_trajectory_bridge_node src/forward_joint_trajectory_bridge_node.cpp)
@@ -77,7 +66,6 @@ install(TARGETS
   forward_joint_trajectory_bridge_node
   hotdog_making_node
   manifacture_action_server_node
-  openarm_gravity_compensation_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
