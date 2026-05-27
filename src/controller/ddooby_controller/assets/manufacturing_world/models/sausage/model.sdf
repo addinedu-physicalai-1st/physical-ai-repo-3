@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="sausage">
+    <static>false</static>
+    <link name="sausage_link">
+      <inertial>
+        <mass>0.100000</mass>
+        <inertia>
+          <ixx>0.000100000</ixx>
+          <iyy>0.000100000</iyy>
+          <izz>0.000100000</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="sausage_visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/sausage.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.212500 0.162500 0.055000 1.000000</ambient>
+          <diffuse>0.850000 0.650000 0.220000 1.000000</diffuse>
+          <specular>0.120000 0.120000 0.120000 1.000000</specular>
+        </material>
+      </visual>
+      <collision name="sausage_sausage_collision">
+        <pose>-0.000000018 0.000000000 0.000000037 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.020000007 0.020000000 0.160000011</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+    </link>
+  </model>
+</sdf>

@@ -36,13 +36,13 @@
       <visual name="${ee_prefix}left_finger_visual">
         <xacro:openarm-ee-kinematics-link config="${ee_kinematics_link}" name="left_finger" />
         <geometry>
-          <mesh filename="package://${description_pkg}/meshes/ee/${ee_type}/visual/finger.dae" scale="0.001 0.001 0.001"/>
+          <mesh filename="package://${description_pkg}/meshes/ee/${ee_type}/visual/gripper.dae" scale="0.001 0.001 0.001"/>
         </geometry>
       </visual>
       <collision name="${ee_prefix}left_finger_collision">
         <xacro:openarm-ee-kinematics-link config="${ee_kinematics_link}" name="left_finger" />
         <geometry>
-          <mesh filename="package://${description_pkg}/meshes/ee/${ee_type}/collision/finger.stl" scale="0.001 0.001 0.001" />
+          <mesh filename="package://${description_pkg}/meshes/ee/${ee_type}/collision/gripper.dae" scale="0.001 0.001 0.001" />
         </geometry>
       </collision>
       <xacro:ee-inertials name="left_finger"/>
@@ -52,13 +52,13 @@
       <visual name="${ee_prefix}right_finger_visual">
         <xacro:openarm-ee-kinematics-link config="${ee_kinematics_link}" name="right_finger" />
         <geometry>
-          <mesh filename="package://${description_pkg}/meshes/ee/${ee_type}/visual/finger.dae" scale="0.001 -0.001 0.001"/>
+          <mesh filename="package://${description_pkg}/meshes/ee/${ee_type}/visual/gripper.dae" scale="0.001 -0.001 0.001"/>
         </geometry>
       </visual>
       <collision name="${ee_prefix}right_finger_collision">
         <xacro:openarm-ee-kinematics-link config="${ee_kinematics_link}" name="right_finger" />
         <geometry>
-          <mesh filename="package://${description_pkg}/meshes/ee/${ee_type}/collision/finger.stl" scale="0.001 -0.001 0.001" />
+          <mesh filename="package://${description_pkg}/meshes/ee/${ee_type}/collision/gripper.dae" scale="0.001 -0.001 0.001" />
         </geometry>
       </collision>
       <xacro:ee-inertials name="right_finger"/>

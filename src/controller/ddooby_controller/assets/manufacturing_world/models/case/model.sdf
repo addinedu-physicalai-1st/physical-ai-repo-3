@@ -27,7 +27,7 @@
         </material>
       </visual>
       <collision name="case_case_back_collision">
-        <pose>0.075190008 -0.000125006 0.002869010 0 0 0</pose>
+        <pose>-0.074895263 0.000155017 0.002869010 0 0 0</pose>
         <geometry>
           <box>
             <size>0.004999995 0.070000000 0.030000001</size>
@@ -59,7 +59,7 @@
         </surface>
       </collision>
       <collision name="case_case_left_collision">
-        <pose>-0.002302885 0.032314375 0.002514750 0 0 0</pose>
+        <pose>0.002782702 0.032538384 0.002514750 0 0 0</pose>
         <geometry>
           <box>
             <size>0.150000006 0.005000001 0.030000001</size>
@@ -75,7 +75,7 @@
         </surface>
       </collision>
       <collision name="case_case_right_collision">
-        <pose>-0.002302885 -0.032288611 0.002514750 0 0 0</pose>
+        <pose>0.002782702 -0.032260612 0.002514750 0 0 0</pose>
         <geometry>
           <box>
             <size>0.150000006 0.005000001 0.030000001</size>
