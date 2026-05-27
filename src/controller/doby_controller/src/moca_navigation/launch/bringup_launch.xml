@@ -34,7 +34,11 @@
                        'behavior_server',
                        'bt_navigator',
                        'waypoint_follower',
-                       'nav2_velocity_smoother']"/>
+                       'nav2_velocity_smoother',
+                       'docking_server']"/>
+    <!-- 2026-05-26: docking_server (opennav_docking) 추가 — 서빙 정밀 주차. nav 노드들 뒤에 배치
+         (navigate_to_staging_pose 가 bt_navigator/NavigateToPose 의존). -->
+
 
     <group>
         <push-ros-namespace namespace="$(var namespace)"/>

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
 serving_dispatcher_node.py
-mode_serving 메인 노드 — Nav2 NavigateToPose 단발 반복 + 큐 + dwell + home 복귀.
+mode_serving 메인 노드 — opennav_docking 정밀 주차 + 큐 + dwell + home 복귀.
 
-책임 (Phase S-A):
+책임:
   - tables.yaml 로드 → 테이블 ID ↔ PoseStamped 매핑
   - 큐 (FIFO) 관리: 진입 시 params_json 의 waypoint + /serving/goto_table 토픽 append
-  - Nav2 NavigateToPose action 호출 → 도착 → dwell N초 → home_pose 복귀 → idle 대기
+  - 정밀 주차 (enable_docking=true, 기본):
+      DockRobot(use_dock_id=false, dock_pose=tables.yaml pose, navigate_to_staging_pose=true)
+      → docking_server 가 staging 이동 + 정밀 접근(odom 서보) 한 액션으로 처리
+      → dwell N초 → UndockRobot(staging 복귀) → 다음 큐 또는 home 복귀
+  - 레거시 (enable_docking=false): NavigateToPose 단발 (도킹 없이 pose 정차)
+  - home 복귀는 항상 NavigateToPose (home = staging, 도킹 안 함)
   - /serving/state 1Hz 발행 (JSON)
-
-S-B 후속 (큐 hook 자리만 비워둠):
-  - /serving/empty_tables 중앙 서버 push
-  - /serving/clear_queue 서비스
-  - 우선순위 큐 (manual override)
 
 mode_manager 와의 인터페이스:
   - launch param `params_json` 으로 첫 명령 (예: '{"waypoint": "T01"}')
@@ -20,9 +20,12 @@ mode_manager 와의 인터페이스:
   - mode_manager 가 SIGTERM 던지면 active goal cancel + cleanup
 
 안전:
-  - cmd_vel 직접 발행 X — Nav2 가 발행 → Phase B pipeline (twist_mux + smoother +
-    collision_monitor) 가 OS 레벨 차단/감속. dispatcher 무신경.
-  - placeholder 좌표 (모두 0) 감지 시 nav 거부 + ERROR log (위험 회피).
+  - cmd_vel 직접 발행 X — Nav2/docking_server 가 발행 → cmd_vel_nav → smoother →
+    /bt/cmd_vel → twist_mux(80) → collision_monitor/e_stop 파이프라인. dispatcher 무신경.
+  - placeholder 좌표 (모두 0) 감지 시 nav/dock 거부 + ERROR log (위험 회피).
+  - dock/undock 타임아웃은 docking_server 가 소유 (max_staging_time / dock_approach_timeout /
+    max_undocking_time). dispatcher 의 dock_timeout_sec 은 서버가 결과를 영영 안 줄 때만
+    발동하는 last-resort 안전망 (이중 cancel 회피).
 
 자세한 명세: docs/cafe_npc_serving_mode.md
 """
@@ -42,14 +45,16 @@ import yaml
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import NavigateToPose, DockRobot, UndockRobot
 
 
 class State(str, Enum):
     IDLE = 'idle'
-    NAVIGATING = 'navigating'
+    DOCKING = 'docking'        # DockRobot 진행 (staging 이동 + 정밀 접근)
+    NAVIGATING = 'navigating'  # 레거시 NavigateToPose (enable_docking=false)
     DWELL = 'dwell'
-    RETURNING = 'returning'
+    UNDOCKING = 'undocking'    # UndockRobot 진행 (staging 복귀)
+    RETURNING = 'returning'    # home 복귀 NavigateToPose
 
 
 HOME_TABLE_ID = '__home__'  # 큐 sentinel — home 복귀 명령
@@ -65,6 +70,14 @@ class ServingDispatcher(Node):
         self.declare_parameter('return_home_after_dwell', True)
         self.declare_parameter('nav_action_name', 'navigate_to_pose')
         self.declare_parameter('nav_timeout_sec', 60.0)
+        # 정밀 주차 (opennav_docking)
+        self.declare_parameter('enable_docking', True)
+        self.declare_parameter('dock_type', 'cafe_table')
+        self.declare_parameter('dock_action_name', 'dock_robot')
+        self.declare_parameter('undock_action_name', 'undock_robot')
+        self.declare_parameter('max_staging_time_sec', 60.0)      # 서버 staging 이동 타임아웃 (goal 필드)
+        self.declare_parameter('max_undocking_time_sec', 30.0)    # 서버 undock 타임아웃 (goal 필드)
+        self.declare_parameter('dock_timeout_sec', 180.0)         # dispatcher last-resort 안전망
 
         self.tables_yaml = self.get_parameter('tables_yaml').value
         self.params_json = self.get_parameter('params_json').value
@@ -72,6 +85,13 @@ class ServingDispatcher(Node):
         self.return_home = bool(self.get_parameter('return_home_after_dwell').value)
         self.nav_action = self.get_parameter('nav_action_name').value
         self.nav_timeout = float(self.get_parameter('nav_timeout_sec').value)
+        self.enable_docking = bool(self.get_parameter('enable_docking').value)
+        self.dock_type = self.get_parameter('dock_type').value
+        self.dock_action = self.get_parameter('dock_action_name').value
+        self.undock_action = self.get_parameter('undock_action_name').value
+        self.max_staging_time = float(self.get_parameter('max_staging_time_sec').value)
+        self.max_undocking_time = float(self.get_parameter('max_undocking_time_sec').value)
+        self.dock_timeout = float(self.get_parameter('dock_timeout_sec').value)
 
         # tables.yaml 로드
         self.home_pose: PoseStamped | None = None
@@ -83,18 +103,19 @@ class ServingDispatcher(Node):
         self.queue: deque[str] = deque()
         self.current_table: str | None = None
         self.dwell_start_ns: int | None = None
-        self._goal_handle = None
-        self._nav_started_ns: int | None = None
+        self._goal_handle = None          # 현재 활성 goal (nav/dock/undock 통합 — 동시 1개만)
+        self._action_started_ns: int | None = None
 
-        # Action client
-        self._ac = ActionClient(self, NavigateToPose, self.nav_action)
+        # Action clients
+        self._nav_ac = ActionClient(self, NavigateToPose, self.nav_action)
+        self._dock_ac = ActionClient(self, DockRobot, self.dock_action)
+        self._undock_ac = ActionClient(self, UndockRobot, self.undock_action)
 
         # 토픽
         self.create_subscription(String, '/serving/goto_table', self._on_goto_table, 10)
         self._state_pub = self.create_publisher(String, '/serving/state', 10)
 
         # 서비스 — tables.yaml 라이브 갱신 (운영 UI 좌표 등록 후 호출).
-        # 큐 + 진행 중 nav 보존, home_pose + tables 만 다시 로드.
         self.create_service(Trigger, '/serving/reload_tables', self._on_reload_tables)
 
         # 진입 시 첫 명령 (params_json 의 waypoint)
@@ -103,14 +124,14 @@ class ServingDispatcher(Node):
             self.queue.append(first_table)
             self.get_logger().info(f'진입 첫 명령 큐 추가: {first_table}')
 
-        # 메인 tick
+        # 메인 tick + 상태 1Hz
         self.create_timer(0.2, self._tick)
-        # 상태 1Hz
         self.create_timer(1.0, self._publish_state)
 
         self.get_logger().info(
             f'serving_dispatcher start — tables={list(self.tables.keys())} '
-            f'dwell={self.dwell_sec}s return_home={self.return_home}')
+            f'dwell={self.dwell_sec}s return_home={self.return_home} '
+            f'docking={self.enable_docking}(type={self.dock_type!r})')
 
     # ───────── tables.yaml 로드 ─────────
 
@@ -212,50 +233,37 @@ class ServingDispatcher(Node):
     def _tick(self) -> None:
         if self.state == State.IDLE:
             if self.queue:
-                self._start_next_nav()
+                self._start_next()
             return
 
-        if self.state == State.NAVIGATING:
-            # nav_timeout 체크
-            if self._nav_started_ns is not None:
-                elapsed = (self.get_clock().now().nanoseconds - self._nav_started_ns) / 1e9
-                if elapsed > self.nav_timeout:
-                    self.get_logger().warn(
-                        f'nav timeout ({elapsed:.1f}s > {self.nav_timeout}s) — cancel')
-                    self._cancel_active_goal()
+        # 액션 진행 상태들 — last-resort 타임아웃 안전망
+        if self.state in (State.DOCKING, State.UNDOCKING):
+            self._check_timeout(self.dock_timeout)
+            return
+
+        if self.state in (State.NAVIGATING, State.RETURNING):
+            self._check_timeout(self.nav_timeout)
             return
 
         if self.state == State.DWELL:
             elapsed = (self.get_clock().now().nanoseconds - self.dwell_start_ns) / 1e9
             if elapsed >= self.dwell_sec:
                 self.get_logger().info(f'dwell {self.dwell_sec}s 종료 — 다음 액션')
-                self._after_dwell()
+                self._on_dwell_done()
             return
 
-        if self.state == State.RETURNING:
-            # nav_timeout 동일 체크
-            if self._nav_started_ns is not None:
-                elapsed = (self.get_clock().now().nanoseconds - self._nav_started_ns) / 1e9
-                if elapsed > self.nav_timeout:
-                    self.get_logger().warn(f'home 복귀 timeout — cancel')
-                    self._cancel_active_goal()
+    def _check_timeout(self, limit: float) -> None:
+        if self._action_started_ns is None:
             return
+        elapsed = (self.get_clock().now().nanoseconds - self._action_started_ns) / 1e9
+        if elapsed > limit:
+            self.get_logger().warn(
+                f'{self.state.value} 액션 타임아웃 ({elapsed:.1f}s > {limit}s) — cancel')
+            self._cancel_active_goal()
 
-    def _after_dwell(self) -> None:
-        # 큐에 남은 테이블 있으면 우선 진행, 없으면 home 복귀 (옵션)
-        if self.queue:
-            self._start_next_nav()
-            return
-        if self.return_home and self.home_pose is not None:
-            self._start_home_return()
-            return
-        self.state = State.IDLE
-        self.current_table = None
-        self.get_logger().info('idle 진입 (큐 비었음, home 복귀 비활성)')
+    # ───────── 다음 테이블 시작 (도킹 or 레거시 nav) ─────────
 
-    # ───────── nav 시작 ─────────
-
-    def _start_next_nav(self) -> None:
+    def _start_next(self) -> None:
         tid = self.queue.popleft()
         entry = self.tables.get(tid)
         if not entry:
@@ -263,49 +271,93 @@ class ServingDispatcher(Node):
             return
         if entry['placeholder']:
             self.get_logger().error(
-                f'테이블 {tid!r} 좌표 placeholder(0,0,0) — nav 거부. '
+                f'테이블 {tid!r} 좌표 placeholder(0,0,0) — 거부. '
                 'tables.yaml 에 RViz 등록 좌표 갱신 필요.')
             return
         self.current_table = tid
-        self._send_nav_goal(entry['pose'], context=f'table {tid}')
-        self.state = State.NAVIGATING
+        if self.enable_docking:
+            self._send_dock_goal(entry['pose'], tid)
+        else:
+            self._send_nav_goal(entry['pose'], context=f'table {tid}', state=State.NAVIGATING)
+
+    # ───────── DockRobot ─────────
+
+    def _send_dock_goal(self, pose: PoseStamped, tid: str) -> None:
+        if not self._dock_ac.wait_for_server(timeout_sec=2.0):
+            self.get_logger().error(
+                f'docking_server 미응답 ({self.dock_action!r}) — table {tid} skip')
+            self._reset_idle()
+            return
+        pose.header.stamp = self.get_clock().now().to_msg()
+        goal = DockRobot.Goal()
+        goal.use_dock_id = False
+        goal.dock_pose = pose
+        goal.dock_type = self.dock_type
+        goal.navigate_to_staging_pose = True
+        goal.max_staging_time = self.max_staging_time
+
+        self.state = State.DOCKING
+        self._action_started_ns = self.get_clock().now().nanoseconds
+        send_future = self._dock_ac.send_goal_async(goal)
+        send_future.add_done_callback(self._on_goal_response)
+        self.get_logger().info(
+            f'dock goal 전송: table {tid} → dock_pose=({pose.pose.position.x:.2f}, '
+            f'{pose.pose.position.y:.2f}) type={self.dock_type!r}')
+
+    # ───────── UndockRobot ─────────
+
+    def _start_undock(self) -> None:
+        if not self._undock_ac.wait_for_server(timeout_sec=2.0):
+            self.get_logger().warn(
+                f'undock action 미응답 ({self.undock_action!r}) — undock skip, 다음 진행')
+            self._proceed_next()
+            return
+        goal = UndockRobot.Goal()
+        goal.dock_type = self.dock_type
+        goal.max_undocking_time = self.max_undocking_time
+
+        self.state = State.UNDOCKING
+        self._action_started_ns = self.get_clock().now().nanoseconds
+        send_future = self._undock_ac.send_goal_async(goal)
+        send_future.add_done_callback(self._on_goal_response)
+        self.get_logger().info(f'undock goal 전송 (type={self.dock_type!r})')
+
+    # ───────── NavigateToPose (레거시 table / home 복귀) ─────────
 
     def _start_home_return(self) -> None:
         self.current_table = HOME_TABLE_ID
-        self._send_nav_goal(self.home_pose, context='home')
-        self.state = State.RETURNING
+        self._send_nav_goal(self.home_pose, context='home', state=State.RETURNING)
 
-    def _send_nav_goal(self, pose: PoseStamped, context: str) -> None:
-        # 매 호출 시 stamp 갱신 (Nav2 가 fresh stamp 선호)
+    def _send_nav_goal(self, pose: PoseStamped, context: str, state: State) -> None:
         pose.header.stamp = self.get_clock().now().to_msg()
-
-        if not self._ac.wait_for_server(timeout_sec=2.0):
+        if not self._nav_ac.wait_for_server(timeout_sec=2.0):
             self.get_logger().error(
                 f'Nav2 action server 미응답 ({self.nav_action!r}) — {context} skip')
-            self.state = State.IDLE
-            self.current_table = None
+            self._reset_idle()
             return
-
         goal = NavigateToPose.Goal()
         goal.pose = pose
 
-        send_future = self._ac.send_goal_async(goal)
+        self.state = state
+        self._action_started_ns = self.get_clock().now().nanoseconds
+        send_future = self._nav_ac.send_goal_async(goal)
         send_future.add_done_callback(self._on_goal_response)
-        self._nav_started_ns = self.get_clock().now().nanoseconds
         self.get_logger().info(
             f'nav goal 전송: {context} → ({pose.pose.position.x:.2f}, '
             f'{pose.pose.position.y:.2f})')
+
+    # ───────── 공통 goal response / result 콜백 ─────────
 
     def _on_goal_response(self, future) -> None:
         try:
             handle = future.result()
         except Exception as e:
             self.get_logger().error(f'goal response 실패: {e}')
-            self._on_nav_finished(success=False)
+            self._on_action_finished(success=False)
             return
         if not handle.accepted:
-            self.get_logger().warn('nav goal rejected by Nav2')
-            self._on_nav_finished(success=False)
+            self.get_logger().warn(f'goal rejected ({self.state.value})')
+            self._on_action_finished(success=False)
             return
         self._goal_handle = handle
         result_future = handle.get_result_async()
@@ -314,43 +366,89 @@ class ServingDispatcher(Node):
     def _on_goal_result(self, future) -> None:
         self._goal_handle = None
         try:
-            result = future.result()
-            status = result.status
+            wrapper = future.result()
+            status = wrapper.status
+            result = wrapper.result
         except Exception as e:
             self.get_logger().error(f'goal result 실패: {e}')
-            self._on_nav_finished(success=False)
+            self._on_action_finished(success=False)
             return
         # action_msgs/GoalStatus: 4=SUCCEEDED, 5=CANCELED, 6=ABORTED
-        success = (status == 4)
+        # Dock/Undock 결과엔 success 필드도 있음 — 둘 다 참이어야 성공.
+        succeeded = (status == 4)
+        if hasattr(result, 'success'):
+            succeeded = succeeded and bool(result.success)
+        err = getattr(result, 'error_code', None)
         self.get_logger().info(
-            f'nav 결과: status={status} (4=SUCCEEDED, 5=CANCELED, 6=ABORTED) '
-            f'success={success}')
-        self._on_nav_finished(success=success)
+            f'{self.state.value} 결과: status={status} '
+            f'success={succeeded}' + (f' error_code={err}' if err else ''))
+        self._on_action_finished(success=succeeded)
 
-    def _on_nav_finished(self, success: bool) -> None:
-        self._nav_started_ns = None
-        if self.state == State.NAVIGATING:
+    def _on_action_finished(self, success: bool) -> None:
+        self._action_started_ns = None
+        st = self.state
+
+        if st == State.DOCKING:
             if success:
-                self.state = State.DWELL
-                self.dwell_start_ns = self.get_clock().now().nanoseconds
-                self.get_logger().info(
-                    f'테이블 {self.current_table} 도착 — dwell {self.dwell_sec}s 시작')
+                self._enter_dwell()
             else:
-                # nav 실패 시 해당 테이블 drop + 다음 큐 또는 home
-                self.get_logger().warn(
-                    f'테이블 {self.current_table} nav 실패 — drop, 다음 액션')
-                self._after_dwell()
-        elif self.state == State.RETURNING:
+                # 도킹 실패 — undock 안 함(도킹 안 됨). drop 후 다음 진행.
+                self.get_logger().warn(f'테이블 {self.current_table} 도킹 실패 — drop, 다음 진행')
+                self._proceed_next()
+
+        elif st == State.NAVIGATING:  # 레거시 (도킹 비활성)
+            if success:
+                self._enter_dwell()
+            else:
+                self.get_logger().warn(f'테이블 {self.current_table} nav 실패 — drop, 다음 진행')
+                self._proceed_next()
+
+        elif st == State.UNDOCKING:
+            if not success:
+                self.get_logger().warn('undock 실패 — 다음 진행 (Nav2 가 현 위치에서 replan)')
+            self._proceed_next()
+
+        elif st == State.RETURNING:
             if success:
                 self.get_logger().info('home 복귀 성공 — idle')
             else:
                 self.get_logger().warn('home 복귀 실패 — idle 강제')
-            self.state = State.IDLE
-            self.current_table = None
+            self._reset_idle()
+
         else:
-            # 예상치 못한 state — 안전하게 idle
-            self.state = State.IDLE
-            self.current_table = None
+            self._reset_idle()
+
+    # ───────── dwell / 다음 전이 ─────────
+
+    def _enter_dwell(self) -> None:
+        self.state = State.DWELL
+        self.dwell_start_ns = self.get_clock().now().nanoseconds
+        self.get_logger().info(
+            f'테이블 {self.current_table} 도착 — dwell {self.dwell_sec}s 시작')
+
+    def _on_dwell_done(self) -> None:
+        # 도킹 모드면 먼저 undock(staging 복귀) 후 다음 진행. 레거시면 바로 다음.
+        if self.enable_docking and self.current_table not in (None, HOME_TABLE_ID):
+            self._start_undock()
+            return
+        self._proceed_next()
+
+    def _proceed_next(self) -> None:
+        if self.queue:
+            self._start_next()
+            return
+        if self.return_home and self.home_pose is not None:
+            self._start_home_return()
+            return
+        self._reset_idle()
+        self.get_logger().info('idle 진입 (큐 비었음)')
+
+    def _reset_idle(self) -> None:
+        self.state = State.IDLE
+        self.current_table = None
+        self._action_started_ns = None
+
+    # ───────── cancel ─────────
 
     def _cancel_active_goal(self) -> None:
         if self._goal_handle is None:
@@ -377,7 +475,6 @@ class ServingDispatcher(Node):
                 f'home={"OK" if self.home_pose else "placeholder"}')
             self.get_logger().info(response.message)
         else:
-            # 실패 — 이전 상태 복원 (안전)
             self.home_pose = prev_home
             self.tables = prev_tables
             response.message = 'reload 실패 — 이전 상태 복원'
@@ -394,6 +491,7 @@ class ServingDispatcher(Node):
             'queue': list(self.queue),
             'dwell_sec': self.dwell_sec,
             'return_home': self.return_home,
+            'enable_docking': self.enable_docking,
             'home_registered': self.home_pose is not None,
         }, ensure_ascii=False)
         self._state_pub.publish(msg)

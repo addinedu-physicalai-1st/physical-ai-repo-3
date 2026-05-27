@@ -83,6 +83,18 @@
             <remap from="cmd_vel_smoothed" to="bt/cmd_vel"/>
         </composable_node>
 
+        <composable_node pkg="opennav_docking" plugin="opennav_docking::DockingServer" name="docking_server">
+            <param from="$(var params_file)"/>
+            <param name="use_sim_time" value="$(var use_sim_time)"/>
+            <param name="autostart" value="$(var autostart)"/>
+
+            <remap from="/tf" to="tf"/>
+            <remap from="/tf_static" to="tf_static"/>
+            <!-- 2026-05-26: 정밀 주차. docking_server cmd_vel → cmd_vel_nav (controller/behavior 와 동일 레인)
+                 → nav2_velocity_smoother → /bt/cmd_vel → twist_mux(80). raw /cmd_vel 직접 발행 금지(§11/안전 파이프라인). -->
+            <remap from="cmd_vel" to="cmd_vel_nav"/>
+        </composable_node>
+
         <composable_node pkg="nav2_lifecycle_manager" plugin="nav2_lifecycle_manager::LifecycleManager" name="lifecycle_manager_navigation">            
             <param name='use_sim_time' value="$(var use_sim_time)"/>
             <param name='autostart' value="$(var autostart)"/>
@@ -155,6 +167,20 @@
             <!-- Phase A (2026-05-09): smoother 출력을 /bt/cmd_vel 로 바꿔 twist_mux 입력으로.
                  (use_composition=False 가 default — 이 블록이 실 동작) -->
             <remap from="cmd_vel_smoothed" to="bt/cmd_vel"/>
+        </node>
+
+        <node pkg="opennav_docking" exec="opennav_docking" name="docking_server" output="screen">
+            <param name='respawn' value="$(var use_respawn)"/>
+            <param name='respawn_delay' value="2.0"/>
+            <param name='log_level' value="$(var log_level)"/>
+            <param from="$(var params_file)"/>
+
+            <remap from="/tf" to="tf"/>
+            <remap from="/tf_static" to="tf_static"/>
+            <!-- 2026-05-26: 정밀 주차. docking_server cmd_vel → cmd_vel_nav → nav2_velocity_smoother
+                 → /bt/cmd_vel → twist_mux(80). raw /cmd_vel 직접 발행 금지(§11/안전 파이프라인).
+                 (use_composition=False 가 default — 이 블록이 실 동작) -->
+            <remap from="cmd_vel" to="cmd_vel_nav"/>
         </node>
 
         <node pkg="nav2_lifecycle_manager" exec="lifecycle_manager" name="lifecycle_manager_navigation" output="screen">

@@ -34,6 +34,11 @@ home_pose:
 
 tables:
 # pose 자체가 robot 정차 좌표 (테이블 옆 통로). approach_dist=0.0 (좌표 자체 = 정차 pose).
+# 2026-05-26 — 정밀 주차(opennav_docking) 전환: dispatcher 가 이 pose 를 DockRobot 의
+#   dock_pose(use_dock_id=false)로 직접 전달. docking_server 가 pose 뒤 staging_x_offset(-0.7m)
+#   지점에 staging 후 pose 까지 odom 서보 → 최종 base_link ≈ pose. 두 전제 sim 확인 필요:
+#   (1) yaw 가 테이블을 향함(접근 방향), (2) pose 뒤 0.7m staging 여유공간 존재.
+#   주의: dispatcher 는 더 이상 approach_dist 를 쓰지 않음 (staging offset 은 별개 개념, docking_server param).
 # 2026-05-17 갱신 — cafe_layout.yaml tables 섹션 sync (place_furniture_picker.py 등록값).
 - id: T01
   pose:
@@ -65,17 +70,17 @@ tables:
 - id: T04
   pose:
     frame_id: map
-    x: -45.653
-    y: 0.276
-    yaw: -1.571
+    x: -45.620
+    y: -0.021
+    yaw: -1.572
   approach_dist: 0.0
-  description: "T04 — 서쪽 그룹 북쪽, robot 정차 yaw=-π/2 (남쪽 향함)"
+  description: "T04 — 서쪽 그룹 북쪽, robot 정차 yaw=-π/2 (남쪽 향함). 2026-05-26 현재 로봇 pose 로 재캡처 (tf2_echo map base_footprint)"
 
 - id: T05
   pose:
     frame_id: map
-    x: -45.67
-    y: -0.557
-    yaw: -1.571
+    x: -45.629
+    y: -0.716
+    yaw: -1.584
   approach_dist: 0.0
-  description: "T05 — 서쪽 그룹 남쪽, robot 정차 yaw=-π/2 (남쪽 향함)"
+  description: "T05 — 서쪽 그룹 남쪽, robot 정차 yaw=-π/2 (남쪽 향함). 2026-05-26 현재 로봇 pose 로 재캡처 (tf2_echo map base_footprint)"
