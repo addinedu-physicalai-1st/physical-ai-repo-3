@@ -21,7 +21,7 @@ from app.repository.catalog_repo import (
 from app.repository.db import Database, DbConfig
 from app.repository.order_repo import OrderItemRepository, OrderRepository
 from app.repository.table_repo import TableRepository
-from app.scheduler.workflow_scheduler import OrderOrchestrationRuntime
+from app.scheduler.workflow_scheduler import OrderWorkflowScheduler
 from app.service.menu_service import MenuService
 from app.service.order_service import OrderService
 
@@ -119,10 +119,8 @@ def main() -> None:
         action_timeout_sec=config.ddooby_controller_action_timeout_sec,
     )
     manufacture_port = DDoobyActionManufacturePort(ddooby_controller_runtime, logger)
-    order_orchestration_runtime = OrderOrchestrationRuntime(
-        database=database,
-        order_repository=order_repository,
-        order_item_repository=order_item_repository,
+    order_orchestration_runtime = OrderWorkflowScheduler(
+        order_service=order_service,
         manufacture_port=manufacture_port,
         serving_port=DobyModeServingPort(doby_controller_runtime, logger),
         logger=logger,

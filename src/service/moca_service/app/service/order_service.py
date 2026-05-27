@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from app.in_memory.table_inmemory_state import TableInmemoryState
+from app.in_memory.workflow_inmemory_state import ManufactureOrderItem
 from app.repository.order_repo import OrderItemCreate
 from app.service.request_models import OrderRequest, TableAssignmentRequest
 
@@ -17,6 +18,14 @@ if TYPE_CHECKING:
 class CreatedOrder:
     order_id: int
     total_price: int
+
+
+@dataclass(frozen=True)
+class ClaimedWorkflowOrder:
+    order_id: int
+    receive_type: str
+    table_number: int | None
+    order_items: list[ManufactureOrderItem]
 
 
 @dataclass(frozen=True)
@@ -286,3 +295,36 @@ class OrderService:
     def list_recent_orders(self, limit: int = 20):
         with self.database.connect() as conn:
             return self.order_repository.list_recent(conn, limit)
+
+    def claim_workflow_orders(self, limit: int = 10) -> list[ClaimedWorkflowOrder]:
+        with self.database.transaction() as conn:
+            claimed = self.order_repository.claim_accepted_orders(conn, limit)
+            return [
+                ClaimedWorkflowOrder(
+                    order_id=int(order.order_id),
+                    receive_type=str(order.receive_type),
+                    table_number=order.table_number,
+                    order_items=[
+                        ManufactureOrderItem(
+                            product_id=int(item.product_id),
+                            product_name=str(item.product_name),
+                            selected_options=list(item.selected_options),
+                            quantity=int(item.quantity),
+                            unit_price=int(item.unit_price),
+                        )
+                        for item in self.order_item_repository.list_by_order_id(
+                            conn,
+                            int(order.order_id),
+                        )
+                    ],
+                )
+                for order in claimed
+            ]
+
+    def complete_workflow_order(self, order_id: int) -> bool:
+        with self.database.connect() as conn:
+            return self.order_repository.mark_completed(conn, order_id)
+
+    def fail_workflow_order(self, order_id: int) -> bool:
+        with self.database.connect() as conn:
+            return self.order_repository.mark_failed(conn, order_id)
