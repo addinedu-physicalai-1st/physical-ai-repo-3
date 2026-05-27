@@ -16,8 +16,7 @@
              return_to_zero_on_activate:=^|false
              hold_current_on_activate:=^|true
              enable_gravity_comp:=^|true
-             enable_coriolis_comp:=^|false
-             gravity_comp_start_delay_sec:=^|8.0">
+             enable_coriolis_comp:=^|false">
 
     <ros2_control name="openarm_hardware_interface" type="system">
         <hardware>
@@ -38,7 +37,6 @@
             <param name="hold_current_on_activate">${hold_current_on_activate}</param>
             <param name="enable_gravity_comp">${enable_gravity_comp}</param>
             <param name="enable_coriolis_comp">${enable_coriolis_comp}</param>
-            <param name="gravity_comp_start_delay_sec">${gravity_comp_start_delay_sec}</param>
             <param name="kp1">${control_gains['joint1']['kp']}</param>
             <param name="kp2">${control_gains['joint2']['kp']}</param>
             <param name="kp3">${control_gains['joint3']['kp']}</param>

@@ -45,8 +45,6 @@ def generate_robot_description(
     hold_current_on_activate,
     enable_gravity_comp,
     enable_coriolis_comp,
-    gravity_comp_start_delay_sec,
-    arm_prefix,
 ):
     """Render Xacro and return XML string."""
     description_package_str = context.perform_substitution(description_package)
@@ -60,8 +58,6 @@ def generate_robot_description(
     hold_current_on_activate_str = context.perform_substitution(hold_current_on_activate)
     enable_gravity_comp_str = context.perform_substitution(enable_gravity_comp)
     enable_coriolis_comp_str = context.perform_substitution(enable_coriolis_comp)
-    gravity_comp_start_delay_sec_str = context.perform_substitution(gravity_comp_start_delay_sec)
-    arm_prefix_str = context.perform_substitution(arm_prefix)
 
     xacro_path = os.path.join(
         get_package_share_directory(description_package_str),
@@ -84,8 +80,6 @@ def generate_robot_description(
             "hold_current_on_activate": hold_current_on_activate_str,
             "enable_gravity_comp": enable_gravity_comp_str,
             "enable_coriolis_comp": enable_coriolis_comp_str,
-            "gravity_comp_start_delay_sec": gravity_comp_start_delay_sec_str,
-            # arm_prefix unused inside xacro but kept for completeness
         },
     ).toprettyxml(indent="  ")
 
@@ -106,8 +100,6 @@ def robot_nodes_spawner(
     hold_current_on_activate,
     enable_gravity_comp,
     enable_coriolis_comp,
-    gravity_comp_start_delay_sec,
-    arm_prefix,
 ):
     robot_description = generate_robot_description(
         context,
@@ -122,8 +114,6 @@ def robot_nodes_spawner(
         hold_current_on_activate,
         enable_gravity_comp,
         enable_coriolis_comp,
-        gravity_comp_start_delay_sec,
-        arm_prefix,
     )
 
     controllers_file_str = context.perform_substitution(controllers_file)
@@ -191,7 +181,6 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "runtime_config_package", default_value="openarm_bringup"
         ),
-        DeclareLaunchArgument("arm_prefix", default_value=""),
         DeclareLaunchArgument("right_can_interface", default_value="can0"),
         DeclareLaunchArgument("left_can_interface", default_value="can1"),
         DeclareLaunchArgument(
@@ -206,7 +195,6 @@ def generate_launch_description():
         DeclareLaunchArgument("hold_current_on_activate", default_value="true"),
         DeclareLaunchArgument("enable_gravity_comp", default_value="true"),
         DeclareLaunchArgument("enable_coriolis_comp", default_value="false"),
-        DeclareLaunchArgument("gravity_comp_start_delay_sec", default_value="8.0"),
         DeclareLaunchArgument(
             "controllers_file",
             default_value="openarm_v10_bimanual_controllers.yaml",
@@ -227,8 +215,6 @@ def generate_launch_description():
     hold_current_on_activate = LaunchConfiguration("hold_current_on_activate")
     enable_gravity_comp = LaunchConfiguration("enable_gravity_comp")
     enable_coriolis_comp = LaunchConfiguration("enable_coriolis_comp")
-    gravity_comp_start_delay_sec = LaunchConfiguration("gravity_comp_start_delay_sec")
-    arm_prefix = LaunchConfiguration("arm_prefix")
 
     controllers_file = PathJoinSubstitution(
         [FindPackageShare(runtime_config_package), "config",
@@ -250,8 +236,6 @@ def generate_launch_description():
             hold_current_on_activate,
             enable_gravity_comp,
             enable_coriolis_comp,
-            gravity_comp_start_delay_sec,
-            arm_prefix,
         ],
     )
 

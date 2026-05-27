@@ -53,7 +53,6 @@
   <xacro:arg name="hold_current_on_activate" default="true" />
   <xacro:arg name="enable_gravity_comp" default="true" />
   <xacro:arg name="enable_coriolis_comp" default="false" />
-  <xacro:arg name="gravity_comp_start_delay_sec" default="8.0" />
 
   <xacro:openarm_robot
   arm_type="v10"
@@ -94,7 +93,6 @@
   hold_current_on_activate="$(arg hold_current_on_activate)"
   enable_gravity_comp="$(arg enable_gravity_comp)"
   enable_coriolis_comp="$(arg enable_coriolis_comp)"
-  gravity_comp_start_delay_sec="$(arg gravity_comp_start_delay_sec)"
   />
 
 </robot>
