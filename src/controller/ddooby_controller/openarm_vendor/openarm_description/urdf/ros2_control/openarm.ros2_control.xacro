@@ -11,7 +11,12 @@
              gazebo_effort:=^|false
              arm_prefix:=''
              bimanual:=false
-             can_fd:=^|true">
+             can_fd:=^|true
+             hardware_plugin:=^|openarm_hardware/OpenArmHW
+             return_to_zero_on_activate:=^|false
+             hold_current_on_activate:=^|true
+             enable_gravity_comp:=^|true
+             enable_coriolis_comp:=^|false">
 
     <ros2_control name="openarm_hardware_interface" type="system">
         <hardware>
@@ -23,11 +28,15 @@
             <param name="state_following_offset">0.0</param>
           </xacro:if>
           <xacro:if value="${use_fake_hardware == 0}">
-            <plugin>openarm_hardware/OpenArm_${arm_type}HW</plugin>
+            <plugin>${hardware_plugin}</plugin>
             <param name="can_interface">${can_interface}</param>
             <param name="arm_prefix">${arm_prefix}</param>
             <param name="hand">${hand}</param>
             <param name="can_fd">${can_fd}</param>
+            <param name="return_to_zero_on_activate">${return_to_zero_on_activate}</param>
+            <param name="hold_current_on_activate">${hold_current_on_activate}</param>
+            <param name="enable_gravity_comp">${enable_gravity_comp}</param>
+            <param name="enable_coriolis_comp">${enable_coriolis_comp}</param>
             <param name="kp1">${control_gains['joint1']['kp']}</param>
             <param name="kp2">${control_gains['joint2']['kp']}</param>
             <param name="kp3">${control_gains['joint3']['kp']}</param>
@@ -76,6 +85,20 @@
         </joint>
       </xacro:macro>
 
+      <xacro:macro name="configure_gripper_joint" params="joint_name initial_position">
+        <joint name="${joint_name}">
+          <command_interface name="position"/>
+
+          <state_interface name="position">
+            <param name="initial_value">${initial_position}</param>
+          </state_interface>
+
+          <state_interface name="velocity">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+        </joint>
+      </xacro:macro>
+
       <xacro:configure_joint joint_name="openarm_${arm_prefix}joint1" initial_position="0.0"/>
       <xacro:configure_joint joint_name="openarm_${arm_prefix}joint2" initial_position="0.0"/>
       <xacro:configure_joint joint_name="openarm_${arm_prefix}joint3" initial_position="0.0"/>
@@ -85,7 +108,7 @@
       <xacro:configure_joint joint_name="openarm_${arm_prefix}joint7" initial_position="0.0"/>
 
       <xacro:if value="${hand}">
-        <xacro:configure_joint joint_name="openarm_${arm_prefix}finger_joint1" initial_position="0.0" />
+        <xacro:configure_gripper_joint joint_name="openarm_${arm_prefix}finger_joint1" initial_position="0.0" />
       </xacro:if>
 
     </ros2_control>

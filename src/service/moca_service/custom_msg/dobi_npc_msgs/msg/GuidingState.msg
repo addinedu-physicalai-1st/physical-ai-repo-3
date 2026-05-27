@@ -1,0 +1,12 @@
+std_msgs/Header header
+string current_state
+string target_table
+string customer_id
+bool customer_in_sight
+float32 distance_to_customer
+float32 customer_lag_m
+builtin_interfaces/Time customer_last_seen
+float32 distance_to_target
+float32 progress
+builtin_interfaces/Time started_at
+string last_utter_text

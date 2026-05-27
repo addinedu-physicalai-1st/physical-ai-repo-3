@@ -138,7 +138,7 @@ class AdminGuiMonitorPublisher:
             self._last_products = payload
 
     def _publish_changed_orders(self) -> None:
-        payload = _json_payload(_order_snapshot(self.order_service.order_repository.list_recent()))
+        payload = _json_payload(_order_snapshot(self.order_service.list_recent_orders()))
         if payload == self._last_orders:
             return
         if self.runtime.publish_payload(TOPIC_ORDERS, EVENT_SNAPSHOT, payload):

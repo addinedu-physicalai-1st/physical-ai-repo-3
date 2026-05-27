@@ -4,8 +4,6 @@ from typing import Any
 
 from pymysql.connections import Connection
 
-from app.repository.db import Database, DbConfig
-
 
 @dataclass(frozen=True)
 class OrderRow:
@@ -56,146 +54,7 @@ class OrderItemRow:
 
 
 class OrderRepository:
-    def __init__(self, database: Database | DbConfig):
-        self.database = database if isinstance(database, Database) else Database(database)
-
     def create(
-        self,
-        order_source: str,
-        receive_type: str,
-        table_id: int | None,
-        total_price: int,
-        conn: Connection | None = None,
-    ) -> int:
-        if conn is not None:
-            return self._create_with_conn(conn, order_source, receive_type, table_id, total_price)
-        with self.database.connect() as own_conn:
-            return self._create_with_conn(own_conn, order_source, receive_type, table_id, total_price)
-
-    def get(self, order_id: int, conn: Connection | None = None) -> OrderRow | None:
-        if conn is not None:
-            return self._get_with_conn(conn, order_id)
-        with self.database.connect() as own_conn:
-            return self._get_with_conn(own_conn, order_id)
-
-    def list_recent(self, limit: int = 20, conn: Connection | None = None) -> list[RecentOrderRow]:
-        if conn is not None:
-            return self._list_recent_with_conn(conn, limit)
-        with self.database.connect() as own_conn:
-            return self._list_recent_with_conn(own_conn, limit)
-
-    def update_assignment(
-        self,
-        order_id: int,
-        order_source: str,
-        receive_type: str,
-        table_id: int | None,
-        conn: Connection | None = None,
-    ) -> bool:
-        if conn is not None:
-            return self._update_assignment_with_conn(conn, order_id, order_source, receive_type, table_id)
-        with self.database.connect() as own_conn:
-            return self._update_assignment_with_conn(own_conn, order_id, order_source, receive_type, table_id)
-
-    def accept_if_pending(
-        self,
-        order_id: int,
-        conn: Connection | None = None,
-    ) -> bool:
-        if conn is not None:
-            return self._accept_if_pending_with_conn(conn, order_id)
-        with self.database.connect() as own_conn:
-            return self._accept_if_pending_with_conn(own_conn, order_id)
-
-    def claim_accepted_orders(self, limit: int = 10) -> list[ClaimedOrderRow]:
-        bounded_limit = max(1, min(int(limit), 100))
-        claimed: list[ClaimedOrderRow] = []
-        with self.database.transaction() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT
-                        o.order_id,
-                        o.receive_type,
-                        st.table_number
-                    FROM orders o
-                    LEFT JOIN store_table st ON st.table_id = o.table_id
-                    WHERE o.order_status = 'ACCEPTED'
-                    ORDER BY o.updated_at ASC, o.order_id ASC
-                    LIMIT %s
-                    """,
-                    (bounded_limit,),
-                )
-                rows = cursor.fetchall()
-
-            for row in rows:
-                order_id = int(row["order_id"])
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        UPDATE orders
-                        SET order_status = 'PROCESSING'
-                        WHERE order_id = %s
-                          AND order_status = 'ACCEPTED'
-                        """,
-                        (order_id,),
-                    )
-                    if cursor.rowcount > 0:
-                        claimed.append(
-                            ClaimedOrderRow(
-                                order_id=order_id,
-                                receive_type=str(row["receive_type"]),
-                                table_number=(
-                                    int(row["table_number"])
-                                    if row["table_number"] is not None
-                                    else None
-                                ),
-                            )
-                        )
-        return claimed
-
-    def mark_completed(self, order_id: int) -> bool:
-        with self.database.connect() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    UPDATE orders
-                    SET order_status = 'COMPLETED'
-                    WHERE order_id = %s
-                      AND order_status = 'PROCESSING'
-                    """,
-                    (order_id,),
-                )
-                return cursor.rowcount > 0
-
-    def mark_failed(self, order_id: int) -> bool:
-        with self.database.connect() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    UPDATE orders
-                    SET order_status = 'FAILED'
-                    WHERE order_id = %s
-                      AND order_status = 'PROCESSING'
-                    """,
-                    (order_id,),
-                )
-                return cursor.rowcount > 0
-
-    def update_assignment_if_pending(
-        self,
-        order_id: int,
-        order_source: str,
-        receive_type: str,
-        table_id: int | None,
-        conn: Connection | None = None,
-    ) -> bool:
-        if conn is not None:
-            return self._update_assignment_if_pending_with_conn(conn, order_id, order_source, receive_type, table_id)
-        with self.database.connect() as own_conn:
-            return self._update_assignment_if_pending_with_conn(own_conn, order_id, order_source, receive_type, table_id)
-
-    def _create_with_conn(
         self,
         conn: Connection,
         order_source: str,
@@ -219,7 +78,7 @@ class OrderRepository:
             )
             return int(cursor.lastrowid)
 
-    def _get_with_conn(self, conn: Connection, order_id: int) -> OrderRow | None:
+    def get(self, conn: Connection, order_id: int) -> OrderRow | None:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -249,7 +108,7 @@ class OrderRepository:
                 total_price=int(row["total_price"]),
             )
 
-    def _list_recent_with_conn(self, conn: Connection, limit: int) -> list[RecentOrderRow]:
+    def list_recent(self, conn: Connection, limit: int = 20) -> list[RecentOrderRow]:
         bounded_limit = max(1, min(int(limit), 100))
         with conn.cursor() as cursor:
             cursor.execute(
@@ -284,7 +143,7 @@ class OrderRepository:
                 for row in cursor.fetchall()
             ]
 
-    def _update_assignment_with_conn(
+    def update_assignment(
         self,
         conn: Connection,
         order_id: int,
@@ -305,7 +164,79 @@ class OrderRepository:
             )
             return cursor.rowcount > 0
 
-    def _update_assignment_if_pending_with_conn(
+    def claim_accepted_orders(self, conn: Connection, limit: int = 10) -> list[ClaimedOrderRow]:
+        bounded_limit = max(1, min(int(limit), 100))
+        claimed: list[ClaimedOrderRow] = []
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    o.order_id,
+                    o.receive_type,
+                    st.table_number
+                FROM orders o
+                LEFT JOIN store_table st ON st.table_id = o.table_id
+                WHERE o.order_status = 'ACCEPTED'
+                ORDER BY o.updated_at ASC, o.order_id ASC
+                LIMIT %s
+                """,
+                (bounded_limit,),
+            )
+            rows = cursor.fetchall()
+
+        for row in rows:
+            order_id = int(row["order_id"])
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE orders
+                    SET order_status = 'PROCESSING'
+                    WHERE order_id = %s
+                      AND order_status = 'ACCEPTED'
+                    """,
+                    (order_id,),
+                )
+                if cursor.rowcount > 0:
+                    claimed.append(
+                        ClaimedOrderRow(
+                            order_id=order_id,
+                            receive_type=str(row["receive_type"]),
+                            table_number=(
+                                int(row["table_number"])
+                                if row["table_number"] is not None
+                                else None
+                            ),
+                        )
+                    )
+        return claimed
+
+    def mark_completed(self, conn: Connection, order_id: int) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE orders
+                SET order_status = 'COMPLETED'
+                WHERE order_id = %s
+                  AND order_status = 'PROCESSING'
+                """,
+                (order_id,),
+            )
+            return cursor.rowcount > 0
+
+    def mark_failed(self, conn: Connection, order_id: int) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE orders
+                SET order_status = 'FAILED'
+                WHERE order_id = %s
+                  AND order_status = 'PROCESSING'
+                """,
+                (order_id,),
+            )
+            return cursor.rowcount > 0
+
+    def update_assignment_if_pending(
         self,
         conn: Connection,
         order_id: int,
@@ -330,44 +261,11 @@ class OrderRepository:
             )
             return cursor.rowcount > 0
 
-    def _accept_if_pending_with_conn(
-        self,
-        conn: Connection,
-        order_id: int,
-    ) -> bool:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE orders
-                SET order_status = 'ACCEPTED'
-                WHERE order_id = %s
-                  AND order_status = 'PENDING'
-                """,
-                (order_id,),
-            )
-            return cursor.rowcount > 0
-
 
 class OrderItemRepository:
-    def __init__(self, database: Database | DbConfig):
-        self.database = database if isinstance(database, Database) else Database(database)
-
-    def create_many(self, items: list[OrderItemCreate], conn: Connection | None = None) -> None:
+    def create_many(self, conn: Connection, items: list[OrderItemCreate]) -> None:
         if not items:
             return
-        if conn is not None:
-            self._create_many_with_conn(conn, items)
-            return
-        with self.database.connect() as own_conn:
-            self._create_many_with_conn(own_conn, items)
-
-    def list_by_order_id(self, order_id: int, conn: Connection | None = None) -> list[OrderItemRow]:
-        if conn is not None:
-            return self._list_by_order_id_with_conn(conn, order_id)
-        with self.database.connect() as own_conn:
-            return self._list_by_order_id_with_conn(own_conn, order_id)
-
-    def _create_many_with_conn(self, conn: Connection, items: list[OrderItemCreate]) -> None:
         with conn.cursor() as cursor:
             cursor.executemany(
                 """
@@ -391,7 +289,7 @@ class OrderItemRepository:
                 ],
             )
 
-    def _list_by_order_id_with_conn(self, conn: Connection, order_id: int) -> list[OrderItemRow]:
+    def list_by_order_id(self, conn: Connection, order_id: int) -> list[OrderItemRow]:
         with conn.cursor() as cursor:
             cursor.execute(
                 """

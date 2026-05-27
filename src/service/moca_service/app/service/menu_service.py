@@ -1,12 +1,12 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.service.request_models import ProductManagementRequest
 
 if TYPE_CHECKING:
+    from app.repository.db import Database
     from app.repository.catalog_repo import (
         AllergyCategoryRepository,
         ProductAllergyRepository,
@@ -45,12 +45,14 @@ class ProductManagementResult:
 class MenuService:
     def __init__(
         self,
+        database: "Database",
         product_repository: "ProductRepository",
         product_option_group_repository: "ProductOptionGroupRepository",
         allergy_category_repository: "AllergyCategoryRepository",
         product_allergy_repository: "ProductAllergyRepository",
         logger: logging.Logger,
     ):
+        self.database = database
         self.product_repository = product_repository
         self.product_option_group_repository = product_option_group_repository
         self.allergy_category_repository = allergy_category_repository
@@ -58,10 +60,11 @@ class MenuService:
         self.logger = logger
 
     def get_catalog(self) -> dict[str, Any]:
-        products = self.product_repository.list_by_status("ON_SALE")
-        option_groups = self.product_option_group_repository.list_all()
-        allergy_categories = self.allergy_category_repository.list_all()
-        product_allergies = self.product_allergy_repository.list_all()
+        with self.database.connect() as conn:
+            products = self.product_repository.list_by_status(conn, "ON_SALE")
+            option_groups = self.product_option_group_repository.list_all(conn)
+            allergy_categories = self.allergy_category_repository.list_all(conn)
+            product_allergies = self.product_allergy_repository.list_all(conn)
 
         menu = [
             {
@@ -109,7 +112,8 @@ class MenuService:
         if request.action == "create":
             return self.create_product(request)
         if request.action == "get":
-            product = self.product_repository.get(request.product_id)
+            with self.database.connect() as conn:
+                product = self.product_repository.get(conn, request.product_id)
             if product is None:
                 return ProductManagementResult.rejected(f"product {request.product_id} not found")
             return ProductManagementResult.ok({"product": _product_to_dict(product)})
@@ -125,26 +129,30 @@ class MenuService:
         product_data, error = _validated_product_create(request.product)
         if error is not None:
             return ProductManagementResult.rejected(error)
-        product = self.product_repository.create(product_data)
+        with self.database.transaction() as conn:
+            product = self.product_repository.create(conn, product_data)
         return ProductManagementResult.ok({"product": _product_to_dict(product)})
 
     def update_product(self, request: ProductManagementRequest) -> ProductManagementResult:
         product_data, error = _validated_product_update(request.product)
         if error is not None:
             return ProductManagementResult.rejected(error)
-        product = self.product_repository.update(request.product_id, product_data)
+        with self.database.transaction() as conn:
+            product = self.product_repository.update(conn, request.product_id, product_data)
         if product is None:
             return ProductManagementResult.rejected(f"product {request.product_id} not found")
         return ProductManagementResult.ok({"product": _product_to_dict(product)})
 
     def delete_product(self, request: ProductManagementRequest) -> ProductManagementResult:
-        deleted = self.product_repository.soft_delete(request.product_id)
+        with self.database.transaction() as conn:
+            deleted = self.product_repository.soft_delete(conn, request.product_id)
         if not deleted:
             return ProductManagementResult.rejected(f"product {request.product_id} not found")
         return ProductManagementResult.ok({"product_id": request.product_id, "deleted": True})
 
     def list_products(self, request: ProductManagementRequest) -> ProductManagementResult:
-        products = self.product_repository.list_products(include_paused=request.include_paused)
+        with self.database.connect() as conn:
+            products = self.product_repository.list_products(conn, include_paused=request.include_paused)
         return ProductManagementResult.ok({"products": [_product_to_dict(product) for product in products]})
 
 

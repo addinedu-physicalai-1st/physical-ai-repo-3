@@ -37,6 +37,11 @@
             left_arm_prefix:='left_'
             right_arm_prefix:='right_'
             can_fd:='true'
+            hardware_plugin:='openarm_hardware/OpenArmHW'
+            return_to_zero_on_activate:='false'
+            hold_current_on_activate:='true'
+            enable_gravity_comp:='true'
+            enable_coriolis_comp:='false'
             "
             >
 
@@ -110,7 +115,13 @@
             fake_sensor_commands="${fake_sensor_commands}"
             left_arm_prefix="${left_arm_prefix}"
             right_arm_prefix="${right_arm_prefix}"
-            hand="${hand}"/>
+            hand="${hand}"
+            can_fd="${can_fd}"
+            hardware_plugin="${hardware_plugin}"
+            return_to_zero_on_activate="${return_to_zero_on_activate}"
+            hold_current_on_activate="${hold_current_on_activate}"
+            enable_gravity_comp="${enable_gravity_comp}"
+            enable_coriolis_comp="${enable_coriolis_comp}"/>
         </xacro:if>
 
         <xacro:if value="$(eval hand and ee_type == 'openarm_hand')">
@@ -169,7 +180,12 @@
             fake_sensor_commands="${fake_sensor_commands}"
             hand="${hand}"
             bimanual="false"
-            can_fd="${can_fd}"/>
+            can_fd="${can_fd}"
+            hardware_plugin="${hardware_plugin}"
+            return_to_zero_on_activate="${return_to_zero_on_activate}"
+            hold_current_on_activate="${hold_current_on_activate}"
+            enable_gravity_comp="${enable_gravity_comp}"
+            enable_coriolis_comp="${enable_coriolis_comp}"/>
         </xacro:if>
 
         <xacro:if value="${hand and ee_type == 'openarm_hand'}">

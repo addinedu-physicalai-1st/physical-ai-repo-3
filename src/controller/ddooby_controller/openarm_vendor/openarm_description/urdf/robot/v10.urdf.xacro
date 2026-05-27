@@ -48,6 +48,11 @@
   <xacro:arg name="left_arm_base_rpy" default="-1.5708 0 0" />
 
   <xacro:arg name="can_fd" default="true" />
+  <xacro:arg name="hardware_plugin" default="openarm_hardware/OpenArmHW" />
+  <xacro:arg name="return_to_zero_on_activate" default="false" />
+  <xacro:arg name="hold_current_on_activate" default="true" />
+  <xacro:arg name="enable_gravity_comp" default="true" />
+  <xacro:arg name="enable_coriolis_comp" default="false" />
 
   <xacro:openarm_robot
   arm_type="v10"
@@ -83,6 +88,11 @@
   right_arm_base_rpy="$(arg right_arm_base_rpy)"
   left_arm_base_rpy="$(arg left_arm_base_rpy)"
   can_fd="$(arg can_fd)"
+  hardware_plugin="$(arg hardware_plugin)"
+  return_to_zero_on_activate="$(arg return_to_zero_on_activate)"
+  hold_current_on_activate="$(arg hold_current_on_activate)"
+  enable_gravity_comp="$(arg enable_gravity_comp)"
+  enable_coriolis_comp="$(arg enable_coriolis_comp)"
   />
 
 </robot>

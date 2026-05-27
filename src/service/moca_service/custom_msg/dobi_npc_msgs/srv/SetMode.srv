@@ -1,0 +1,6 @@
+string requested_mode
+string params
+---
+bool success
+string current_mode
+string reason

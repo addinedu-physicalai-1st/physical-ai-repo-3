@@ -2,7 +2,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from app.domain.table_assignment_runtime import TableAssignmentRuntime
+from app.in_memory.table_inmemory_state import TableInmemoryState
+from app.in_memory.workflow_inmemory_state import ManufactureOrderItem
 from app.repository.order_repo import OrderItemCreate
 from app.service.request_models import OrderRequest, TableAssignmentRequest
 
@@ -10,13 +11,21 @@ if TYPE_CHECKING:
     from app.repository.catalog_repo import ProductRepository
     from app.repository.db import Database
     from app.repository.order_repo import OrderItemRepository, OrderRepository
-    from app.repository.table_repo import StoreTableRepository
+    from pymysql.connections import Connection
 
 
 @dataclass(frozen=True)
 class CreatedOrder:
     order_id: int
     total_price: int
+
+
+@dataclass(frozen=True)
+class ClaimedWorkflowOrder:
+    order_id: int
+    receive_type: str
+    table_number: int | None
+    order_items: list[ManufactureOrderItem]
 
 
 @dataclass(frozen=True)
@@ -38,20 +47,20 @@ class CreateOrderResult:
 
 
 @dataclass(frozen=True)
-class TableAssignmentResult:
+class DetermineReceiveTypeResult:
     error_kind: str | None = None
     message: str = ""
 
     @classmethod
-    def ok(cls) -> "TableAssignmentResult":
+    def ok(cls) -> "DetermineReceiveTypeResult":
         return cls()
 
     @classmethod
-    def not_found(cls, message: str) -> "TableAssignmentResult":
+    def not_found(cls, message: str) -> "DetermineReceiveTypeResult":
         return cls(error_kind="not_found", message=message)
 
     @classmethod
-    def rejected(cls, message: str) -> "TableAssignmentResult":
+    def rejected(cls, message: str) -> "DetermineReceiveTypeResult":
         return cls(error_kind="rejected", message=message)
 
     @property
@@ -59,12 +68,34 @@ class TableAssignmentResult:
         return self.error_kind is None
 
 
-class OrderNotFound(Exception):
-    pass
+@dataclass(frozen=True)
+class _AssignmentInfo:
+    order_source: str
+    receive_type: str
+    table_number: int | None = None
 
 
-class TableAssignmentRejected(Exception):
-    pass
+@dataclass(frozen=True)
+class _TableAssignmentResult:
+    table_number: int | None = None
+    table_id: int | None = None
+    message: str = ""
+
+    @classmethod
+    def ok(
+        cls,
+        table_number: int | None = None,
+        table_id: int | None = None,
+    ) -> "_TableAssignmentResult":
+        return cls(table_number=table_number, table_id=table_id)
+
+    @classmethod
+    def rejected(cls, message: str) -> "_TableAssignmentResult":
+        return cls(message=message)
+
+    @property
+    def is_ok(self) -> bool:
+        return self.message == ""
 
 
 class OrderService:
@@ -74,51 +105,32 @@ class OrderService:
         product_repository: "ProductRepository",
         order_repository: "OrderRepository",
         order_item_repository: "OrderItemRepository",
-        store_table_repository: "StoreTableRepository",
-        table_assignment_runtime: TableAssignmentRuntime,
+        table_inmemory_state: TableInmemoryState,
         logger: logging.Logger,
     ):
         self.database = database
         self.product_repository = product_repository
         self.order_repository = order_repository
         self.order_item_repository = order_item_repository
-        self.store_table_repository = store_table_repository
-        self.table_assignment_runtime = table_assignment_runtime
+        self.table_state = table_inmemory_state
         self.logger = logger
 
     def create_order(self, request: OrderRequest) -> CreateOrderResult:
-        product_ids = [item.product_id for item in request.items]
+        # 1. Validate the request payload.
+        rejection = self._validate_order_request(request)
+        if rejection is not None:
+            return CreateOrderResult.rejected(rejection)
 
+        # 2. Fetch products, create the order, and insert order items in one transaction.
         with self.database.transaction() as conn:
-            products = self.product_repository.list_by_ids_and_status(product_ids, "ON_SALE", conn)
-            prices = {product.product_id: product.price for product in products}
-            missing = sorted(set(product_ids) - set(prices))
-            if missing:
-                return CreateOrderResult.rejected(f"unknown or unavailable product_id={missing[0]}")
+            result = self._create_order_in_transaction(request, conn)
 
-            total_price = sum(prices[item.product_id] * item.quantity for item in request.items)
-            order_id = self.order_repository.create(
-                "COUNTER",
-                "PENDING",
-                None,
-                total_price,
-                conn,
-            )
-            self.order_item_repository.create_many(
-                [
-                    OrderItemCreate(
-                        order_id=order_id,
-                        product_id=item.product_id,
-                        selected_options=[],
-                        quantity=item.quantity,
-                        unit_price=prices[item.product_id],
-                    )
-                    for item in request.items
-                ],
-                conn,
-            )
+        # 3. Return any business rejection produced inside the transaction.
+        if not result.is_ok or result.created_order is None:
+            return result
 
-        created = CreatedOrder(order_id=order_id, total_price=total_price)
+        # 4. Log the created order and return a successful result.
+        created = result.created_order
         self.logger.info(
             "created order order_id=%s total_price=%s item_count=%s",
             created.order_id,
@@ -128,77 +140,191 @@ class OrderService:
         return CreateOrderResult.ok(created)
 
     def get_table_assignment(self):
-        return self.table_assignment_runtime.list_tables()
+        # 1. Return the current in-memory table state.
+        return self.table_state.get_states()
 
-    def determine_receive_type(self, request: TableAssignmentRequest) -> TableAssignmentResult:
-        # order 조회
-        order = self.order_repository.get(request.order_id)
+    def determine_receive_type(self, request: TableAssignmentRequest) -> DetermineReceiveTypeResult:
+        # 1. Load the order and reject unknown order IDs.
+        with self.database.connect() as conn:
+            order = self.order_repository.get(conn, request.order_id)
         if order is None:
-            return TableAssignmentResult.not_found(f"order {request.order_id} not found")
+            return DetermineReceiveTypeResult.not_found(f"order {request.order_id} not found")
 
-        # table_id에서 table_number 추출
-        order_source, receive_type, table_number = self._target_assignment(request)
-        current_table_number = self._table_number_for_table_id(order.table_id)
+        # 2. Convert the request into the assignment info stored in the database.
+        assignment_info = _AssignmentInfo(
+            order_source="COUNTER",
+            receive_type="TAKE_OUT" if request.receive_type == "take_out" else "DINE_IN",
+            table_number=None if request.receive_type == "take_out" else request.table_number,
+        )
 
-        # 
+        # 3. Return success immediately if the order already has the same assignment.
         if (
-            order.order_source == order_source
-            and order.receive_type == receive_type
-            and current_table_number == table_number
+            order.order_source == assignment_info.order_source
+            and order.receive_type == assignment_info.receive_type
+            and self._convert_table_id_to_number(order.table_id) == assignment_info.table_number
         ):
-            if order.order_status == "PENDING":
-                self.order_repository.accept_if_pending(request.order_id)
-            return TableAssignmentResult.ok()
+            return DetermineReceiveTypeResult.ok()
 
+        # 4. Reject orders that already have a different assignment.
         if order.receive_type != "PENDING" or order.table_id is not None:
-            return TableAssignmentResult.rejected(f"order {request.order_id} is already assigned")
+            return DetermineReceiveTypeResult.rejected(f"order {request.order_id} is already assigned")
 
-        occupied_table_id: int | None = None
-        if request.receive_type == "dine_in":
-            occupied_table_id, message = self.table_assignment_runtime.try_occupy_by_table_number(request.table_number)
-            if occupied_table_id is None:
-                return TableAssignmentResult.rejected(message)
+        # 5. Assign an in-memory table first for dine-in orders.
+        assignment_result = self._assign_table(request)
+        if not assignment_result.is_ok:
+            return DetermineReceiveTypeResult.rejected(assignment_result.message)
 
-        latest_order = None
-        try:
-            with self.database.transaction() as conn:
-                updated = self.order_repository.update_assignment_if_pending(
-                    request.order_id,
-                    order_source,
-                    receive_type,
-                    occupied_table_id,
-                    conn,
+        # 6. Persist the assignment and release the reservation if the DB update fails.
+        return self._update_receive_type(request, assignment_info, assignment_result)
+
+    def _create_order_in_transaction(
+        self,
+        request: OrderRequest,
+        conn: "Connection",
+    ) -> CreateOrderResult:
+        product_ids = [item.product_id for item in request.items]
+        products = self.product_repository.list_by_ids_and_status(
+            conn,
+            product_ids,
+            "ON_SALE",
+        )
+        prices = {product.product_id: product.price for product in products}
+
+        missing_product_ids = sorted(set(product_ids) - set(prices))
+        if missing_product_ids:
+            return CreateOrderResult.rejected(
+                f"unknown or unavailable product_id={missing_product_ids[0]}"
+            )
+
+        total_price = sum(prices[item.product_id] * item.quantity for item in request.items)
+        order_id = self.order_repository.create(
+            conn,
+            "COUNTER",
+            "PENDING",
+            None,
+            total_price,
+        )
+        self.order_item_repository.create_many(
+            conn,
+            [
+                OrderItemCreate(
+                    order_id=order_id,
+                    product_id=item.product_id,
+                    selected_options=[],
+                    quantity=item.quantity,
+                    unit_price=prices[item.product_id],
                 )
-                if not updated:
-                    latest_order = self.order_repository.get(request.order_id, conn)
-        except Exception:
-            if occupied_table_id is not None:
-                self.table_assignment_runtime.release(occupied_table_id)
-            raise
+                for item in request.items
+            ],
+        )
+        return CreateOrderResult.ok(
+            CreatedOrder(order_id=order_id, total_price=total_price)
+        )
 
-        if not updated:
-            if occupied_table_id is not None:
-                self.table_assignment_runtime.release(occupied_table_id)
-            if latest_order is None:
-                return TableAssignmentResult.not_found(f"order {request.order_id} not found")
-            latest_table_number = self._table_number_for_table_id(latest_order.table_id)
-            if (
-                latest_order.order_source == order_source
-                and latest_order.receive_type == receive_type
-                and latest_table_number == table_number
-            ):
-                return TableAssignmentResult.ok()
-            return TableAssignmentResult.rejected(f"order {request.order_id} is already assigned")
+    def _update_receive_type(
+        self,
+        request: TableAssignmentRequest,
+        assignment_info: "_AssignmentInfo",
+        assignment_result: "_TableAssignmentResult",
+    ) -> DetermineReceiveTypeResult:
+        with self.database.transaction() as conn:
+            updated = self.order_repository.update_assignment_if_pending(
+                conn,
+                request.order_id,
+                assignment_info.order_source,
+                assignment_info.receive_type,
+                assignment_result.table_id,
+            )
+            latest_order = None if updated else self.order_repository.get(conn, request.order_id)
 
-        return TableAssignmentResult.ok()
+        if updated:
+            return DetermineReceiveTypeResult.ok()
 
-    def _target_assignment(self, request: TableAssignmentRequest) -> tuple[str, str, int | None]:
+        if assignment_result.table_number is not None:
+            self.table_state.release(assignment_result.table_number)
+
+        if latest_order is None:
+            return DetermineReceiveTypeResult.not_found(f"order {request.order_id} not found")
+        elif (
+            latest_order.order_source == assignment_info.order_source
+            and latest_order.receive_type == assignment_info.receive_type
+            and latest_order.table_id == assignment_result.table_id
+        ):
+            return DetermineReceiveTypeResult.ok()
+        else:
+            return DetermineReceiveTypeResult.rejected(f"order {request.order_id} is already assigned")
+
+    def _validate_order_request(self, request: OrderRequest) -> str | None:
+        if not request.items:
+            return "order must contain at least one item"
+        for item in request.items:
+            if item.product_id <= 0:
+                return f"invalid product_id={item.product_id}"
+            if item.quantity <= 0:
+                return f"invalid quantity={item.quantity} for product_id={item.product_id}"
+        return None
+
+    def _assign_table(self, request: TableAssignmentRequest) -> "_TableAssignmentResult":
         if request.receive_type == "take_out":
-            return "COUNTER", "TAKE_OUT", None
-        return "COUNTER", "DINE_IN", request.table_number
+            return _TableAssignmentResult.ok()
 
-    def _table_number_for_table_id(self, table_id: int | None) -> int | None:
+        occupied_table_number, message = self.table_state.occupy(request.table_number)
+        if occupied_table_number is None:
+            return _TableAssignmentResult.rejected(message)
+
+        table_id = None
+        for table in self.table_state.get_states():
+            if table.table_number == occupied_table_number:
+                table_id = table.table_id
+                break
+
+        if table_id is None:
+            self.table_state.release(occupied_table_number)
+            return _TableAssignmentResult.rejected(f"unknown table_number={occupied_table_number}")
+
+        return _TableAssignmentResult.ok(table_number=occupied_table_number, table_id=table_id)
+
+    def _convert_table_id_to_number(self, table_id: int | None) -> int | None:
         if table_id is None:
             return None
-        table = self.store_table_repository.get(table_id)
-        return table.table_number if table is not None else None
+        for table in self.table_state.get_states():
+            if table.table_id == table_id:
+                return table.table_number
+        return None
+
+    def list_recent_orders(self, limit: int = 20):
+        with self.database.connect() as conn:
+            return self.order_repository.list_recent(conn, limit)
+
+    def claim_workflow_orders(self, limit: int = 10) -> list[ClaimedWorkflowOrder]:
+        with self.database.transaction() as conn:
+            claimed = self.order_repository.claim_accepted_orders(conn, limit)
+            return [
+                ClaimedWorkflowOrder(
+                    order_id=int(order.order_id),
+                    receive_type=str(order.receive_type),
+                    table_number=order.table_number,
+                    order_items=[
+                        ManufactureOrderItem(
+                            product_id=int(item.product_id),
+                            product_name=str(item.product_name),
+                            selected_options=list(item.selected_options),
+                            quantity=int(item.quantity),
+                            unit_price=int(item.unit_price),
+                        )
+                        for item in self.order_item_repository.list_by_order_id(
+                            conn,
+                            int(order.order_id),
+                        )
+                    ],
+                )
+                for order in claimed
+            ]
+
+    def complete_workflow_order(self, order_id: int) -> bool:
+        with self.database.connect() as conn:
+            return self.order_repository.mark_completed(conn, order_id)
+
+    def fail_workflow_order(self, order_id: int) -> bool:
+        with self.database.connect() as conn:
+            return self.order_repository.mark_failed(conn, order_id)

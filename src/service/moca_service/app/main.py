@@ -10,9 +10,8 @@ from app.communication.admin_gui.monitor import AdminGuiMonitorPublisher
 from app.communication.controller_ports import DDoobyActionManufacturePort, DobyModeServingPort
 from app.communication.ddooby_controller import create_ddooby_controller_runtime
 from app.communication.doby_controller import create_doby_controller_runtime
-from app.domain.order_orchestration_runtime import OrderOrchestrationRuntime
 from app.communication.web_service import create_web_service_tcp_server
-from app.domain.table_assignment_runtime import StoreTableDefinition, TableAssignmentRuntime
+from app.in_memory.table_inmemory_state import TableInmemoryState
 from app.repository.catalog_repo import (
     AllergyCategoryRepository,
     ProductAllergyRepository,
@@ -21,7 +20,8 @@ from app.repository.catalog_repo import (
 )
 from app.repository.db import Database, DbConfig
 from app.repository.order_repo import OrderItemRepository, OrderRepository
-from app.repository.table_repo import StoreTableRepository
+from app.repository.table_repo import TableRepository
+from app.scheduler.workflow_scheduler import OrderWorkflowScheduler
 from app.service.menu_service import MenuService
 from app.service.order_service import OrderService
 
@@ -42,34 +42,24 @@ def main() -> None:
 
     # create Service, Repo
     database = Database(db_config)
-    product_repository = ProductRepository(database)
-    product_option_group_repository = ProductOptionGroupRepository(database)
-    allergy_category_repository = AllergyCategoryRepository(database)
-    product_allergy_repository = ProductAllergyRepository(database)
-    order_repository = OrderRepository(database)
-    order_item_repository = OrderItemRepository(database)
-    store_table_repository = StoreTableRepository(database)
-    table_assignment_runtime = TableAssignmentRuntime(
-        [
-            StoreTableDefinition(
-                table_id=table.table_id,
-                table_number=table.table_number,
-                pos_x=table.pos_x,
-                pos_y=table.pos_y,
-            )
-            for table in store_table_repository.list_all()
-        ]
-    )
+    product_repository = ProductRepository()
+    product_option_group_repository = ProductOptionGroupRepository()
+    allergy_category_repository = AllergyCategoryRepository()
+    product_allergy_repository = ProductAllergyRepository()
+    order_repository = OrderRepository()
+    order_item_repository = OrderItemRepository()
+    store_table_repository = TableRepository()
+    table_inmemory_state = TableInmemoryState(database, store_table_repository)
     order_service = OrderService(
         database,
         product_repository,
         order_repository,
         order_item_repository,
-        store_table_repository,
-        table_assignment_runtime,
+        table_inmemory_state,
         logger,
     )
     menu_service = MenuService(
+        database,
         product_repository,
         product_option_group_repository,
         allergy_category_repository,
@@ -129,9 +119,8 @@ def main() -> None:
         action_timeout_sec=config.ddooby_controller_action_timeout_sec,
     )
     manufacture_port = DDoobyActionManufacturePort(ddooby_controller_runtime, logger)
-    order_orchestration_runtime = OrderOrchestrationRuntime(
-        order_repository=order_repository,
-        order_item_repository=order_item_repository,
+    order_orchestration_runtime = OrderWorkflowScheduler(
+        order_service=order_service,
         manufacture_port=manufacture_port,
         serving_port=DobyModeServingPort(doby_controller_runtime, logger),
         logger=logger,
