@@ -9,21 +9,24 @@
 #   2026-05-26 업데이트 — Nav2 제거, 중복 노드 kill 추가,
 #              RPi mobility_controller 시동 추가, mode_follow 추가
 #   2026-05-27 ROS 노드 백그라운드 실행 — Tracking Viz 창 하나만 표시
+#   2026-05-27 시나리오 자동화 — engaging 모드로 시작하여 자동 전환
 #
-# 추종 시나리오 (Nav2 불필요):
-#   ① 사람 탐지/그룹 클러스터링 (dev_common)
-#   ② 사람 접근 (approach_controller — RPi)
-#   ③ 1인 customer_id 고정 (mode_follow)
-#   ④ 거리/방향 유지 추종 (follow_controller — RPi)
-#   ※ ⑤ 카운터 안내(동행)는 Nav2 필요 — 별도 시나리오
+# 추종 시나리오 전체 흐름 (자동):
+#   ① 사람 탐지/그룹 클러스터링 (dev_common — always-on)
+#   ② 그룹 접근 (approach_controller — RPi, /customer_pose 기반 PD제어)
+#   ③ close_threshold 도달 → engaging 모드 자동 전환
+#      (게임/아이스브레이크 + GEVA 감정분석 시작)
+#   ④ 감정 valence >= threshold → target_selector가 customer_id 확정
+#      → follow 모드 자동 전환
+#   ⑤ 1인 추종 (follow_controller — RPi)
 #
 # 시동 순서:
 #   [0] 기존 노드 kill (중복 방지)
 #   [1/4] RPi vicpinky bringup (run_vic_bringup.sh via SSH)
 #   [2/4] RPi mobility_controller (approach + follow controller)
 #   [3/4] 카메라 (run_robot_cam.sh)
-#   [4/4] 노트북 dev_common + mode_follow
-#   [auto] follow 모드 자동 전환
+#   [4/4] 노트북 dev_common + mode_engaging (engaging 모드로 시작)
+#   [auto] engaging 모드 전환 (이후 follow 전환은 target_selector 자동 처리)
 #   [viz] Tracking Viz 창 하나만 팝업
 #
 # 로그 파일 (문제 발생 시 확인):
@@ -31,7 +34,7 @@
 #   /tmp/log_mobility_ctrl.log
 #   /tmp/log_robot_cam.log
 #   /tmp/log_dev_common.log
-#   /tmp/log_mode_follow.log
+#   /tmp/log_mode_engaging.log
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -84,6 +87,7 @@ pkill -f "customer_identity"     2>/dev/null
 pkill -f "person_detector"       2>/dev/null
 pkill -f "dev_common.launch"     2>/dev/null
 pkill -f "mode_follow.launch"    2>/dev/null
+pkill -f "mode_engaging.launch"  2>/dev/null
 pkill -f "viz_tracking"          2>/dev/null
 sleep 3
 echo " → 정리 완료"
@@ -133,7 +137,7 @@ fi
 sleep 5
 
 # ============================================================
-# [4/4] 노트북 dev_common + mode_follow (백그라운드, 창 없음)
+# [4/4] 노트북 dev_common + mode_engaging (백그라운드, 창 없음)
 # ============================================================
 echo ""
 echo "[4/4] dev_common 시동..."
@@ -142,16 +146,16 @@ bash -c "$SOURCE_CMD && ros2 launch dobi_npc_bringup dev_common.launch.py" \
 sleep 8
 
 echo ""
-echo " mode_follow 시동..."
-bash -c "$SOURCE_CMD && ros2 launch dobi_npc_bringup mode_follow.launch.py" \
-    > /tmp/log_mode_follow.log 2>&1 &
+echo " mode_engaging 시동 (bt_executor + minigame + customer_identity + target_selector)..."
+bash -c "$SOURCE_CMD && ros2 launch dobi_npc_bringup mode_engaging.launch.py" \
+    > /tmp/log_mode_engaging.log 2>&1 &
 sleep 8
 
 # ============================================================
-# [auto] follow 모드 전환
+# [auto] engaging 모드 전환 (이후 follow 전환은 target_selector 자동 처리)
 # ============================================================
 echo ""
-echo " follow 모드 자동 전환..."
+echo " engaging 모드 자동 전환..."
 source /opt/ros/jazzy/setup.bash
 source "$WS/install/local_setup.bash" 2>/dev/null || true
 source "$DOBY_INSTALL/local_setup.bash" 2>/dev/null || true
@@ -159,8 +163,12 @@ export ROS_DOMAIN_ID=22
 export ROS_STATIC_PEERS=$ROBOT_IP
 export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 ros2 service call /mode/request dobi_npc_msgs/srv/SetMode \
-    "{requested_mode: 'follow', params: '{}'}" 2>/dev/null \
-    | grep -E "success|current_mode" || echo " (모드 전환 응답 없음 — 수동으로: ros2 service call /mode/request dobi_npc_msgs/srv/SetMode \"{requested_mode: 'follow', params: '{}'}\""
+    "{requested_mode: 'engaging', params: '{}'}" 2>/dev/null \
+    | grep -E "success|current_mode" || echo " (모드 전환 응답 없음 — 수동으로: ros2 service call /mode/request dobi_npc_msgs/srv/SetMode \"{requested_mode: 'engaging', params: '{}'}\""
+echo ""
+echo " ※ 이후 흐름 자동:"
+echo "   approach_controller → close_threshold 도달 → engaging 모드 진입"
+echo "   GEVA 감정 분석 → valence >= 0.3 → target_selector → follow 모드 자동 전환"
 
 # ============================================================
 # [viz] Tracking Viz — 이 창 하나만 표시
@@ -189,6 +197,7 @@ echo " 시동 완료! (Tracking Viz 창 하나만 표시)"
 echo ""
 echo " 문제 시 로그 확인:"
 echo "   tail -f /tmp/log_dev_common.log"
+echo "   tail -f /tmp/log_mode_engaging.log"
 echo "   tail -f /tmp/log_mobility_ctrl.log"
 echo "   tail -f /tmp/log_rpi_bringup.log"
 echo ""

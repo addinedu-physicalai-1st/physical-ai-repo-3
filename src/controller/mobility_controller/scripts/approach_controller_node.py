@@ -10,6 +10,8 @@ approach_controller_node — customer_pose → /bt/cmd_vel PD제어 접근 컨�
   - d_err_x는 EMA 필터로 카메라 노이즈 억제
   - dead_zone 적용 후 미분 계산 (무감대 내에선 오차=0으로 고정)
 
+close_threshold 도달 시 → SetMode('engaging') 자동 전환 (한 번만)
+
 이관: mobility_controller (RPi) — 2026-05-26
   원본: person_tracking_pkg/approach_controller_node.py (노트북)
 """
@@ -23,6 +25,8 @@ from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import PoseStamped, Twist
 from std_msgs.msg import Int32
 from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+from dobi_npc_msgs.srv import SetMode
 
 
 class ApproachControllerNode(Node):
@@ -59,6 +63,10 @@ class ApproachControllerNode(Node):
         self._cy: float          = 0.5
         self._bh: float          = 0.0   # bbox 높이 비율 (거리 프록시)
         self._last_pose_t: float = 0.0
+
+        # close_threshold 도달 시 engaging 모드 자동 전환 (한 번만)
+        self._engaging_triggered: bool = False
+        self._set_mode_client = self.create_client(SetMode, '/mode/request')
 
         # PD 상태
         self._prev_err_x: float  = 0.0
@@ -122,6 +130,10 @@ class ApproachControllerNode(Node):
         # bbox 높이 비율(bh)이 close_threshold 미만일 때만 전진 (bh 클수록 가까움)
         if self._bh < self._close_thresh:
             twist.linear.x = self._linear_speed
+        elif not self._engaging_triggered:
+            # 처음 close_threshold 도달 → engaging 모드 자동 전환
+            self._engaging_triggered = True
+            self._switch_to_engaging()
 
         self._prev_err_x = err_x
         self._prev_tick_t = now
@@ -132,6 +144,18 @@ class ApproachControllerNode(Node):
             f'(cx={self._cx:.2f} bh={self._bh:.2f} '
             f'err={err_x:.3f} d_f={self._d_filtered:.3f})'
         )
+
+
+    def _switch_to_engaging(self):
+        """engaging 모드로 자동 전환 (close_threshold 도달 시 1회)."""
+        if not self._set_mode_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn('mode_manager 서비스 없음 — 수동으로 engaging 전환 필요')
+            return
+        req = SetMode.Request()
+        req.requested_mode = 'engaging'
+        req.params = '{}'
+        self._set_mode_client.call_async(req)
+        self.get_logger().info('→ engaging 모드 자동 전환 요청 (close_threshold 도달)')
 
 
 def main(args=None):

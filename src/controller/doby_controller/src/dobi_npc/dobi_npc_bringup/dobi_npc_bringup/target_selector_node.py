@@ -26,6 +26,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 from dobi_npc_msgs.msg import EmotionState, CustomerRegistry
+from dobi_npc_msgs.srv import SetMode
 
 
 class TargetSelectorNode(Node):
@@ -57,6 +58,10 @@ class TargetSelectorNode(Node):
             CustomerRegistry, '/customer/registry', self._on_registry, 10)
 
         self._pub = self.create_publisher(String, '/follow/target', 10)
+
+        # follow 모드 자동 전환용 서비스 클라이언트
+        self._set_mode_client = self.create_client(SetMode, '/mode/request')
+        self._mode_switched = False  # 한 번만 전환
 
         self.get_logger().info(
             f'target_selector_node ready '
@@ -108,6 +113,23 @@ class TargetSelectorNode(Node):
             f'추종 대상 선택: customer_id={customer_id} '
             f'(track_id={msg.track_id}, valence={msg.valence:.2f})'
         )
+
+        # customer 확정 → follow 모드 자동 전환 (한 번만)
+        if not self._mode_switched:
+            self._mode_switched = True
+            self._switch_to_follow()
+
+
+    def _switch_to_follow(self):
+        """follow 모드로 자동 전환."""
+        if not self._set_mode_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn('mode_manager 서비스 없음 — 수동으로 follow 전환 필요')
+            return
+        req = SetMode.Request()
+        req.requested_mode = 'follow'
+        req.params = '{}'
+        self._set_mode_client.call_async(req)
+        self.get_logger().info('→ follow 모드 자동 전환 요청')
 
 
 def main(args=None):
