@@ -3,11 +3,11 @@
 ACT model worker — lerobot venv에서 실행.
 shared memory로 이미지/관절을 받고, Unix socket으로 GO/DONE 신호만 주고받는다.
 
-설정은 waiter.py가 전달하는 --config-path YAML 파일에서 읽는다.
-모든 상수(TOP_SHAPE, CHUNK_SIZE 등)가 waiter.py와 자동으로 동기화된다.
+설정은 act_serving_action_server.py가 전달하는 --config-path YAML 파일에서 읽는다.
+이미지 shape, action chunk 크기 등은 act_serving_config.yaml로 동기화된다.
 
 프로토콜:
-  - waiter.py가 shared memory에 top/wrist 이미지와 관절 상태를 쓴다.
+  - act_serving_action_server.py가 shared memory에 top/wrist 이미지와 관절 상태를 쓴다.
   - Unix socket으로 b'G' + uint32(delay)를 보내 추론을 요청한다.
   - worker는 action chunk를 shared memory에 쓰고 b'D'로 완료를 알린다.
 """
@@ -26,12 +26,12 @@ from lerobot.policies import make_pre_post_processors
 from lerobot.policies.utils import prepare_observation_for_inference
 
 
-def _load_config(path: str) -> dict:
+def load_act_serving_config(path: str) -> dict:
     with open(path, 'r') as f:
         return yaml.safe_load(f)
 
 
-def _recv_exact(sock, n: int) -> bytes:
+def receive_exactly(sock, n: int) -> bytes:
     buf = bytearray()
     while len(buf) < n:
         data = sock.recv(n - len(buf))
@@ -49,29 +49,27 @@ def main():
     parser.add_argument('--socket-path',  required=True)
     parser.add_argument('--shm-obs-name', required=True)
     parser.add_argument('--shm-act-name', required=True)
-    parser.add_argument('--config-path',  required=True, help='waiter_config.yaml 경로')
+    parser.add_argument('--config-path',  required=True, help='act_serving_config.yaml 경로')
     args = parser.parse_args()
 
     # ── 설정 로드 ────────────────────────────────────────────────────────────
-    cfg    = _load_config(args.config_path)
-    mem    = cfg['memory']
+    config = load_act_serving_config(args.config_path)
+    memory_config = config['memory']
 
-    TOP_SHAPE   = tuple(mem['top_shape'])
-    WRIST_SHAPE = tuple(mem['wrist_shape'])
-    STATE_DIM   = mem['state_dim']
-    CHUNK_SIZE  = mem['chunk_size']
-    ACTION_DIM  = mem['action_dim']
+    top_image_shape = tuple(memory_config['top_shape'])
+    wrist_image_shape = tuple(memory_config['wrist_shape'])
+    state_dimension = memory_config['state_dim']
+    action_chunk_size = memory_config['chunk_size']
+    action_dimension = memory_config['action_dim']
 
-    TOP_BYTES   = int(np.prod(TOP_SHAPE))
-    WRIST_BYTES = int(np.prod(WRIST_SHAPE))
-    STATE_BYTES = STATE_DIM * 4
-    OBS_BYTES   = TOP_BYTES + WRIST_BYTES + STATE_BYTES
-    ACT_PLANES  = 2
-    ACT_BYTES   = ACT_PLANES * CHUNK_SIZE * ACTION_DIM * 4
+    top_image_bytes = int(np.prod(top_image_shape))
+    wrist_image_bytes = int(np.prod(wrist_image_shape))
+    action_planes = 2
 
     print(
-        f'[act_worker] config: chunk_size={CHUNK_SIZE} action_dim={ACTION_DIM} '
-        f'state_dim={STATE_DIM} top={TOP_SHAPE} wrist={WRIST_SHAPE}',
+        f'[act_policy_worker] config: chunk_size={action_chunk_size} '
+        f'action_dim={action_dimension} state_dim={state_dimension} '
+        f'top={top_image_shape} wrist={wrist_image_shape}',
         flush=True,
     )
 
@@ -80,23 +78,37 @@ def main():
     shm_obs = SharedMemory(name=args.shm_obs_name)
     shm_act = SharedMemory(name=args.shm_act_name)
 
-    top_buf   = np.ndarray(TOP_SHAPE,   dtype=np.uint8,   buffer=shm_obs.buf, offset=0)
-    wrist_buf = np.ndarray(WRIST_SHAPE, dtype=np.uint8,   buffer=shm_obs.buf, offset=TOP_BYTES)
-    state_buf = np.ndarray(STATE_DIM,   dtype=np.float32, buffer=shm_obs.buf, offset=TOP_BYTES + WRIST_BYTES)
-    act_buf   = np.ndarray((ACT_PLANES, CHUNK_SIZE, ACTION_DIM), dtype=np.float32, buffer=shm_act.buf)
+    top_image_buffer = np.ndarray(
+        top_image_shape, dtype=np.uint8, buffer=shm_obs.buf, offset=0
+    )
+    wrist_image_buffer = np.ndarray(
+        wrist_image_shape, dtype=np.uint8, buffer=shm_obs.buf, offset=top_image_bytes
+    )
+    joint_state_buffer = np.ndarray(
+        state_dimension,
+        dtype=np.float32,
+        buffer=shm_obs.buf,
+        offset=top_image_bytes + wrist_image_bytes,
+    )
+    action_buffer = np.ndarray(
+        (action_planes, action_chunk_size, action_dimension),
+        dtype=np.float32,
+        buffer=shm_act.buf,
+    )
 
     # ── 모델 로딩 ────────────────────────────────────────────────────────────
-    print(f'[act_worker] Loading ACT from {args.model_path} on {args.device} ...', flush=True)
+    print(f'[act_policy_worker] Loading ACT from {args.model_path} on {args.device} ...', flush=True)
     model = ACTPolicy.from_pretrained(args.model_path)
     model.to(args.device)
     model.eval()
     device = torch.device(args.device)
 
     model_chunk = model.config.chunk_size
-    if model_chunk > CHUNK_SIZE:
+    if model_chunk > action_chunk_size:
         print(
-            f'[act_worker] WARNING: model chunk_size={model_chunk} > CHUNK_SIZE={CHUNK_SIZE}. '
-            f'memory.chunk_size를 waiter_config.yaml에서 {model_chunk} 이상으로 늘려야 한다.',
+            f'[act_policy_worker] WARNING: model chunk_size={model_chunk} '
+            f'> configured chunk_size={action_chunk_size}. '
+            f'memory.chunk_size를 act_serving_config.yaml에서 {model_chunk} 이상으로 늘려야 한다.',
             flush=True,
         )
 
@@ -105,7 +117,7 @@ def main():
         args.model_path,
         preprocessor_overrides={'device_processor': {'device': args.device}},
     )
-    print(f'[act_worker] Model loaded. chunk_size={model_chunk}', flush=True)
+    print(f'[act_policy_worker] Model loaded. chunk_size={model_chunk}', flush=True)
 
     # ── Unix socket 연결 ─────────────────────────────────────────────────────
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -120,39 +132,39 @@ def main():
 
         if cmd == b'G':
             # 프로토콜: uint32(inference_delay)
-            inference_delay = struct.unpack('>I', _recv_exact(sock, 4))[0]
+            inference_delay = struct.unpack('>I', receive_exactly(sock, 4))[0]
 
-            top   = top_buf.copy()
-            wrist = wrist_buf.copy()
-            state = state_buf.copy()
+            top_image = top_image_buffer.copy()
+            wrist_image = wrist_image_buffer.copy()
+            joint_state = joint_state_buffer.copy()
 
             obs_dict = {
-                'observation.images.top':   top,
-                'observation.images.wrist': wrist,
-                'observation.state':        state,
+                'observation.images.top':   top_image,
+                'observation.images.wrist': wrist_image,
+                'observation.state':        joint_state,
             }
-            obs = prepare_observation_for_inference(
+            observation = prepare_observation_for_inference(
                 obs_dict, device, task=None, robot_type=args.robot_type
             )
-            obs = preprocess(obs)
+            observation = preprocess(observation)
 
             with torch.no_grad():
-                chunk = model.predict_action_chunk(obs)   # (1, chunk_size, action_dim)
+                raw_action_chunk = model.predict_action_chunk(observation)
 
-            original_chunk  = chunk.squeeze(0).clone()
-            processed_chunk = postprocess(chunk).squeeze(0)
+            original_chunk = raw_action_chunk.squeeze(0).clone()
+            processed_chunk = postprocess(raw_action_chunk).squeeze(0)
 
-            rows = min(len(processed_chunk.cpu().numpy()), CHUNK_SIZE)
-            act_buf[:] = 0
-            act_buf[0, :rows] = original_chunk.cpu().numpy()[:rows]
-            act_buf[1, :rows] = processed_chunk.cpu().numpy()[:rows]
+            rows = min(len(processed_chunk.cpu().numpy()), action_chunk_size)
+            action_buffer[:] = 0
+            action_buffer[0, :rows] = original_chunk.cpu().numpy()[:rows]
+            action_buffer[1, :rows] = processed_chunk.cpu().numpy()[:rows]
 
             sock.sendall(b'D')   # DONE
 
     shm_obs.close()
     shm_act.close()
     sock.close()
-    print('[act_worker] Shutdown.', flush=True)
+    print('[act_policy_worker] Shutdown.', flush=True)
 
 
 if __name__ == '__main__':

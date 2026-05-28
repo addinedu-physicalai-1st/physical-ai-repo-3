@@ -1,4 +1,4 @@
-# waiter.py / act_worker.py 공통 설정
+# act_serving_action_server.py / act_policy_worker.py 공통 설정
 # 이 파일의 값이 스크립트 하드코딩 상수를 대체한다.
 
 # ── 모델 ────────────────────────────────────────────────────────────────────
@@ -13,7 +13,7 @@ control:
   hz:                    30.0   # 목표 제어 주파수
   interpolation_mult:    3      # 보간 배수 (30Hz × 3 = 90Hz sub-step)
   ema_alpha:             0.43   # gripper EMA (arm 관절에는 미적용)
-  rtc_queue_threshold:   30     # 큐가 이 값 이하일 때 다음 추론 트리거
+  inference_queue_refill_threshold: 30  # 큐가 이 값 이하일 때 다음 추론 트리거
 
 # ── 태스크 지속시간 ──────────────────────────────────────────────────────────
 # 0이면 무제한 (홈 포지션 감지 또는 수동 취소로 종료)
@@ -22,7 +22,7 @@ task:
   pickup_duration_s:  15.0
 
 # ── Shared Memory 레이아웃 ──────────────────────────────────────────────────
-# waiter.py와 act_worker.py가 반드시 동일한 값을 사용해야 한다.
+# act_serving_action_server.py와 act_policy_worker.py가 반드시 동일한 값을 사용해야 한다.
 memory:
   chunk_size:  100   # ACT config.chunk_size (모델 학습 설정과 일치)
   action_dim:  6     # 관절 수

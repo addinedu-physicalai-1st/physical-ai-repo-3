@@ -10,10 +10,13 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', ['launch/serving.launch.py']),
+        ('share/' + package_name + '/launch', [
+            'launch/act_serving.launch.py',
+            'launch/single_arm_controller.launch.py',
+        ]),
         ('share/' + package_name + '/config', [
             'config/single_arm_controller.yaml',
-            'config/waiter_config.yaml',
+            'config/act_serving_config.yaml',
         ]),
     ],
     install_requires=['setuptools'],
@@ -29,7 +32,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'waiter  = single_arm_controller.waiter:main',
+            'act_serving_controller = single_arm_controller.act_serving_action_server:main',
+            'controller_status_monitor = single_arm_controller.controller_status_monitor:main',
         ],
     },
 )

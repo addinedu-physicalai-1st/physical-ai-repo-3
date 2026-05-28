@@ -14,8 +14,8 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='single_arm_controller',
-            executable='single_arm_controller_node',
-            name='single_arm_controller',
+            executable='controller_status_monitor',
+            name='controller_status_monitor',
             output='screen',
             parameters=[config_file],
         ),

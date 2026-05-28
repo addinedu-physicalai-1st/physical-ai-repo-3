@@ -1,10 +1,10 @@
 """
-waiter.py — ACT 기반 ROS Action Server
+act_serving_action_server.py — ACT 기반 ROS Action Server
 
-모든 설정은 waiter_config.yaml에서 읽는다.
+모든 설정은 act_serving_config.yaml에서 읽는다.
 스크립트 내 하드코딩 상수는 없으며, YAML 변경만으로 동작을 제어할 수 있다.
 
-기본 config 경로: <package_root>/config/waiter_config.yaml
+기본 config 경로: <package_root>/config/act_serving_config.yaml
 ROS 파라미터: config_path  (오버라이드 가능)
 
 Sync 디버그는 build_inference_local_server.md 참고.
@@ -32,23 +32,23 @@ from rclpy.node import Node
 
 from single_arm_controller_interfaces.action import Pickup, Serve
 
-# 기본 config 경로: 이 파일 기준 ../config/waiter_config.yaml
-_DEFAULT_CONFIG_PATH = str(Path(__file__).parent.parent / 'config' / 'waiter_config.yaml')
+# 기본 config 경로: 이 파일 기준 ../config/act_serving_config.yaml
+_DEFAULT_CONFIG_PATH = str(Path(__file__).parent.parent / 'config' / 'act_serving_config.yaml')
 
 
 # ── VLM 완료 판단 ─────────────────────────────────────────────────────────────
 
-def _vlm_check_task_complete(
+def check_task_completion_with_vlm(
     image_rgb: np.ndarray,
     prompt: str,
-    vlm_cfg: dict,
+    vlm_config: dict,
 ) -> tuple[bool, str]:
     """top 카메라 이미지를 Ollama VLM에 보내 task 완료 여부를 확인한다.
 
     Args:
         image_rgb: RGB uint8 (H, W, 3)
         prompt:    VLM에 보낼 완료 판단 프롬프트 (YAML에서 읽음)
-        vlm_cfg:   YAML vlm 섹션 dict
+        vlm_config: YAML vlm 섹션 dict
 
     Returns:
         (complete: bool, raw_answer: str)
@@ -58,14 +58,14 @@ def _vlm_check_task_complete(
     img_b64 = base64.b64encode(buf.tobytes()).decode('utf-8')
 
     resp = requests.post(
-        f"{vlm_cfg['host']}/api/chat",
+        f"{vlm_config['host']}/api/chat",
         json={
-            'model':    vlm_cfg['model'],
+            'model':    vlm_config['model'],
             'messages': [{'role': 'user', 'content': prompt, 'images': [img_b64]}],
             'stream':   False,
             'options':  {'temperature': 0},
         },
-        timeout=float(vlm_cfg['timeout_s']),
+        timeout=float(vlm_config['timeout_s']),
     )
     resp.raise_for_status()
     answer  = resp.json()['message']['content'].strip()
@@ -75,93 +75,113 @@ def _vlm_check_task_complete(
 
 # ── 설정 로드 ─────────────────────────────────────────────────────────────────
 
-def _load_config(path: str) -> dict:
+def load_act_serving_config(path: str) -> dict:
     """YAML 설정 파일을 읽어 dict로 반환한다."""
     with open(path, 'r') as f:
-        cfg = yaml.safe_load(f)
+        config = yaml.safe_load(f)
 
     # 파생 값 계산 (memory 섹션)
-    mem = cfg['memory']
-    top_shape   = tuple(mem['top_shape'])
-    wrist_shape = tuple(mem['wrist_shape'])
-    state_dim   = mem['state_dim']
-    chunk_size  = mem['chunk_size']
-    action_dim  = mem['action_dim']
+    memory_config = config['memory']
+    top_image_shape = tuple(memory_config['top_shape'])
+    wrist_image_shape = tuple(memory_config['wrist_shape'])
+    state_dimension = memory_config['state_dim']
+    action_chunk_size = memory_config['chunk_size']
+    action_dimension = memory_config['action_dim']
 
-    mem['_top_bytes']   = int(np.prod(top_shape))
-    mem['_wrist_bytes'] = int(np.prod(wrist_shape))
-    mem['_state_bytes'] = state_dim * 4
-    mem['_obs_bytes']   = mem['_top_bytes'] + mem['_wrist_bytes'] + mem['_state_bytes']
-    mem['_act_planes']  = 2
-    mem['_act_bytes']   = 2 * chunk_size * action_dim * 4
+    memory_config['_top_bytes'] = int(np.prod(top_image_shape))
+    memory_config['_wrist_bytes'] = int(np.prod(wrist_image_shape))
+    memory_config['_state_bytes'] = state_dimension * 4
+    memory_config['_obs_bytes'] = (
+        memory_config['_top_bytes']
+        + memory_config['_wrist_bytes']
+        + memory_config['_state_bytes']
+    )
+    memory_config['_act_planes'] = 2
+    memory_config['_act_bytes'] = 2 * action_chunk_size * action_dimension * 4
 
-    return cfg
+    return config
 
 
-class _TaskComplete(Exception):
+class TaskCompleted(Exception):
     pass
 
 
-# ── ModelProcess ─────────────────────────────────────────────────────────────
+# ── ACT policy worker client ─────────────────────────────────────────────────
 
-class ModelProcess:
+class ActPolicyWorkerClient:
     """
     ACT 워커 프로세스를 관리한다.
     공유 메모리 크기와 워커 실행 인자를 YAML 설정에서 읽는다.
     """
 
-    def __init__(self, cfg: dict):
-        mdl = cfg['model']
-        mem = cfg['memory']
+    def __init__(self, config: dict):
+        model_config = config['model']
+        memory_config = config['memory']
 
-        top_shape   = tuple(mem['top_shape'])
-        wrist_shape = tuple(mem['wrist_shape'])
-        state_dim   = mem['state_dim']
-        chunk_size  = mem['chunk_size']
-        action_dim  = mem['action_dim']
+        top_image_shape = tuple(memory_config['top_shape'])
+        wrist_image_shape = tuple(memory_config['wrist_shape'])
+        state_dimension = memory_config['state_dim']
+        action_chunk_size = memory_config['chunk_size']
+        action_dimension = memory_config['action_dim']
 
-        obs_bytes = mem['_obs_bytes']
-        act_bytes = mem['_act_bytes']
-        act_planes = mem['_act_planes']
+        observation_bytes = memory_config['_obs_bytes']
+        action_bytes = memory_config['_act_bytes']
+        action_planes = memory_config['_act_planes']
 
         from multiprocessing.shared_memory import SharedMemory
-        self._shm_obs = SharedMemory(create=True, size=obs_bytes)
-        self._shm_act = SharedMemory(create=True, size=act_bytes)
+        self._shm_obs = SharedMemory(create=True, size=observation_bytes)
+        self._shm_act = SharedMemory(create=True, size=action_bytes)
 
-        top_bytes   = mem['_top_bytes']
-        wrist_bytes = mem['_wrist_bytes']
+        top_image_bytes = memory_config['_top_bytes']
+        wrist_image_bytes = memory_config['_wrist_bytes']
 
-        self._top_buf   = np.ndarray(top_shape,   dtype=np.uint8,   buffer=self._shm_obs.buf, offset=0)
-        self._wrist_buf = np.ndarray(wrist_shape, dtype=np.uint8,   buffer=self._shm_obs.buf, offset=top_bytes)
-        self._state_buf = np.ndarray(state_dim,   dtype=np.float32, buffer=self._shm_obs.buf, offset=top_bytes + wrist_bytes)
-        self._act_buf   = np.ndarray((act_planes, chunk_size, action_dim), dtype=np.float32, buffer=self._shm_act.buf)
+        self._top_image_buffer = np.ndarray(
+            top_image_shape, dtype=np.uint8, buffer=self._shm_obs.buf, offset=0
+        )
+        self._wrist_image_buffer = np.ndarray(
+            wrist_image_shape,
+            dtype=np.uint8,
+            buffer=self._shm_obs.buf,
+            offset=top_image_bytes,
+        )
+        self._joint_state_buffer = np.ndarray(
+            state_dimension,
+            dtype=np.float32,
+            buffer=self._shm_obs.buf,
+            offset=top_image_bytes + wrist_image_bytes,
+        )
+        self._action_buffer = np.ndarray(
+            (action_planes, action_chunk_size, action_dimension),
+            dtype=np.float32,
+            buffer=self._shm_act.buf,
+        )
         self._lock = threading.Lock()
 
-        self._sock_path   = tempfile.mktemp(prefix='act_worker_', suffix='.sock')
+        self._sock_path   = tempfile.mktemp(prefix='act_policy_worker_', suffix='.sock')
         self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._server_sock.bind(self._sock_path)
         self._server_sock.listen(1)
 
-        worker_script = str(Path(__file__).parent / 'act_worker.py')
-        config_path   = cfg.get('_config_path', _DEFAULT_CONFIG_PATH)
+        worker_script = str(Path(__file__).parent / 'act_policy_worker.py')
+        config_path = config.get('_config_path', _DEFAULT_CONFIG_PATH)
 
         self._proc = subprocess.Popen([
-            mdl['python'], worker_script,
-            '--model-path',   mdl['path'],
-            '--device',       mdl['device'],
-            '--robot-type',   mdl['robot_type'],
+            model_config['python'], worker_script,
+            '--model-path',   model_config['path'],
+            '--device',       model_config['device'],
+            '--robot-type',   model_config['robot_type'],
             '--socket-path',  self._sock_path,
             '--shm-obs-name', self._shm_obs.name,
             '--shm-act-name', self._shm_act.name,
-            '--config-path',  config_path,   # act_worker가 동일 YAML로 레이아웃 동기화
+            '--config-path',  config_path,   # act_policy_worker가 동일 YAML로 레이아웃 동기화
         ])
 
         self._server_sock.settimeout(600)
         self._conn, _ = self._server_sock.accept()
-        assert self._recv_exact(1) == b'R', 'Worker did not send READY'
+        assert self.receive_exactly(1) == b'R', 'Worker did not send READY'
         self._server_sock.settimeout(None)
 
-    def _recv_exact(self, n: int) -> bytes:
+    def receive_exactly(self, n: int) -> bytes:
         buf = bytearray()
         while len(buf) < n:
             data = self._conn.recv(n - len(buf))
@@ -179,14 +199,14 @@ class ModelProcess:
     ) -> tuple[np.ndarray, np.ndarray]:
         """추론 실행. 프로토콜: b'G' + uint32(delay) → b'D'"""
         with self._lock:
-            np.copyto(self._top_buf,   top_image)
-            np.copyto(self._wrist_buf, wrist_image)
-            np.copyto(self._state_buf, state)
+            np.copyto(self._top_image_buffer, top_image)
+            np.copyto(self._wrist_image_buffer, wrist_image)
+            np.copyto(self._joint_state_buffer, state)
 
             self._conn.sendall(b'G' + struct.pack('>I', inference_delay))
-            assert self._recv_exact(1) == b'D', 'Worker did not send DONE'
+            assert self.receive_exactly(1) == b'D', 'Worker did not send DONE'
 
-            return self._act_buf[0].copy(), self._act_buf[1].copy()
+            return self._action_buffer[0].copy(), self._action_buffer[1].copy()
 
     def close(self):
         try:
@@ -208,7 +228,7 @@ class ModelProcess:
 
 # ── 비동기 카메라 ─────────────────────────────────────────────────────────────
 
-class _AsyncCamera:
+class ThreadedCamera:
     """백그라운드 스레드로 cap.read()를 수행해 non-blocking read_latest() 제공."""
 
     def __init__(self, path: str, name: str, width: int, height: int, fps: int):
@@ -267,7 +287,7 @@ class _AsyncCamera:
 
 # ── 관절 정규화 ───────────────────────────────────────────────────────────────
 
-def _make_normalizers(dxl_max: int):
+def make_dynamixel_position_converters(dxl_max: int):
     """YAML의 dxl_max로부터 정규화 함수 생성."""
     def raw_to_norm(raw):
         return (raw / dxl_max) * 200.0 - 100.0
@@ -286,29 +306,31 @@ def _make_normalizers(dxl_max: int):
 
 # ── 로봇 드라이버 ─────────────────────────────────────────────────────────────
 
-class _OMXRobot:
+class DynamixelArm:
     _ADDR_TORQUE      = 64
     _ADDR_GOAL_POS    = 116
     _ADDR_PRESENT_POS = 132
     _LEN_POS          = 4
 
-    def __init__(self, cfg: dict):
-        rob = cfg['robot']
-        self._motor_ids = rob['motor_ids']
+    def __init__(self, config: dict):
+        robot_config = config['robot']
+        self._motor_ids = robot_config['motor_ids']
         (self._raw_to_norm, self._norm_to_raw,
-         self._raw_to_grip, self._grip_to_raw) = _make_normalizers(rob['dxl_max'])
+         self._raw_to_grip, self._grip_to_raw) = make_dynamixel_position_converters(
+            robot_config['dxl_max']
+        )
 
         from dynamixel_sdk import (
             PortHandler, PacketHandler,
             GroupSyncRead, GroupSyncWrite, COMM_SUCCESS,
         )
         self._OK = COMM_SUCCESS
-        self.port = PortHandler(rob['port'])
-        self.pkt  = PacketHandler(float(rob['protocol']))
+        self.port = PortHandler(robot_config['port'])
+        self.pkt = PacketHandler(float(robot_config['protocol']))
         if not self.port.openPort():
-            raise RuntimeError(f"Cannot open {rob['port']}")
-        if not self.port.setBaudRate(rob['baud']):
-            raise RuntimeError(f"Cannot set baud {rob['baud']}")
+            raise RuntimeError(f"Cannot open {robot_config['port']}")
+        if not self.port.setBaudRate(robot_config['baud']):
+            raise RuntimeError(f"Cannot set baud {robot_config['baud']}")
         self.sync_read  = GroupSyncRead(self.port, self.pkt, self._ADDR_PRESENT_POS, self._LEN_POS)
         self.sync_write = GroupSyncWrite(self.port, self.pkt, self._ADDR_GOAL_POS, self._LEN_POS)
         for mid in self._motor_ids:
@@ -347,9 +369,9 @@ class _OMXRobot:
 
 # ── ROS 노드 ─────────────────────────────────────────────────────────────────
 
-class WaiterNode(Node):
+class ActServingActionServer(Node):
     def __init__(self):
-        super().__init__('waiter')
+        super().__init__('act_serving_controller')
 
         self.declare_parameter('config_path',    _DEFAULT_CONFIG_PATH)
         self.declare_parameter('top_cam_path',   '')   # 빈 문자열 = YAML 값 사용
@@ -359,49 +381,49 @@ class WaiterNode(Node):
         config_path = self.get_parameter('config_path').value
         self.get_logger().info(f'Loading config: {config_path}')
 
-        cfg = _load_config(config_path)
-        cfg['_config_path'] = config_path   # act_worker 전달용
-        self._cfg = cfg
+        config = load_act_serving_config(config_path)
+        config['_config_path'] = config_path   # act_policy_worker 전달용
+        self._config = config
 
         self.get_logger().info(
-            f"Starting ACT worker: model={cfg['model']['path']} "
-            f"chunk_size={cfg['memory']['chunk_size']}"
+            f"Starting ACT worker: model={config['model']['path']} "
+            f"chunk_size={config['memory']['chunk_size']}"
         )
-        self._model = ModelProcess(cfg)
+        self._model = ActPolicyWorkerClient(config)
         self.get_logger().info('ACT model worker ready.')
 
         cb = ReentrantCallbackGroup()
         self._pickup_server = ActionServer(
-            self, Pickup, 'pickup', self._execute_pickup,
+            self, Pickup, 'pickup', self.execute_pickup_action,
             cancel_callback=lambda _: CancelResponse.ACCEPT,
             callback_group=cb,
         )
         self._serve_server = ActionServer(
-            self, Serve, 'serve', self._execute_serve,
+            self, Serve, 'serve', self.execute_serve_action,
             cancel_callback=lambda _: CancelResponse.ACCEPT,
             callback_group=cb,
         )
-        self.get_logger().info('WaiterNode ready  (ACT / Pickup + Serve)')
+        self.get_logger().info('ACT serving action server ready (Pickup + Serve)')
 
     def destroy_node(self):
         self._model.close()
         super().destroy_node()
 
-    def _resolve_cam(self, goal_value: str, yaml_key: str, ros_param: str) -> str:
+    def resolve_camera_path(self, goal_value: str, yaml_key: str, ros_param: str) -> str:
         """goal → ROS param → YAML 순서로 카메라 경로 결정."""
         if goal_value:
             return goal_value
         ros_val = self.get_parameter(ros_param).value
         if ros_val:
             return ros_val
-        return self._cfg['cameras'][yaml_key]
+        return self._config['cameras'][yaml_key]
 
     # ── Pickup ────────────────────────────────────────────────────────────────
 
-    def _execute_pickup(self, goal_handle):
+    def execute_pickup_action(self, goal_handle):
         goal = goal_handle.request
-        top_cam   = self._resolve_cam(getattr(goal, 'top_cam_path',   ''), 'top_path',   'top_cam_path')
-        wrist_cam = self._resolve_cam(getattr(goal, 'wrist_cam_path', ''), 'wrist_path', 'wrist_cam_path')
+        top_cam   = self.resolve_camera_path(getattr(goal, 'top_cam_path',   ''), 'top_path',   'top_cam_path')
+        wrist_cam = self.resolve_camera_path(getattr(goal, 'wrist_cam_path', ''), 'wrist_path', 'wrist_cam_path')
 
         self.get_logger().info(
             f'Pickup started — top={top_cam} wrist={wrist_cam}'
@@ -411,15 +433,15 @@ class WaiterNode(Node):
         goal_handle.publish_feedback(feedback)
 
         try:
-            self._do_act_task(
+            self.run_act_task(
                 goal_handle=goal_handle,
                 top_cam_path=top_cam,
                 wrist_cam_path=wrist_cam,
-                duration_s=self._cfg['task']['pickup_duration_s'],
+                duration_s=self._config['task']['pickup_duration_s'],
                 feedback=feedback,
-                vlm_prompt=self._cfg['vlm'].get('pickup_prompt', ''),
+                vlm_prompt=self._config['vlm'].get('pickup_prompt', ''),
             )
-        except _TaskComplete:
+        except TaskCompleted:
             pass
         except Exception as e:
             goal_handle.abort()
@@ -445,10 +467,10 @@ class WaiterNode(Node):
 
     # ── Serve ─────────────────────────────────────────────────────────────────
 
-    def _execute_serve(self, goal_handle):
+    def execute_serve_action(self, goal_handle):
         goal = goal_handle.request
-        top_cam   = self._resolve_cam(getattr(goal, 'top_cam_path',   ''), 'top_path',   'top_cam_path')
-        wrist_cam = self._resolve_cam(getattr(goal, 'wrist_cam_path', ''), 'wrist_path', 'wrist_cam_path')
+        top_cam   = self.resolve_camera_path(getattr(goal, 'top_cam_path',   ''), 'top_path',   'top_cam_path')
+        wrist_cam = self.resolve_camera_path(getattr(goal, 'wrist_cam_path', ''), 'wrist_path', 'wrist_cam_path')
 
         self.get_logger().info(
             f'Serve started — top={top_cam} wrist={wrist_cam}'
@@ -458,15 +480,15 @@ class WaiterNode(Node):
         goal_handle.publish_feedback(feedback)
 
         try:
-            self._do_act_task(
+            self.run_act_task(
                 goal_handle=goal_handle,
                 top_cam_path=top_cam,
                 wrist_cam_path=wrist_cam,
-                duration_s=self._cfg['task']['serve_duration_s'],
+                duration_s=self._config['task']['serve_duration_s'],
                 feedback=feedback,
-                vlm_prompt=self._cfg['vlm'].get('serve_prompt', ''),
+                vlm_prompt=self._config['vlm'].get('serve_prompt', ''),
             )
-        except _TaskComplete:
+        except TaskCompleted:
             goal_handle.succeed()
             result = Serve.Result()
             result.success = True
@@ -497,7 +519,7 @@ class WaiterNode(Node):
 
     # ── 공통 ACT 제어 루프 ────────────────────────────────────────────────────
 
-    def _do_act_task(
+    def run_act_task(
         self,
         goal_handle,
         top_cam_path: str,
@@ -514,32 +536,37 @@ class WaiterNode(Node):
         """
         import collections, math
 
-        cfg  = self._cfg
-        ctrl = cfg['control']
-        mem  = cfg['memory']
-        cam  = cfg['cameras']
-        home_cfg = cfg['home']
+        config = self._config
+        control_config = config['control']
+        memory_config = config['memory']
+        camera_config = config['cameras']
+        home_config = config['home']
 
-        control_hz     = float(ctrl['hz'])
-        interp_mult    = int(ctrl['interpolation_mult'])
-        ema_alpha      = float(ctrl['ema_alpha'])
-        queue_thr      = int(ctrl['rtc_queue_threshold'])
-        chunk_size     = int(mem['chunk_size'])
-        action_dim     = int(mem['action_dim'])
+        control_hz = float(control_config['hz'])
+        interpolation_steps = int(control_config['interpolation_mult'])
+        ema_alpha = float(control_config['ema_alpha'])
+        inference_queue_threshold = int(control_config['inference_queue_refill_threshold'])
+        action_dimension = int(memory_config['action_dim'])
 
         period     = 1.0 / control_hz
-        sub_period = period / interp_mult
+        sub_period = period / interpolation_steps
 
         home_ranges = {
             int(k): (float(v[0]), float(v[1]))
-            for k, v in home_cfg['ranges'].items()
+            for k, v in home_config['ranges'].items()
         }
-        home_dwell_s = float(home_cfg['dwell_s'])
+        home_dwell_s = float(home_config['dwell_s'])
 
-        robot     = _OMXRobot(cfg)
-        init_pos  = robot.get_positions()
-        top_cam   = _AsyncCamera(top_cam_path,   'top',   cam['width'], cam['height'], cam['fps'])
-        wrist_cam = _AsyncCamera(wrist_cam_path, 'wrist', cam['width'], cam['height'], cam['fps'])
+        robot = DynamixelArm(config)
+        initial_position = robot.get_positions()
+        top_cam = ThreadedCamera(
+            top_cam_path, 'top',
+            camera_config['width'], camera_config['height'], camera_config['fps']
+        )
+        wrist_cam = ThreadedCamera(
+            wrist_cam_path, 'wrist',
+            camera_config['width'], camera_config['height'], camera_config['fps']
+        )
 
         step       = 0
         start_time = time.time()
@@ -557,7 +584,7 @@ class WaiterNode(Node):
         executed_count = [0]
         latency_history: list[float] = []
 
-        def _p95() -> float | None:
+        def get_p95_latency() -> float | None:
             if not latency_history:
                 return None
             return sorted(latency_history)[int(len(latency_history) * 0.95)]
@@ -567,13 +594,13 @@ class WaiterNode(Node):
         task_complete = False
 
         # ── 인퍼런스 스레드 ───────────────────────────────────────────────────
-        def _inference_loop():
+        def run_inference_loop():
             while not infer_stop.is_set():
                 with queue_lock:
                     qsize      = len(action_queue)
                     idx_before = executed_count[0]
 
-                if qsize > queue_thr:
+                if qsize > inference_queue_threshold:
                     infer_skipped[0] += 1
                     time.sleep(0.005)
                     continue
@@ -586,13 +613,13 @@ class WaiterNode(Node):
                     continue
 
                 try:
-                    p95   = _p95()
+                    p95   = get_p95_latency()
                     delay = math.ceil(p95 / period) if p95 else 0
                     p95_ms = f'{p95*1000:.0f}ms' if p95 else 'N/A'
 
                     self.get_logger().info(
                         f'[infer-trigger #{infer_count[0]+1}] '
-                        f'qsize={qsize} threshold={queue_thr} '
+                        f'qsize={qsize} threshold={inference_queue_threshold} '
                         f'p95={p95_ms} delay_hint={delay} '
                         f'(skipped={infer_skipped[0]})'
                     )
@@ -628,8 +655,8 @@ class WaiterNode(Node):
                         grip_head = ','.join(f'{v:.1f}' for v in grip_seq[:12])
                         grip_min  = float(np.min(grip_seq)) if len(grip_seq) else float('nan')
                         grip_max  = float(np.max(grip_seq)) if len(grip_seq) else float('nan')
-                        cf = queued[0]  if len(queued) else np.zeros(action_dim)
-                        cl = queued[-1] if len(queued) else np.zeros(action_dim)
+                        cf = queued[0] if len(queued) else np.zeros(action_dimension)
+                        cl = queued[-1] if len(queued) else np.zeros(action_dimension)
 
                     infer_count[0] += 1
                     self.get_logger().info(
@@ -648,7 +675,7 @@ class WaiterNode(Node):
                     infer_stop.set()
                     return
 
-        infer_thread = threading.Thread(target=_inference_loop, daemon=True)
+        infer_thread = threading.Thread(target=run_inference_loop, daemon=True)
 
         try:
             top_img   = top_cam.read_latest()
@@ -708,8 +735,8 @@ class WaiterNode(Node):
                         home_since = time.time()
                         self.get_logger().info('Home position entered.')
                     elif time.time() - home_since >= home_dwell_s:
-                        vlm_cfg     = cfg.get('vlm', {})
-                        vlm_enabled = bool(vlm_cfg.get('enabled', False))
+                        vlm_config = config.get('vlm', {})
+                        vlm_enabled = bool(vlm_config.get('enabled', False))
                         use_vlm     = vlm_enabled and bool(vlm_prompt)
 
                         if use_vlm:
@@ -721,13 +748,13 @@ class WaiterNode(Node):
 
                             # ROS 파라미터로 host 오버라이드 가능
                             ros_vlm_host = self.get_parameter('vlm_host').value
-                            effective_vlm_cfg = dict(vlm_cfg)
+                            effective_vlm_config = dict(vlm_config)
                             if ros_vlm_host:
-                                effective_vlm_cfg['host'] = ros_vlm_host
+                                effective_vlm_config['host'] = ros_vlm_host
 
                             try:
-                                complete, vlm_answer = _vlm_check_task_complete(
-                                    top_img, vlm_prompt, effective_vlm_cfg
+                                complete, vlm_answer = check_task_completion_with_vlm(
+                                    top_img, vlm_prompt, effective_vlm_config
                                 )
                                 self.get_logger().info(
                                     f'VLM answer: "{vlm_answer}" → complete={complete}'
@@ -741,7 +768,7 @@ class WaiterNode(Node):
                             if complete:
                                 self.get_logger().info('VLM confirmed task complete.')
                                 task_complete = True
-                                raise _TaskComplete()
+                                raise TaskCompleted()
                             else:
                                 self.get_logger().info(
                                     'VLM says task not complete. Continuing.'
@@ -754,7 +781,7 @@ class WaiterNode(Node):
                                 f'(VLM disabled or no prompt).'
                             )
                             task_complete = True
-                            raise _TaskComplete()
+                            raise TaskCompleted()
 
                 with queue_lock:
                     qsize  = len(action_queue)
@@ -782,10 +809,10 @@ class WaiterNode(Node):
                     action[5] = ema_state[5]
 
                     src = prev_action_interp if prev_action_interp is not None else action
-                    for i in range(1, interp_mult + 1):
+                    for i in range(1, interpolation_steps + 1):
                         if goal_handle.is_cancel_requested:
                             break
-                        t_interp = i / interp_mult
+                        t_interp = i / interpolation_steps
                         robot.set_positions(src * (1.0 - t_interp) + action * t_interp)
                         time.sleep(sub_period)
 
@@ -808,7 +835,7 @@ class WaiterNode(Node):
                 reason = 'Task complete' if task_complete else 'Canceled'
                 self.get_logger().info(f'{reason} — returning to initial position...')
                 try:
-                    robot.return_to_position(init_pos, duration_s=3.0)
+                    robot.return_to_position(initial_position, duration_s=3.0)
                 except Exception as e:
                     self.get_logger().warn(f'Return failed: {e}')
             robot.close()
@@ -819,7 +846,7 @@ class WaiterNode(Node):
 
 def main(args=None):
     rp.init(args=args)
-    node = WaiterNode()
+    node = ActServingActionServer()
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
     try:

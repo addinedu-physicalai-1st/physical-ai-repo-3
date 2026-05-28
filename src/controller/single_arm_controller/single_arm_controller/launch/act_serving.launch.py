@@ -10,14 +10,14 @@ def generate_launch_description():
     default_config_path = PathJoinSubstitution([
         FindPackageShare('single_arm_controller'),
         'config',
-        'waiter_config.yaml',
+        'act_serving_config.yaml',
     ])
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'config_path',
             default_value=default_config_path,
-            description='waiter YAML config path',
+            description='ACT serving YAML config path',
         ),
         DeclareLaunchArgument(
             'top_cam_path',
@@ -36,8 +36,8 @@ def generate_launch_description():
         ),
         Node(
             package='single_arm_controller',
-            executable='waiter',
-            name='waiter',
+            executable='act_serving_controller',
+            name='act_serving_controller',
             output='screen',
             parameters=[{
                 'config_path':      ParameterValue(LaunchConfiguration('config_path'),      value_type=str),
