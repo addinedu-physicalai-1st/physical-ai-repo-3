@@ -223,11 +223,12 @@ ros2 run single_arm_controller serving
 
 # 3. serve 요청 (다른 터미널)
 source install/setup.bash
-ros2 action send_goal /serve single_arm_controller_interfaces/action/Serve {} --feedback
-
-# 카메라/task 지정
 ros2 action send_goal /serve single_arm_controller_interfaces/action/Serve \
-  "{wrist_cam_path: '/dev/video4', task: 'pick up the red cup'}" --feedback
+  "{has_drink: true}" --feedback
+
+# 음료가 없는 상태로 serve 요청
+ros2 action send_goal /serve single_arm_controller_interfaces/action/Serve \
+  "{has_drink: false}" --feedback
 
 # 취소
 ros2 service call /serve/_action/cancel_goal action_msgs/srv/CancelGoal "{}"

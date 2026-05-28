@@ -105,14 +105,13 @@ class ActServingActionServer(Node):
 
     def execute_serve_action(self, goal_handle):
         goal = goal_handle.request
-        top_cam = self.resolve_camera_path(
-            getattr(goal, 'top_cam_path', ''), 'top_path', 'top_cam_path'
-        )
-        wrist_cam = self.resolve_camera_path(
-            getattr(goal, 'wrist_cam_path', ''), 'wrist_path', 'wrist_cam_path'
-        )
+        has_drink = bool(goal.has_drink)
+        top_cam = self.resolve_camera_path('', 'top_path', 'top_cam_path')
+        wrist_cam = self.resolve_camera_path('', 'wrist_path', 'wrist_cam_path')
 
-        self.get_logger().info(f'Serve started - top={top_cam} wrist={wrist_cam}')
+        self.get_logger().info(
+            f'Serve started - has_drink={has_drink} top={top_cam} wrist={wrist_cam}'
+        )
         feedback = Serve.Feedback()
         self.publish_feedback(goal_handle, feedback, 'Serve in progress')
 
@@ -120,7 +119,7 @@ class ActServingActionServer(Node):
             outcome = self._orchestrator.run_serve(
                 top_cam_path=top_cam,
                 wrist_cam_path=wrist_cam,
-                task=getattr(goal, 'task', ''),
+                has_drink=has_drink,
                 feedback_cb=lambda status: self.publish_feedback(goal_handle, feedback, status),
                 cancel_cb=lambda: goal_handle.is_cancel_requested,
             )

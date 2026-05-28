@@ -411,11 +411,11 @@ class ActServingOrchestrator:
         self,
         top_cam_path: str,
         wrist_cam_path: str,
-        task: str,
+        has_drink: bool,
         feedback_cb: FeedbackCallback,
         cancel_cb: CancelCallback,
     ) -> TaskOutcome:
-        del task  # Serve.action keeps this field, but the current policy uses YAML prompts.
+        self._logger.info(f'Running serve task. has_drink={has_drink}')
         try:
             self._run_act_task(
                 top_cam_path=top_cam_path,
