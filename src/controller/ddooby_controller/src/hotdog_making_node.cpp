@@ -84,8 +84,6 @@ struct PickMotionConfig
 enum class PreGraspGoalMode
 {
   ExactPose,
-  ApproximatePose,
-  PositionOnly,
 };
 
 std::string normalizeStageName(const std::string & value)
@@ -939,12 +937,13 @@ bool planAndExecutePoseTarget(
   const geometry_msgs::msg::Pose & target_pose,
   const std::string & tcp_link,
   const std::string & label,
-  int max_attempts = task_presets::kDefaultPlanExecuteMaxAttempts)
+  int max_attempts = task_presets::kDefaultPlanExecuteMaxAttempts,
+  double min_duration_sec = 0.0)
 {
   arm.clearPoseTargets();
   setBoundedStartState(arm);
   arm.setPoseTarget(target_pose, tcp_link);
-  return planAndExecute(logger, arm, label, max_attempts);
+  return planAndExecute(logger, arm, label, max_attempts, min_duration_sec);
 }
 
 double durationToSec(const builtin_interfaces::msg::Duration & duration)
@@ -1101,10 +1100,6 @@ const char * preGraspGoalModeName(PreGraspGoalMode mode)
   switch (mode) {
     case PreGraspGoalMode::ExactPose:
       return "exact_pose";
-    case PreGraspGoalMode::ApproximatePose:
-      return "approximate_pose";
-    case PreGraspGoalMode::PositionOnly:
-      return "position_only";
   }
   return "unknown";
 }
@@ -1114,9 +1109,8 @@ bool planAndExecutePreGrasp(
   moveit::planning_interface::MoveGroupInterface & arm,
   const geometry_msgs::msg::Pose & pre_grasp_pose,
   const std::string & tcp_link,
-  bool allow_approximate_pose,
-  bool allow_position_only,
   bool use_clearance_approach,
+  double min_duration_sec,
   PreGraspGoalMode & used_mode)
 {
   if (use_clearance_approach) {
@@ -1133,7 +1127,9 @@ bool planAndExecutePreGrasp(
         arm,
         approach_pose,
         tcp_link,
-        "pre-grasp clearance pose"))
+        "pre-grasp clearance pose",
+        task_presets::kDefaultPlanExecuteMaxAttempts,
+        min_duration_sec))
     {
       RCLCPP_WARN(logger, "Pre-grasp clearance pose failed; trying direct pre-grasp target");
     }
@@ -1142,36 +1138,9 @@ bool planAndExecutePreGrasp(
   arm.clearPoseTargets();
   setBoundedStartState(arm);
   arm.setPoseTarget(pre_grasp_pose, tcp_link);
-  if (planAndExecute(logger, arm, "pre-grasp exact pose")) {
+  if (planAndExecute(logger, arm, "pre-grasp exact pose", task_presets::kDefaultPlanExecuteMaxAttempts, min_duration_sec)) {
     used_mode = PreGraspGoalMode::ExactPose;
     return true;
-  }
-
-  if (allow_position_only) {
-    RCLCPP_WARN(logger, "Exact pre-grasp pose failed; trying position-only target");
-    arm.clearPoseTargets();
-    setBoundedStartState(arm);
-    arm.setPositionTarget(
-      pre_grasp_pose.position.x,
-      pre_grasp_pose.position.y,
-      pre_grasp_pose.position.z,
-      tcp_link);
-    if (planAndExecute(logger, arm, "pre-grasp position only")) {
-      used_mode = PreGraspGoalMode::PositionOnly;
-      return true;
-    }
-  }
-
-  if (allow_approximate_pose) {
-    RCLCPP_WARN(logger, "Position-only pre-grasp target failed; trying approximate IK target");
-    arm.clearPoseTargets();
-    setBoundedStartState(arm);
-    if (arm.setApproximateJointValueTarget(pre_grasp_pose, tcp_link) &&
-      planAndExecute(logger, arm, "pre-grasp approximate pose"))
-    {
-      used_mode = PreGraspGoalMode::ApproximatePose;
-      return true;
-    }
   }
 
   return false;
@@ -1247,15 +1216,12 @@ public:
     min_cartesian_fraction_ = declare_parameter<double>("min_cartesian_fraction", 0.90);
     cartesian_avoid_collisions_ = declare_parameter<bool>("cartesian_avoid_collisions", false);
     cartesian_min_duration_sec_ = declare_parameter<double>("cartesian_min_duration_sec", 3.5);
+    pose_min_duration_sec_ = declare_parameter<double>("pose_min_duration_sec", 3.5);
     gripper_open_target_ = declare_parameter<std::string>("gripper_open_target", "open");
     gripper_grasp_target_ = declare_parameter<std::string>("gripper_grasp_target", "half_closed");
     remove_target_collision_before_grasp_ =
       declare_parameter<bool>("remove_target_collision_before_grasp", true);
     collision_scene_settle_ms_ = declare_parameter<int>("collision_scene_settle_ms", 300);
-    allow_approximate_pre_grasp_ = declare_parameter<bool>("allow_approximate_pre_grasp", false);
-    allow_position_only_pre_grasp_ = declare_parameter<bool>("allow_position_only_pre_grasp", true);
-    adapt_grasp_orientation_to_reached_pre_grasp_ =
-      declare_parameter<bool>("adapt_grasp_orientation_to_reached_pre_grasp", true);
     max_pre_grasp_xy_error_ = declare_parameter<double>(
       "max_pre_grasp_xy_error",
       task_presets::kDefaultMaxPreGraspXyError);
@@ -1608,9 +1574,8 @@ private:
           arm,
           pick_plan.pre_grasp_pose,
           config.tcp_link,
-          allow_approximate_pre_grasp_,
-          allow_position_only_pre_grasp_,
           use_pre_grasp_clearance,
+          pose_min_duration_sec_,
           pre_grasp_goal_mode))
       {
         return false;
@@ -1629,16 +1594,6 @@ private:
 
     geometry_msgs::msg::Pose grasp_pose = pick_plan.grasp_pose;
     geometry_msgs::msg::Pose lift_pose = pick_plan.lift_pose;
-    if (adapt_grasp_orientation_to_reached_pre_grasp_ &&
-      pre_grasp_goal_mode != PreGraspGoalMode::ExactPose)
-    {
-      grasp_pose.orientation = reached_pre_grasp_pose.orientation;
-      lift_pose.orientation = reached_pre_grasp_pose.orientation;
-      RCLCPP_INFO(
-        get_logger(),
-        "%s: adapted grasp/lift orientation to reached pre-grasp orientation",
-        config.log_label.c_str());
-    }
 
     if (shouldRunStage(ManufacturingStage::Pick)) {
       const double pre_grasp_dx =
@@ -1683,7 +1638,9 @@ private:
               arm,
               target_aligned_pre_grasp_pose,
               config.tcp_link,
-              config.log_label + " target-aligned horizontal pre-grasp"))
+              config.log_label + " target-aligned horizontal pre-grasp",
+              task_presets::kDefaultPlanExecuteMaxAttempts,
+              pose_min_duration_sec_))
           {
             return false;
           }
@@ -1714,7 +1671,9 @@ private:
                 arm,
                 clearance_pose,
                 config.tcp_link,
-                config.log_label + " grasp clearance"))
+                config.log_label + " grasp clearance",
+                task_presets::kDefaultPlanExecuteMaxAttempts,
+                pose_min_duration_sec_))
             {
               return false;
             }
@@ -1732,7 +1691,9 @@ private:
               arm,
               target_aligned_pre_grasp_pose,
               config.tcp_link,
-              config.log_label + " target-aligned pre-grasp"))
+              config.log_label + " target-aligned pre-grasp",
+              task_presets::kDefaultPlanExecuteMaxAttempts,
+              pose_min_duration_sec_))
           {
             return false;
           }
@@ -2567,13 +2528,11 @@ private:
   double min_cartesian_fraction_{0.90};
   bool cartesian_avoid_collisions_{false};
   double cartesian_min_duration_sec_{3.5};
+  double pose_min_duration_sec_{3.5};
   std::string gripper_open_target_;
   std::string gripper_grasp_target_;
   bool remove_target_collision_before_grasp_{true};
   int collision_scene_settle_ms_{300};
-  bool allow_approximate_pre_grasp_{false};
-  bool allow_position_only_pre_grasp_{true};
-  bool adapt_grasp_orientation_to_reached_pre_grasp_{true};
   double max_pre_grasp_xy_error_{0.03};
   bool dry_run_{false};
 };

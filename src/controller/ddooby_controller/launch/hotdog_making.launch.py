@@ -23,6 +23,7 @@ def generate_launch_description():
     gripper_velocity_scaling = LaunchConfiguration("gripper_velocity_scaling")
     gripper_acceleration_scaling = LaunchConfiguration("gripper_acceleration_scaling")
     cartesian_min_duration_sec = LaunchConfiguration("cartesian_min_duration_sec")
+    pose_min_duration_sec = LaunchConfiguration("pose_min_duration_sec")
 
     target_arg = DeclareLaunchArgument(
         "target",
@@ -116,6 +117,11 @@ def generate_launch_description():
         default_value="3.5",
         description="Minimum duration applied to Cartesian trajectories.",
     )
+    pose_min_duration_sec_arg = DeclareLaunchArgument(
+        "pose_min_duration_sec",
+        default_value="3.5",
+        description="Minimum duration applied to regular MoveIt pose-target trajectories.",
+    )
     moveit_config = MoveItConfigsBuilder(
         "openarm", package_name="openarm_bimanual_moveit_config"
     ).to_moveit_configs()
@@ -146,6 +152,7 @@ def generate_launch_description():
                 "gripper_velocity_scaling": gripper_velocity_scaling,
                 "gripper_acceleration_scaling": gripper_acceleration_scaling,
                 "cartesian_min_duration_sec": cartesian_min_duration_sec,
+                "pose_min_duration_sec": pose_min_duration_sec,
             },
         ],
     )
@@ -168,5 +175,6 @@ def generate_launch_description():
         gripper_velocity_scaling_arg,
         gripper_acceleration_scaling_arg,
         cartesian_min_duration_sec_arg,
+        pose_min_duration_sec_arg,
         hotdog_making_node,
     ])
