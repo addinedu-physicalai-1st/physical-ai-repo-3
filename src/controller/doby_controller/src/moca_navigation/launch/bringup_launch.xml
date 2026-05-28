@@ -16,11 +16,10 @@
     <set_env name="RCUTILS_LOGGING_BUFFERED_STREAM" value="1"/>
 
     <arg name="namespace" default=""/>
-    <!-- map default: 환경변수 MOCA_MAP_PATH 우선, 미설정 시 워크스페이스 루트의 maps/mapv5.yaml.
-         find-pkg-share moca_navigation = install/moca_navigation/share/moca_navigation
-         .../../../ 거슬러 워크스페이스 루트 → maps/mapv5.yaml.
+    <!-- map default: 환경변수 MOCA_MAP_PATH 우선, 미설정 시 패키지 share 의 map/mapv6.yaml.
+         (2026-05-28: map SoT 를 maps/ → moca_navigation/map/ 이전 + mapv5 → mapv6)
          협업자는 ros2 launch ... map:=<path> 또는 export MOCA_MAP_PATH=... 로 override. -->
-    <arg name="map" default="$(env MOCA_MAP_PATH $(find-pkg-share moca_navigation)/../../../maps/mapv5.yaml)"/>
+    <arg name="map" default="$(env MOCA_MAP_PATH $(find-pkg-share moca_navigation)/map/mapv6.yaml)"/>
     <arg name="use_sim_time" default="False"/>
     <arg name="params_file" default="$(find-pkg-share moca_navigation)/params/nav2_params.yaml"/>
     <arg name="autostart" default="True"/>
