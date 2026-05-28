@@ -1,20 +1,20 @@
 #!/bin/bash
 # ============================================================
-# run_nav2.sh — vic_pinky 자율주행 일괄 기동 (smac_hybrid + MPPI)
+# run_nav2.sh — vic_pinky 자율주행 일괄 기동 (SmacPlanner2D + MPPI)
 # 실행:  bash ~/moca/scripts/run_nav2.sh
 # 동작:
 #   1) 좀비(teleop_server, 이전 nav2, rviz) 정리 + ros2 daemon 재시작
 #   2) RPi bringup 점검 — env(ROS_STATIC_PEERS=노트북IP) 맞는지 확인,
 #      틀리거나 없으면 재기동 (Wi-Fi multicast 우회 unicast)
 #   3) 토픽(/scan_filtered, /odom) 수신 대기
-#   4) Nav2 (smac_hybrid+MPPI) 백그라운드 launch → ~/moca/logs/nav2.log
+#   4) Nav2 (SmacPlanner2D+MPPI) 백그라운드 launch → <ws>/logs/nav2.log
 #   5) AMCL active 대기 후 RViz 포그라운드 실행
 #   6) 백그라운드 watcher가 map→odom TF 감지 시 lifecycle 강제 활성화
 #      (사용자가 RViz에서 60s 안에 pose 못 찍어도 abort 회피)
 #   7) RViz 종료(또는 Ctrl+C) 시 Nav2 정리, RPi bringup은 유지
 # 환경변수 override:
 #   ROBOT_IP=192.168.0.138, ROBOT_USER=vic, ROBOT_PASS=1
-#   ROS_DOMAIN_ID=22, MAP=mapv5.yaml
+#   ROS_DOMAIN_ID=22, MAP=mapv6.yaml
 # ============================================================
 
 set -u
@@ -23,7 +23,7 @@ ROBOT_IP="${ROBOT_IP:-192.168.0.138}"
 ROBOT_USER="${ROBOT_USER:-vic}"
 ROBOT_PASS="${ROBOT_PASS:-1}"
 DOMAIN="${ROS_DOMAIN_ID:-22}"
-MAP="${MAP:-mapv5.yaml}"
+MAP="${MAP:-mapv6.yaml}"
 
 # 스크립트 자기 위치 기준으로 워크스페이스 경로 결정
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -163,14 +163,14 @@ fi
 echo "      → /scan_filtered OK"
 
 # ── 4) Nav2 백그라운드 launch ──────────────────────────────
-echo " [4/6] Nav2 (smac_hybrid + MPPI) 기동..."
-MAP_PATH="$(ros2 pkg prefix vicpinky_navigation)/share/vicpinky_navigation/map/$MAP"
+echo " [4/6] Nav2 (SmacPlanner2D + MPPI) 기동..."
+MAP_PATH="$(ros2 pkg prefix moca_navigation)/share/moca_navigation/map/$MAP"
 if [ ! -f "$MAP_PATH" ]; then
     echo " [ERR] 맵 파일 없음: $MAP_PATH"
-    echo "      → MAP=<filename> 환경변수로 변경 가능 (예: MAP=factory2.yaml)"
+    echo "      → MAP=<filename> 환경변수로 변경 가능 (예: MAP=mapv6.yaml)"
     exit 1
 fi
-ros2 launch vicpinky_navigation bringup_smachybrid_mppi_launch.xml \
+ros2 launch moca_navigation bringup_smac_mppi.launch.xml \
     map:="$MAP_PATH" \
     > "$LOG_DIR/nav2.log" 2>&1 &
 NAV2_PID=$!

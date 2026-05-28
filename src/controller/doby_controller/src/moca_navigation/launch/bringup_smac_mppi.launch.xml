@@ -1,0 +1,33 @@
+<?xml version='1.0'?>
+<!--
+  moca_navigation/launch/bringup_smac_mppi.launch.xml
+  목적: NavFn+DWB 대신 SmacPlanner2D+MPPI 조합으로 Nav2 stack 기동.
+  방식: 기본 bringup_launch.xml 을 include 하면서 params_file 만 새 yaml 로 override.
+  배경: SmacHybrid+MPPI 시도 시 정차 직전 후미 충돌 빈발 (vic_pinky 가 diff-drive 라
+        Reeds-Shepp reverse 경로가 후방 회피 약점 노출) -> SmacHybrid 후보 영구 제외,
+        SmacPlanner2D + MPPI(+PreferForwardCritic) 조합으로 대체.
+  검증 시동 (PC 단독, 시뮬 도메인):
+    ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1 ros2 launch moca_navigation bringup_smac_mppi.launch.xml
+  라이브 (RPi 도메인, 사용자 명시 승인 후):
+    ros2 launch moca_navigation bringup_smac_mppi.launch.xml
+-->
+<launch>
+    <arg name="namespace" default=""/>
+    <arg name="map" default="$(env MOCA_MAP_PATH $(find-pkg-share moca_navigation)/map/mapv6.yaml)"/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="autostart" default="True"/>
+    <arg name="use_composition" default="True"/>
+    <arg name="use_respawn" default="False"/>
+    <arg name="log_level" default="info"/>
+
+    <include file="$(find-pkg-share moca_navigation)/launch/bringup_launch.xml">
+        <arg name="namespace" value="$(var namespace)"/>
+        <arg name="map" value="$(var map)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+        <arg name="params_file" value="$(find-pkg-share moca_navigation)/params/nav2_params_smac_mppi.yaml"/>
+        <arg name="autostart" value="$(var autostart)"/>
+        <arg name="use_composition" value="$(var use_composition)"/>
+        <arg name="use_respawn" value="$(var use_respawn)"/>
+        <arg name="log_level" value="$(var log_level)"/>
+    </include>
+</launch>
