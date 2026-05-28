@@ -29,7 +29,6 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'serving = single_arm_controller.serving:main',
             'waiter  = single_arm_controller.waiter:main',
         ],
     },

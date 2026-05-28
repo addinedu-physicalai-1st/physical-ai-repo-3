@@ -6,12 +6,10 @@ shared memory로 이미지/관절을 받고, Unix socket으로 GO/DONE 신호만
 설정은 waiter.py가 전달하는 --config-path YAML 파일에서 읽는다.
 모든 상수(TOP_SHAPE, CHUNK_SIZE 등)가 waiter.py와 자동으로 동기화된다.
 
-serving.py(SmolVLA)와의 차이:
-  - task 텍스트 없음 (ACT는 이미지+상태만으로 추론)
-  - inference_delay / prev_chunk_left_over 없음
-  - 프로토콜: b'G' + uint32(delay)  (SmolVLA: b'G' + task + delay + prev_chunk)
-  - chunk_size: config.chunk_size (waiter_config.yaml에서 읽음)
-  - RTC config 불필요
+프로토콜:
+  - waiter.py가 shared memory에 top/wrist 이미지와 관절 상태를 쓴다.
+  - Unix socket으로 b'G' + uint32(delay)를 보내 추론을 요청한다.
+  - worker는 action chunk를 shared memory에 쓰고 b'D'로 완료를 알린다.
 """
 
 import argparse

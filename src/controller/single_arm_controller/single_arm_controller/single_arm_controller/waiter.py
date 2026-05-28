@@ -7,17 +7,6 @@ waiter.py — ACT 기반 ROS Action Server
 기본 config 경로: <package_root>/config/waiter_config.yaml
 ROS 파라미터: config_path  (오버라이드 가능)
 
-serving.py와의 핵심 차이:
-  ┌─────────────────────┬───────────────────────┬──────────────────────────┐
-  │ 항목                │ serving.py (SmolVLA)   │ waiter.py (ACT)          │
-  ├─────────────────────┼───────────────────────┼──────────────────────────┤
-  │ 설정 방식           │ 스크립트 내 상수       │ YAML 파일                │
-  │ 모델                │ SmolVLAPolicy (VLA)   │ ACTPolicy                │
-  │ task 텍스트         │ 있음 (언어 조건부)    │ 없음 (이미지+상태만)     │
-  │ prev_chunk          │ 모델에 전달            │ 사용 안 함               │
-  │ Pickup/Serve 공유   │ Serve만 구현됨        │ 둘 다 동일 루프 공유     │
-  └─────────────────────┴───────────────────────┴──────────────────────────┘
-
 Sync 디버그는 build_inference_local_server.md 참고.
 """
 
@@ -63,7 +52,7 @@ def _vlm_check_task_complete(
 
     Returns:
         (complete: bool, raw_answer: str)
-        VLM 응답이 "false"로 시작하면 complete=True (serving.py 동일 규약).
+        VLM 응답이 "false"로 시작하면 complete=True.
     """
     _, buf = cv2.imencode('.jpg', cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR))
     img_b64 = base64.b64encode(buf.tobytes()).decode('utf-8')
