@@ -11,7 +11,10 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/serving.launch.py']),
-        ('share/' + package_name + '/config', ['config/single_arm_controller.yaml']),
+        ('share/' + package_name + '/config', [
+            'config/single_arm_controller.yaml',
+            'config/waiter_config.yaml',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -27,6 +30,7 @@ setup(
     entry_points={
         'console_scripts': [
             'serving = single_arm_controller.serving:main',
+            'waiter  = single_arm_controller.waiter:main',
         ],
     },
 )

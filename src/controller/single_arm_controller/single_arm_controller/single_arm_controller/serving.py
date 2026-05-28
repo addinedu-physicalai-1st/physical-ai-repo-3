@@ -29,9 +29,9 @@ _WORKER_SCRIPT = str(Path(__file__).parent / 'model_worker.py')
 
 _TASK            = 'pick up cup and place at target zone'
 _CONTROL_HZ      = 30.0
-_RTC_EXECUTION_HORIZON = 11
-_RTC_QUEUE_THRESHOLD = 22
-_RTC_DELAY_OFFSET_STEPS = -3  # +1 step = 33ms more future action at 30Hz
+_RTC_EXECUTION_HORIZON = 15
+_RTC_QUEUE_THRESHOLD = 30
+_RTC_DELAY_OFFSET_STEPS = 0  # +1 step = 33ms more future action at 30Hz
 
 # ── VLM 설정 ────────────────────────────────────────────────────────────────
 _VLM_HOST        = 'http://localhost:11434'   # Ollama 서버 주소
@@ -127,7 +127,7 @@ class ModelProcess:
             '--socket-path',  self._sock_path,
             '--shm-obs-name', self._shm_obs.name,
             '--shm-act-name', self._shm_act.name,
-            '--rtc-execution-horizon', str(_RTC_EXECUTION_HORIZON),
+            '--rtc-execution-horizon', str(_RTC_EXECUTION_HORIZON),  # =15
         ])
 
         # 모델 로딩 완료까지 대기 (최대 10분)
@@ -201,8 +201,8 @@ class ModelProcess:
 # ── Hardware ───────────────────────────────────────────────────────────────
 _ROBOT_PORT = '/dev/ttyACM0'
 _ROBOT_BAUD = 1_000_000
-_REALSENSE_SERIAL = '943222071539'
-_WRIST_CAM_PATH = '/dev/video6'
+_TOP_CAM_PATH   = '/dev/video4'
+_WRIST_CAM_PATH = '/dev/video2'
 _CAM_W, _CAM_H, _CAM_FPS = 640, 480, 30
 
 # Dynamixel motor IDs: [shoulder_pan, shoulder_lift, elbow, wrist_flex, wrist_roll, gripper]
@@ -300,44 +300,78 @@ class _OMXRobot:
         self.port.closePort()
 
 
-class _WristCamera:
-    def __init__(self, path: str = _WRIST_CAM_PATH):
+class _AsyncCamera:
+    """OpenCV 카메라를 백그라운드 스레드로 캡처해 non-blocking read 제공.
+
+    lerobot의 cam.read_latest(max_age_ms=1000)과 동일한 방식.
+    control loop에서 cap.read() blocking (~33ms/camera)을 제거해
+    실제 제어 주기를 목표 30Hz에 가깝게 유지한다.
+    """
+
+    def __init__(self, path: str, name: str):
+        self._name = name
         self.cap = cv2.VideoCapture(path)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, _CAM_W)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, _CAM_H)
         self.cap.set(cv2.CAP_PROP_FPS, _CAM_FPS)
         if not self.cap.isOpened():
-            raise RuntimeError(f'Cannot open wrist camera {path}')
+            raise RuntimeError(f'Cannot open {name} camera: {path}')
 
-    def read(self) -> np.ndarray:
-        ret, frame = self.cap.read()
-        if not ret:
-            raise RuntimeError('Wrist camera read failed')
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self._frame: np.ndarray | None = None
+        self._frame_time: float = 0.0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._capture_loop, daemon=True, name=f'cam_{name}'
+        )
+        self._thread.start()
+
+        # 첫 프레임 대기 (최대 5초)
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            with self._lock:
+                if self._frame is not None:
+                    break
+            time.sleep(0.01)
+        else:
+            self._stop.set()
+            raise RuntimeError(f'{name} camera: no frame within 5s')
+
+    def _capture_loop(self):
+        while not self._stop.is_set():
+            ret, frame = self.cap.read()
+            if ret:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                with self._lock:
+                    self._frame = rgb
+                    self._frame_time = time.monotonic()
+            elif not self._stop.is_set():
+                time.sleep(0.001)
+
+    def read_latest(self, max_age_ms: float = 1000.0) -> np.ndarray:
+        """최신 프레임 즉시 반환 (blocking 없음)."""
+        with self._lock:
+            if self._frame is None:
+                raise RuntimeError(f'{self._name} camera: no frame')
+            age_ms = (time.monotonic() - self._frame_time) * 1000.0
+            if age_ms > max_age_ms:
+                raise RuntimeError(
+                    f'{self._name} camera: frame too old ({age_ms:.0f}ms)'
+                )
+            return self._frame.copy()
 
     def close(self):
+        self._stop.set()
+        self._thread.join(timeout=2.0)
         self.cap.release()
 
 
-class _TopCamera:
-    def __init__(self, serial: str = _REALSENSE_SERIAL):
-        import pyrealsense2 as rs
-        self.pipeline = rs.pipeline()
-        cfg = rs.config()
-        cfg.enable_device(serial)
-        cfg.enable_stream(rs.stream.color, _CAM_W, _CAM_H, rs.format.rgb8, _CAM_FPS)
-        self.pipeline.start(cfg)
+# 하위 호환 별칭
+def _TopCamera(path: str = _TOP_CAM_PATH) -> _AsyncCamera:
+    return _AsyncCamera(path, 'top')
 
-    def read(self) -> np.ndarray:
-        import pyrealsense2 as rs
-        frames = self.pipeline.wait_for_frames()
-        color = frames.get_color_frame()
-        if not color:
-            raise RuntimeError('RealSense frame missing')
-        return np.asanyarray(color.get_data())
-
-    def close(self):
-        self.pipeline.stop()
+def _WristCamera(path: str = _WRIST_CAM_PATH) -> _AsyncCamera:
+    return _AsyncCamera(path, 'wrist')
 
 
 # ── ROS node ───────────────────────────────────────────────────────────────
@@ -346,10 +380,10 @@ class SingleArmControllerNode(Node):
     def __init__(self):
         super().__init__('single_arm_controller')
 
-        self.declare_parameter('wrist_cam_path',   _WRIST_CAM_PATH)
-        self.declare_parameter('realsense_serial', _REALSENSE_SERIAL)
-        self.declare_parameter('task',             _TASK)
-        self.declare_parameter('vlm_host',         _VLM_HOST)
+        self.declare_parameter('top_cam_path',   _TOP_CAM_PATH)
+        self.declare_parameter('wrist_cam_path', _WRIST_CAM_PATH)
+        self.declare_parameter('task',           _TASK)
+        self.declare_parameter('vlm_host',       _VLM_HOST)
 
         # 노드 시작 시 모델 워커 프로세스 미리 실행 (request 올 때 바로 추론 가능)
         self.get_logger().info('Starting model worker process (loading model)...')
@@ -398,13 +432,13 @@ class SingleArmControllerNode(Node):
     def _execute_serve(self, goal_handle):
         goal = goal_handle.request
         # goal > 파라미터 > 기본값 순으로 우선순위
-        wrist_cam_path   = goal.wrist_cam_path   or self.get_parameter('wrist_cam_path').value
-        realsense_serial = goal.realsense_serial or self.get_parameter('realsense_serial').value
-        task             = goal.task             or self.get_parameter('task').value
+        top_cam_path   = goal.top_cam_path   or self.get_parameter('top_cam_path').value
+        wrist_cam_path = goal.wrist_cam_path or self.get_parameter('wrist_cam_path').value
+        task           = goal.task           or self.get_parameter('task').value
 
         self.get_logger().info(
-            f'Serve started — wrist_cam={wrist_cam_path} '
-            f'realsense={realsense_serial} task="{task}"'
+            f'Serve started — top_cam={top_cam_path} '
+            f'wrist_cam={wrist_cam_path} task="{task}"'
         )
 
         feedback = Serve.Feedback()
@@ -412,7 +446,7 @@ class SingleArmControllerNode(Node):
         goal_handle.publish_feedback(feedback)
 
         try:
-            self._do_serve(goal_handle, wrist_cam_path, realsense_serial, task)
+            self._do_serve(goal_handle, top_cam_path, wrist_cam_path, task)
         except _TaskComplete:
             goal_handle.succeed()
             result = Serve.Result()
@@ -447,13 +481,13 @@ class SingleArmControllerNode(Node):
         self.get_logger().info('_do_pickup!')
         time.sleep(3)
 
-    def _do_serve(self, goal_handle, wrist_cam_path: str, realsense_serial: str, task: str):
+    def _do_serve(self, goal_handle, top_cam_path: str, wrist_cam_path: str, task: str):
         self.get_logger().info('Starting serve with pre-loaded model.')
 
         robot = _OMXRobot()
         initial_pos = robot.get_positions()
+        top_cam = _TopCamera(top_cam_path)
         wrist_cam = _WristCamera(wrist_cam_path)
-        top_cam = _TopCamera(realsense_serial)
 
         period = 1.0 / _CONTROL_HZ
         step = 0
@@ -482,8 +516,8 @@ class SingleArmControllerNode(Node):
 
         import math
         _INFER_QUEUE_THRESHOLD   = _RTC_QUEUE_THRESHOLD
-        _INTERPOLATION_MULT      = 5    # lerobot --interpolation_multiplier=5
-        _SUB_PERIOD              = period / _INTERPOLATION_MULT  # ~6.67ms
+        _INTERPOLATION_MULT      = 3    # lerobot --interpolation_multiplier=3
+        _SUB_PERIOD              = period / _INTERPOLATION_MULT  # ~11.1ms
 
         infer_count   = [0]
         infer_skipped = [0]
@@ -508,7 +542,11 @@ class SingleArmControllerNode(Node):
                         np.array(list(original_action_queue), dtype=np.float32)
                         if original_action_queue else None
                     )
+                prev_len_raw = len(prev_left_over) if prev_left_over is not None else 0
 
+                # [비교포인트 A] 트리거 조건: lerobot은 threshold=30, serving은 threshold=12
+                # lerobot: if queue.qsize() <= self._rtc_queue_threshold → 트리거
+                # serving: if qsize > threshold → skip (동일 로직, 반전 표현)
                 if qsize > _INFER_QUEUE_THRESHOLD:
                     infer_skipped[0] += 1
                     time.sleep(0.005)
@@ -522,9 +560,42 @@ class SingleArmControllerNode(Node):
                     continue
 
                 try:
-                    # P95 latency로 delay 추정 (첫 추론은 0)
+                    # P95 latency로 delay 추정 (첫 추론은 0 — warmup 제외)
                     p95 = _p95_latency()
                     delay = math.ceil(p95 / period) if p95 else 0
+                    p95_ms = f'{p95*1000:.0f}ms' if p95 else 'N/A'
+
+                    # prev_actions 정규화: lerobot과 동일하게 execution_horizon steps로 pad/truncate
+                    # + EMA smoothing: chunk tail의 "재파지 준비" 패턴이 prev_chunk로 전달되어
+                    #   피드백 루프(tail 52→56 → 다음 chunk에서 full close 60)를 일으키는 것을 방지
+                    if prev_left_over is not None:
+                        n = len(prev_left_over)
+                        target = _RTC_EXECUTION_HORIZON
+                        if n >= target:
+                            prev_left_over_norm = prev_left_over[:target].copy()
+                        else:
+                            pad = np.zeros((target - n, _ACTION_DIM), dtype=np.float32)
+                            prev_left_over_norm = np.concatenate([prev_left_over, pad], axis=0)
+                        # EMA smoothing on prev_chunk - gripper(index 5)만 적용:
+                        # arm 관절(0-4)은 raw 값 유지 → 이동 연속성 보존 (전체 적용시 stop-start 발생)
+                        # gripper(5)만 smoothing → rising tail 패턴(재파지 피드백 루프) 억제
+                        _grip_ema = float(prev_left_over_norm[0, 5])
+                        for i in range(len(prev_left_over_norm)):
+                            _grip_ema = 0.43 * float(prev_left_over_norm[i, 5]) + 0.57 * _grip_ema
+                            prev_left_over_norm[i, 5] = _grip_ema
+                        prev_norm_len = len(prev_left_over_norm)
+                    else:
+                        prev_left_over_norm = None
+                        prev_norm_len = 0
+
+                    self.get_logger().info(
+                        f'[infer-trigger #{infer_count[0]+1}] '
+                        f'qsize={qsize} threshold={_INFER_QUEUE_THRESHOLD} '
+                        f'p95={p95_ms} delay_hint={delay} '
+                        f'prev_raw_len={prev_len_raw} prev_normalized_len={prev_norm_len} '
+                        f'(skipped={infer_skipped[0]})'
+                    )
+                    infer_skipped[0] = 0
 
                     t_start = time.perf_counter()
                     original_chunk, processed_chunk = self._model.get_action_chunk(
@@ -534,22 +605,29 @@ class SingleArmControllerNode(Node):
                         task=task,
                         robot_type=_ROBOT_TYPE,
                         inference_delay=delay,
-                        prev_chunk_left_over=prev_left_over,
+                        prev_chunk_left_over=prev_left_over_norm,
                     )
                     infer_s = time.perf_counter() - t_start
-                    _latency_history.append(infer_s)
-                    if len(_latency_history) > 50:
-                        _latency_history.pop(0)
+                    # 첫 추론(warmup, ~900ms)은 latency history에서 제외
+                    if infer_count[0] > 0:
+                        _latency_history.append(infer_s)
+                        if len(_latency_history) > 50:
+                            _latency_history.pop(0)
 
                     real_delay = round(infer_s / period)
 
                     with queue_lock:
                         q_before = len(processed_action_queue)
                         consumed_during_infer = max(0, executed_count[0] - idx_before)
+                        # [비교포인트 C] delay 선택 로직:
+                        # lerobot _check_and_resolve_delays: |indexes_diff - real_delay| <= 1 → indexes_diff 사용
+                        # serving: 동일 로직 (consumed_during_infer 우선)
                         if abs(consumed_during_infer - real_delay) <= 1:
                             base_delay = consumed_during_infer
+                            delay_src = 'consumed'
                         else:
                             base_delay = real_delay
+                            delay_src = 'latency'
                         actual_delay = base_delay + _RTC_DELAY_OFFSET_STEPS
                         actual_delay = max(0, min(actual_delay, len(processed_chunk)))
 
@@ -567,22 +645,23 @@ class SingleArmControllerNode(Node):
                         grip_tail = ','.join(f'{v:.1f}' for v in grip_seq[-6:])
                         grip_min = float(np.min(grip_seq)) if len(grip_seq) else float('nan')
                         grip_max = float(np.max(grip_seq)) if len(grip_seq) else float('nan')
+                        chunk_first = queued_processed[0] if len(queued_processed) > 0 else np.zeros(_ACTION_DIM)
+                        chunk_last = queued_processed[-1] if len(queued_processed) > 0 else np.zeros(_ACTION_DIM)
 
                     infer_count[0] += 1
-                    p95_ms = f'{p95*1000:.0f}ms' if p95 else 'N/A'
                     self.get_logger().info(
-                        f'[infer #{infer_count[0]}] '
-                        f'infer={infer_s*1000:.0f}ms '
-                        f'p95={p95_ms} '
-                        f'delay={actual_delay} base_delay={base_delay} offset={_RTC_DELAY_OFFSET_STEPS} '
+                        f'[infer-done #{infer_count[0]}] '
+                        f'infer={infer_s*1000:.0f}ms p95={p95_ms} '
                         f'real_delay={real_delay} consumed={consumed_during_infer} '
-                        f'prev_len={len(prev_left_over) if prev_left_over is not None else 0} '
-                        f'queue {q_before}->{q_after} '
+                        f'delay_src={delay_src} base_delay={base_delay} '
+                        f'offset={_RTC_DELAY_OFFSET_STEPS} actual_delay={actual_delay} '
+                        f'prev_raw_len={prev_len_raw} prev_normalized_len={prev_norm_len} '
+                        f'q_before={q_before}→q_after={q_after} '
+                        f'chunk_first=[{",".join(f"{v:.2f}" for v in chunk_first[:3])},...,grip={chunk_first[5]:.2f}] '
+                        f'chunk_last=[{",".join(f"{v:.2f}" for v in chunk_last[:3])},...,grip={chunk_last[5]:.2f}] '
                         f'grip_minmax={grip_min:.1f}/{grip_max:.1f} '
-                        f'grip_head=[{grip_head}] grip_tail=[{grip_tail}] '
-                        f'(skip={infer_skipped[0]})'
+                        f'grip_head=[{grip_head}] grip_tail=[{grip_tail}]'
                     )
-                    infer_skipped[0] = 0
                 except Exception as e:
                     infer_error[0] = e
                     infer_stop.set()
@@ -592,8 +671,8 @@ class SingleArmControllerNode(Node):
 
         try:
             # 첫 관찰값 설정 후 인퍼런스 스레드 시작
-            top_img   = top_cam.read()
-            wrist_img = wrist_cam.read()
+            top_img   = top_cam.read_latest()
+            wrist_img = wrist_cam.read_latest()
             state     = robot.get_positions()
             with obs_lock:
                 latest_obs = {'top': top_img, 'wrist': wrist_img, 'state': state}
@@ -615,6 +694,8 @@ class SingleArmControllerNode(Node):
                 raise RuntimeError('Inference did not produce actions within 60s')
 
             prev_action_interp = None  # 보간을 위한 이전 액션
+            ema_state = None            # lerobot action_ema_alpha=0.43 동일
+            _EMA_ALPHA = 0.43
 
             # ── 제어 루프 (30Hz 정책, 150Hz 보간 전송) ─────────────────────
             while not goal_handle.is_cancel_requested:
@@ -624,8 +705,9 @@ class SingleArmControllerNode(Node):
                     raise infer_error[0]
 
                 # 최신 관찰값 업데이트 (인퍼런스 스레드가 즉시 사용)
-                top_img   = top_cam.read()
-                wrist_img = wrist_cam.read()
+                # read_latest(): 백그라운드 스레드가 캡처한 최신 프레임을 즉시 반환 (non-blocking)
+                top_img   = top_cam.read_latest()
+                wrist_img = wrist_cam.read_latest()
                 state     = robot.get_positions()
                 with obs_lock:
                     latest_obs = {'top': top_img, 'wrist': wrist_img, 'state': state}
@@ -702,28 +784,49 @@ class SingleArmControllerNode(Node):
                     feedback.status = f'step {step}'
                     goal_handle.publish_feedback(feedback)
 
-                    if step % 10 == 0:
-                        self.get_logger().info(
-                            f'[ctrl] step={step} queue={qsize} '
-                            f'state=[{",".join(f"{v:.1f}" for v in state[:3])},...] '
-                            f'action=[{",".join(f"{v:.1f}" for v in action[:3])},...] '
-                            f'diff=[{",".join(f"{v:.1f}" for v in (action-state)[:3])}] '
-                            f'grip state={state[5]:.1f} action={action[5]:.1f} diff={action[5]-state[5]:.1f}'
-                        )
+                    # [비교포인트 D] 제어 루프 주기:
+                    # lerobot: 150Hz 단일 루프 (control_interval=1/(30*5)=6.67ms),
+                    #          ActionInterpolator.needs_new_action()으로 30Hz마다 새 action 가져옴
+                    # serving: 30Hz 외부 루프 + 내부 5-step 보간 (6.67ms sleep)
+                    # → lerobot은 obs도 150Hz로 읽되 notify는 30Hz에 맞춰 throttle됨
+                    self.get_logger().info(
+                        f'[ctrl-step {step:04d}] q={qsize} '
+                        f'action=[{",".join(f"{v:.2f}" for v in action[:3])},...,grip={action[5]:.2f}] '
+                        f'state=[{",".join(f"{v:.2f}" for v in state[:3])},...,grip={state[5]:.2f}] '
+                        f'diff=[{",".join(f"{v:.2f}" for v in (action-state)[:3])},...,grip_diff={action[5]-state[5]:.2f}]'
+                    )
 
-                    # 이전 액션 → 현재 액션 사이를 선형 보간해 150Hz로 전송
+                    # EMA 적용: gripper(index 5)만 — arm 관절(0-4)은 raw 사용
+                    # arm에 전체 EMA 적용 시 chunk 경계마다 ramp-up → 주기적 stop-start 발생
+                    # gripper만 EMA → grip oscillation 억제, arm은 clean tracking
+                    if ema_state is None:
+                        ema_state = action.copy()
+                    else:
+                        ema_state[5] = _EMA_ALPHA * action[5] + (1.0 - _EMA_ALPHA) * ema_state[5]
+                    action[5] = ema_state[5]
+
                     src = prev_action_interp if prev_action_interp is not None else action
                     for i in range(1, _INTERPOLATION_MULT + 1):
                         if goal_handle.is_cancel_requested:
                             break
                         t_interp = i / _INTERPOLATION_MULT
                         interp = src * (1.0 - t_interp) + action * t_interp
+                        # 첫 번째와 마지막 sub-step만 로그
+                        if i == 1 or i == _INTERPOLATION_MULT:
+                            self.get_logger().info(
+                                f'[ctrl-interp step={step:04d} sub={i}/{_INTERPOLATION_MULT}] '
+                                f'action=[{",".join(f"{v:.2f}" for v in interp[:3])},...,grip={interp[5]:.2f}] '
+                                f'(NO_EMA,lerobot=ema_alpha=0.43)'
+                            )
                         robot.set_positions(interp)
                         time.sleep(_SUB_PERIOD)
 
                     prev_action_interp = action.copy()
                 else:
-                    self.get_logger().warn(f'[ctrl] step={step} queue EMPTY — holding position')
+                    self.get_logger().warn(
+                        f'[ctrl-step {step:04d}] q={qsize} EMPTY — holding position '
+                        f'state=[{",".join(f"{v:.2f}" for v in state[:3])},...,grip={state[5]:.2f}]'
+                    )
 
                 # 보간 루프(5 × 6.67ms)가 이미 ~33ms를 소비하므로 별도 sleep 불필요
                 # 큐가 비어 hold 상태일 때만 sleep
