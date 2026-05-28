@@ -32,7 +32,7 @@ class ActServingActionServer(Node):
 
         self._orchestrator = ActServingOrchestrator(
             config_path=self.get_parameter('config_path').value,
-            logger=self.get_logger(),
+            node=self,
             vlm_host=self.get_parameter('vlm_host').value,
         )
 

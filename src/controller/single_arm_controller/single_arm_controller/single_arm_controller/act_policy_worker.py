@@ -1,29 +1,28 @@
 #!/usr/bin/env python3
 """
-ACT model worker — lerobot venv에서 실행.
-shared memory로 이미지/관절을 받고, Unix socket으로 GO/DONE 신호만 주고받는다.
+ACT policy inference ROS node.
 
-설정은 act_serving_orchestrator.py가 전달하는 --config-path YAML 파일에서 읽는다.
-이미지 shape, action chunk 크기 등은 act_serving_config.yaml로 동기화된다.
-
-프로토콜:
-  - act_serving_orchestrator.py가 shared memory에 top/wrist 이미지와 관절 상태를 쓴다.
-  - Unix socket으로 b'G' + uint32(delay)를 보내 추론을 요청한다.
-  - worker는 action chunk를 shared memory에 쓰고 b'D'로 완료를 알린다.
+This node owns the ACT model runtime. It exchanges large observation/action
+arrays through shared memory and uses a small ROS service only as the inference
+trigger/completion signal.
 """
 
-import argparse
-import socket
-import struct
+from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 
 import numpy as np
+import rclpy as rp
+from rclpy.node import Node
 import torch
 import yaml
 
 from lerobot.policies.act import ACTPolicy
 from lerobot.policies import make_pre_post_processors
 from lerobot.policies.utils import prepare_observation_for_inference
+from single_arm_controller_interfaces.srv import ActPolicyInference
+
+
+_DEFAULT_CONFIG_PATH = str(Path(__file__).parent.parent / 'config' / 'act_serving_config.yaml')
 
 
 def load_act_serving_config(path: str) -> dict:
@@ -31,140 +30,172 @@ def load_act_serving_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def receive_exactly(sock, n: int) -> bytes:
-    buf = bytearray()
-    while len(buf) < n:
-        data = sock.recv(n - len(buf))
-        if not data:
-            raise ConnectionError('socket closed')
-        buf.extend(data)
-    return bytes(buf)
+def create_owned_shared_memory(name: str, size: int) -> SharedMemory:
+    try:
+        return SharedMemory(name=name, create=True, size=size)
+    except FileExistsError:
+        stale = SharedMemory(name=name)
+        stale.unlink()
+        stale.close()
+        return SharedMemory(name=name, create=True, size=size)
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model-path',   required=True)
-    parser.add_argument('--device',       default='cuda')
-    parser.add_argument('--robot-type',   default='omx_follower')
-    parser.add_argument('--socket-path',  required=True)
-    parser.add_argument('--shm-obs-name', required=True)
-    parser.add_argument('--shm-act-name', required=True)
-    parser.add_argument('--config-path',  required=True, help='act_serving_config.yaml 경로')
-    args = parser.parse_args()
+class ActPolicyServer(Node):
+    def __init__(self):
+        super().__init__('act_policy_server')
+        self.declare_parameter('config_path', _DEFAULT_CONFIG_PATH)
 
-    # ── 설정 로드 ────────────────────────────────────────────────────────────
-    config = load_act_serving_config(args.config_path)
-    memory_config = config['memory']
+        config_path = self.get_parameter('config_path').value
+        self.get_logger().info(f'Loading ACT serving config: {config_path}')
+        self._config = load_act_serving_config(config_path)
 
-    top_image_shape = tuple(memory_config['top_shape'])
-    wrist_image_shape = tuple(memory_config['wrist_shape'])
-    state_dimension = memory_config['state_dim']
-    action_chunk_size = memory_config['chunk_size']
-    action_dimension = memory_config['action_dim']
+        self._init_shared_memory()
+        self._load_model()
 
-    top_image_bytes = int(np.prod(top_image_shape))
-    wrist_image_bytes = int(np.prod(wrist_image_shape))
-    action_planes = 2
+        service_name = self._config.get('ipc', {}).get('service_name', '/act_policy/infer')
+        self._service = self.create_service(
+            ActPolicyInference,
+            service_name,
+            self.handle_inference_request,
+        )
+        self.get_logger().info(f'ACT policy server ready: {service_name}')
 
-    print(
-        f'[act_policy_worker] config: chunk_size={action_chunk_size} '
-        f'action_dim={action_dimension} state_dim={state_dimension} '
-        f'top={top_image_shape} wrist={wrist_image_shape}',
-        flush=True,
-    )
+    def _init_shared_memory(self):
+        memory_config = self._config['memory']
+        ipc_config = self._config.get('ipc', {})
 
-    # ── shared memory 연결 ───────────────────────────────────────────────────
-    from multiprocessing.shared_memory import SharedMemory
-    shm_obs = SharedMemory(name=args.shm_obs_name)
-    shm_act = SharedMemory(name=args.shm_act_name)
+        self._top_image_shape = tuple(memory_config['top_shape'])
+        self._wrist_image_shape = tuple(memory_config['wrist_shape'])
+        self._state_dimension = int(memory_config['state_dim'])
+        self._action_chunk_size = int(memory_config['chunk_size'])
+        self._action_dimension = int(memory_config['action_dim'])
 
-    top_image_buffer = np.ndarray(
-        top_image_shape, dtype=np.uint8, buffer=shm_obs.buf, offset=0
-    )
-    wrist_image_buffer = np.ndarray(
-        wrist_image_shape, dtype=np.uint8, buffer=shm_obs.buf, offset=top_image_bytes
-    )
-    joint_state_buffer = np.ndarray(
-        state_dimension,
-        dtype=np.float32,
-        buffer=shm_obs.buf,
-        offset=top_image_bytes + wrist_image_bytes,
-    )
-    action_buffer = np.ndarray(
-        (action_planes, action_chunk_size, action_dimension),
-        dtype=np.float32,
-        buffer=shm_act.buf,
-    )
+        self._top_image_bytes = int(np.prod(self._top_image_shape))
+        self._wrist_image_bytes = int(np.prod(self._wrist_image_shape))
+        self._state_bytes = self._state_dimension * 4
+        self._obs_bytes = self._top_image_bytes + self._wrist_image_bytes + self._state_bytes
+        self._act_planes = 2
+        self._act_bytes = self._act_planes * self._action_chunk_size * self._action_dimension * 4
 
-    # ── 모델 로딩 ────────────────────────────────────────────────────────────
-    print(f'[act_policy_worker] Loading ACT from {args.model_path} on {args.device} ...', flush=True)
-    model = ACTPolicy.from_pretrained(args.model_path)
-    model.to(args.device)
-    model.eval()
-    device = torch.device(args.device)
+        obs_name = ipc_config.get('shm_obs_name', 'act_policy_observation')
+        act_name = ipc_config.get('shm_act_name', 'act_policy_action')
+        self._shm_obs = create_owned_shared_memory(obs_name, self._obs_bytes)
+        self._shm_act = create_owned_shared_memory(act_name, self._act_bytes)
 
-    model_chunk = model.config.chunk_size
-    if model_chunk > action_chunk_size:
-        print(
-            f'[act_policy_worker] WARNING: model chunk_size={model_chunk} '
-            f'> configured chunk_size={action_chunk_size}. '
-            f'memory.chunk_size를 act_serving_config.yaml에서 {model_chunk} 이상으로 늘려야 한다.',
-            flush=True,
+        self._top_image_buffer = np.ndarray(
+            self._top_image_shape, dtype=np.uint8, buffer=self._shm_obs.buf, offset=0
+        )
+        self._wrist_image_buffer = np.ndarray(
+            self._wrist_image_shape,
+            dtype=np.uint8,
+            buffer=self._shm_obs.buf,
+            offset=self._top_image_bytes,
+        )
+        self._joint_state_buffer = np.ndarray(
+            self._state_dimension,
+            dtype=np.float32,
+            buffer=self._shm_obs.buf,
+            offset=self._top_image_bytes + self._wrist_image_bytes,
+        )
+        self._action_buffer = np.ndarray(
+            (self._act_planes, self._action_chunk_size, self._action_dimension),
+            dtype=np.float32,
+            buffer=self._shm_act.buf,
         )
 
-    preprocess, postprocess = make_pre_post_processors(
-        model.config,
-        args.model_path,
-        preprocessor_overrides={'device_processor': {'device': args.device}},
-    )
-    print(f'[act_policy_worker] Model loaded. chunk_size={model_chunk}', flush=True)
+        self.get_logger().info(
+            f'Shared memory ready: obs={obs_name} ({self._obs_bytes} bytes), '
+            f'act={act_name} ({self._act_bytes} bytes)'
+        )
 
-    # ── Unix socket 연결 ─────────────────────────────────────────────────────
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(args.socket_path)
-    sock.sendall(b'R')   # READY
+    def _load_model(self):
+        model_config = self._config['model']
+        self._device = torch.device(model_config['device'])
+        self._robot_type = model_config['robot_type']
 
-    # ── 추론 루프 ────────────────────────────────────────────────────────────
-    while True:
-        cmd = sock.recv(1)
-        if not cmd or cmd == b'Q':
-            break
+        self.get_logger().info(
+            f"Loading ACT model: {model_config['path']} on {model_config['device']}"
+        )
+        self._model = ACTPolicy.from_pretrained(model_config['path'])
+        self._model.to(self._device)
+        self._model.eval()
 
-        if cmd == b'G':
-            # 프로토콜: uint32(inference_delay)
-            inference_delay = struct.unpack('>I', receive_exactly(sock, 4))[0]
+        model_chunk = self._model.config.chunk_size
+        if model_chunk > self._action_chunk_size:
+            self.get_logger().warn(
+                f'model chunk_size={model_chunk} > configured '
+                f'chunk_size={self._action_chunk_size}. Increase memory.chunk_size.'
+            )
 
-            top_image = top_image_buffer.copy()
-            wrist_image = wrist_image_buffer.copy()
-            joint_state = joint_state_buffer.copy()
+        self._preprocess, self._postprocess = make_pre_post_processors(
+            self._model.config,
+            model_config['path'],
+            preprocessor_overrides={'device_processor': {'device': model_config['device']}},
+        )
+        self.get_logger().info(f'ACT model loaded. chunk_size={model_chunk}')
+
+    def handle_inference_request(self, request, response):
+        del request  # Inference delay is reserved for future RTC-aware model APIs.
+        try:
+            top_image = self._top_image_buffer.copy()
+            wrist_image = self._wrist_image_buffer.copy()
+            joint_state = self._joint_state_buffer.copy()
 
             obs_dict = {
-                'observation.images.top':   top_image,
+                'observation.images.top': top_image,
                 'observation.images.wrist': wrist_image,
-                'observation.state':        joint_state,
+                'observation.state': joint_state,
             }
             observation = prepare_observation_for_inference(
-                obs_dict, device, task=None, robot_type=args.robot_type
+                obs_dict,
+                self._device,
+                task=None,
+                robot_type=self._robot_type,
             )
-            observation = preprocess(observation)
+            observation = self._preprocess(observation)
 
             with torch.no_grad():
-                raw_action_chunk = model.predict_action_chunk(observation)
+                raw_action_chunk = self._model.predict_action_chunk(observation)
 
             original_chunk = raw_action_chunk.squeeze(0).clone()
-            processed_chunk = postprocess(raw_action_chunk).squeeze(0)
+            processed_chunk = self._postprocess(raw_action_chunk).squeeze(0)
 
-            rows = min(len(processed_chunk.cpu().numpy()), action_chunk_size)
-            action_buffer[:] = 0
-            action_buffer[0, :rows] = original_chunk.cpu().numpy()[:rows]
-            action_buffer[1, :rows] = processed_chunk.cpu().numpy()[:rows]
+            original_np = original_chunk.cpu().numpy()
+            processed_np = processed_chunk.cpu().numpy()
+            rows = min(len(processed_np), self._action_chunk_size)
 
-            sock.sendall(b'D')   # DONE
+            self._action_buffer[:] = 0
+            self._action_buffer[0, :rows] = original_np[:rows]
+            self._action_buffer[1, :rows] = processed_np[:rows]
 
-    shm_obs.close()
-    shm_act.close()
-    sock.close()
-    print('[act_policy_worker] Shutdown.', flush=True)
+            response.success = True
+            response.message = f'inference complete rows={rows}'
+        except Exception as e:
+            self.get_logger().error(f'ACT inference failed: {e}')
+            response.success = False
+            response.message = str(e)
+        return response
+
+    def destroy_node(self):
+        for shm in (self._shm_obs, self._shm_act):
+            try:
+                shm.unlink()
+            except FileNotFoundError:
+                pass
+            shm.close()
+        super().destroy_node()
+
+
+def main(args=None):
+    rp.init(args=args)
+    node = ActPolicyServer()
+    try:
+        rp.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rp.shutdown()
 
 
 if __name__ == '__main__':

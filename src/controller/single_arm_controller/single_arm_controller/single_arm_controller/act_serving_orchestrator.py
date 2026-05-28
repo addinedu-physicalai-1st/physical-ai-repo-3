@@ -1,7 +1,7 @@
 """
 ACT serving orchestration layer.
 
-This module owns the business logic for serving tasks: ACT worker management,
+This module owns the business logic for serving tasks: ACT policy server access,
 camera capture, Dynamixel control, VLM completion checks, and the control loop.
 The ROS action server should call this module through callbacks instead of
 handling hardware or policy execution directly.
@@ -11,11 +11,7 @@ import base64
 import collections
 from dataclasses import dataclass
 import math
-import os
-import socket
-import struct
-import subprocess
-import tempfile
+from multiprocessing.shared_memory import SharedMemory
 import threading
 import time
 from pathlib import Path
@@ -25,6 +21,7 @@ import cv2
 import numpy as np
 import requests
 import yaml
+from single_arm_controller_interfaces.srv import ActPolicyInference
 
 
 _DEFAULT_CONFIG_PATH = str(Path(__file__).parent.parent / 'config' / 'act_serving_config.yaml')
@@ -102,15 +99,15 @@ def load_act_serving_config(path: str) -> dict:
     return config
 
 
-class ActPolicyWorkerClient:
+class ActPolicyServerClient:
     """
-    ACT 워커 프로세스를 관리한다.
-    공유 메모리 크기와 워커 실행 인자를 YAML 설정에서 읽는다.
+    별도 ROS 노드로 실행 중인 ACT policy server에 접속한다.
+    대용량 관찰/액션 배열은 shared memory로 교환하고, service는 trigger만 담당한다.
     """
 
-    def __init__(self, config: dict):
-        model_config = config['model']
+    def __init__(self, node, config: dict):
         memory_config = config['memory']
+        ipc_config = config.get('ipc', {})
 
         top_image_shape = tuple(memory_config['top_shape'])
         wrist_image_shape = tuple(memory_config['wrist_shape'])
@@ -122,9 +119,22 @@ class ActPolicyWorkerClient:
         action_bytes = memory_config['_act_bytes']
         action_planes = memory_config['_act_planes']
 
-        from multiprocessing.shared_memory import SharedMemory
-        self._shm_obs = SharedMemory(create=True, size=observation_bytes)
-        self._shm_act = SharedMemory(create=True, size=action_bytes)
+        self._node = node
+        self._logger = node.get_logger()
+        self._lock = threading.Lock()
+        self._service_name = ipc_config.get('service_name', '/act_policy/infer')
+        self._connect_timeout_s = float(ipc_config.get('connect_timeout_s', 120.0))
+
+        self._client = node.create_client(ActPolicyInference, self._service_name)
+        if not self._client.wait_for_service(timeout_sec=self._connect_timeout_s):
+            raise RuntimeError(
+                f'ACT policy service not available: {self._service_name}'
+            )
+
+        obs_name = ipc_config.get('shm_obs_name', 'act_policy_observation')
+        act_name = ipc_config.get('shm_act_name', 'act_policy_action')
+        self._shm_obs = self._attach_shared_memory(obs_name, observation_bytes)
+        self._shm_act = self._attach_shared_memory(act_name, action_bytes)
 
         top_image_bytes = memory_config['_top_bytes']
         wrist_image_bytes = memory_config['_wrist_bytes']
@@ -149,40 +159,24 @@ class ActPolicyWorkerClient:
             dtype=np.float32,
             buffer=self._shm_act.buf,
         )
-        self._lock = threading.Lock()
+        self._logger.info(f'Connected to ACT policy server: {self._service_name}')
 
-        self._sock_path = tempfile.mktemp(prefix='act_policy_worker_', suffix='.sock')
-        self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._server_sock.bind(self._sock_path)
-        self._server_sock.listen(1)
-
-        worker_script = str(Path(__file__).parent / 'act_policy_worker.py')
-        config_path = config.get('_config_path', _DEFAULT_CONFIG_PATH)
-
-        self._proc = subprocess.Popen([
-            model_config['python'], worker_script,
-            '--model-path',   model_config['path'],
-            '--device',       model_config['device'],
-            '--robot-type',   model_config['robot_type'],
-            '--socket-path',  self._sock_path,
-            '--shm-obs-name', self._shm_obs.name,
-            '--shm-act-name', self._shm_act.name,
-            '--config-path',  config_path,
-        ])
-
-        self._server_sock.settimeout(600)
-        self._conn, _ = self._server_sock.accept()
-        assert self.receive_exactly(1) == b'R', 'Worker did not send READY'
-        self._server_sock.settimeout(None)
-
-    def receive_exactly(self, n: int) -> bytes:
-        buf = bytearray()
-        while len(buf) < n:
-            data = self._conn.recv(n - len(buf))
-            if not data:
-                raise ConnectionError('Worker socket closed')
-            buf.extend(data)
-        return bytes(buf)
+    def _attach_shared_memory(self, name: str, expected_size: int) -> SharedMemory:
+        deadline = time.time() + self._connect_timeout_s
+        last_error = None
+        while time.time() < deadline:
+            try:
+                shm = SharedMemory(name=name)
+                if shm.size < expected_size:
+                    shm.close()
+                    raise RuntimeError(
+                        f'shared memory {name} too small: {shm.size} < {expected_size}'
+                    )
+                return shm
+            except FileNotFoundError as e:
+                last_error = e
+                time.sleep(0.1)
+        raise RuntimeError(f'Cannot attach shared memory {name}: {last_error}')
 
     def get_action_chunk(
         self,
@@ -191,33 +185,32 @@ class ActPolicyWorkerClient:
         state: np.ndarray,
         inference_delay: int = 0,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """추론 실행. 프로토콜: b'G' + uint32(delay) -> b'D'"""
+        """추론 실행. shared memory에 observation을 쓰고 service로 trigger한다."""
         with self._lock:
             np.copyto(self._top_image_buffer, top_image)
             np.copyto(self._wrist_image_buffer, wrist_image)
             np.copyto(self._joint_state_buffer, state)
 
-            self._conn.sendall(b'G' + struct.pack('>I', inference_delay))
-            assert self.receive_exactly(1) == b'D', 'Worker did not send DONE'
+            request = ActPolicyInference.Request()
+            request.inference_delay = int(inference_delay)
+            future = self._client.call_async(request)
+
+            done = threading.Event()
+            future.add_done_callback(lambda _: done.set())
+            if not done.wait(timeout=self._connect_timeout_s):
+                raise TimeoutError(f'ACT policy inference timeout: {self._service_name}')
+
+            response = future.result()
+            if response is None:
+                raise RuntimeError('ACT policy inference service returned no response')
+            if not response.success:
+                raise RuntimeError(response.message)
 
             return self._action_buffer[0].copy(), self._action_buffer[1].copy()
 
     def close(self):
-        try:
-            self._conn.sendall(b'Q')
-        except Exception:
-            pass
-        self._proc.terminate()
-        self._conn.close()
-        self._server_sock.close()
-        self._shm_obs.unlink()
         self._shm_obs.close()
-        self._shm_act.unlink()
         self._shm_act.close()
-        try:
-            os.unlink(self._sock_path)
-        except Exception:
-            pass
 
 
 class ThreadedCamera:
@@ -358,8 +351,9 @@ class DynamixelArm:
 class ActServingOrchestrator:
     """Pickup/Serve 작업 수행 로직을 담당한다."""
 
-    def __init__(self, config_path: str, logger, vlm_host: str = ''):
-        self._logger = logger
+    def __init__(self, config_path: str, node, vlm_host: str = ''):
+        self._node = node
+        self._logger = node.get_logger()
         self._vlm_host = vlm_host
 
         self._logger.info(f'Loading config: {config_path}')
@@ -368,11 +362,12 @@ class ActServingOrchestrator:
         self._config = config
 
         self._logger.info(
-            f"Starting ACT worker: model={config['model']['path']} "
+            f"Connecting ACT policy server: service="
+            f"{config.get('ipc', {}).get('service_name', '/act_policy/infer')} "
             f"chunk_size={config['memory']['chunk_size']}"
         )
-        self._model = ActPolicyWorkerClient(config)
-        self._logger.info('ACT model worker ready.')
+        self._model = ActPolicyServerClient(node, config)
+        self._logger.info('ACT policy server client ready.')
 
     @property
     def config(self) -> dict:

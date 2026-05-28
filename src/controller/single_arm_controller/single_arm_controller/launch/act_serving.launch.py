@@ -36,6 +36,15 @@ def generate_launch_description():
         ),
         Node(
             package='single_arm_controller',
+            executable='act_policy_server',
+            name='act_policy_server',
+            output='screen',
+            parameters=[{
+                'config_path': ParameterValue(LaunchConfiguration('config_path'), value_type=str),
+            }],
+        ),
+        Node(
+            package='single_arm_controller',
             executable='act_serving_controller',
             name='act_serving_controller',
             output='screen',
