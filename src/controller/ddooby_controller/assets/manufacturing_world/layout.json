@@ -58,7 +58,7 @@
       "collection": "Environment",
       "model_dir": "manufacturing_world/models/bread_tray_stand_left",
       "xyz": [
-        0.384743,
+        0.358618,
         0.150329,
         0.267104
       ],
@@ -74,7 +74,7 @@
       "collection": "Environment",
       "model_dir": "manufacturing_world/models/bread_tray_stand_right",
       "xyz": [
-        0.384743,
+        0.358618,
         0.007729,
         0.267104
       ],
@@ -90,7 +90,7 @@
       "collection": "Environment",
       "model_dir": "manufacturing_world/models/sausage_tray_leg_left",
       "xyz": [
-        0.384789,
+        0.358664,
         0.333496,
         0.267104
       ],
@@ -106,7 +106,7 @@
       "collection": "Environment",
       "model_dir": "manufacturing_world/models/sausage_tray_leg_right",
       "xyz": [
-        0.384789,
+        0.358664,
         0.190896,
         0.267104
       ],
@@ -170,7 +170,7 @@
       "collection": "Object",
       "model_dir": "manufacturing_world/models/bread_tray",
       "xyz": [
-        0.384734,
+        0.358608,
         0.077268,
         0.302179
       ],
@@ -186,7 +186,7 @@
       "collection": "Object",
       "model_dir": "manufacturing_world/models/sausage_tray",
       "xyz": [
-        0.384734,
+        0.358608,
         0.261406,
         0.302179
       ],
@@ -298,9 +298,9 @@
       "collection": "Object",
       "model_dir": "manufacturing_world/models/kachup",
       "xyz": [
-        0.532846,
-        0.227313,
-        0.61342
+        0.536092,
+        0.20652,
+        0.612456
       ],
       "rpy": [
         0.0,
@@ -308,6 +308,70 @@
         0.0
       ],
       "spawn_delay_sec": 13.0
+    },
+    {
+      "name": "can_coffee",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/can_coffee",
+      "xyz": [
+        0.541193,
+        0.036466,
+        0.443484
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 13.5
+    },
+    {
+      "name": "can_coffee2",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/can_coffee2",
+      "xyz": [
+        0.541193,
+        0.121554,
+        0.443484
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 14.0
+    },
+    {
+      "name": "can_coke",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/can_coke",
+      "xyz": [
+        0.541193,
+        0.206341,
+        0.443484
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 14.5
+    },
+    {
+      "name": "can_coke2",
+      "collection": "Object",
+      "model_dir": "manufacturing_world/models/can_coke2",
+      "xyz": [
+        0.541193,
+        0.291428,
+        0.443484
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spawn_delay_sec": 15.0
     }
   ]
 }

@@ -27,10 +27,10 @@
         </material>
       </visual>
       <collision name="beverage_stand_beverage_stand_base_collision">
-        <pose>-0.025909603 0.149219140 -0.047673792 0 0 0</pose>
+        <pose>-0.025909603 0.149219140 -0.054576635 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.300000012 0.400000006 0.150000006</size>
+            <size>0.300000012 0.400000006 0.140000001</size>
           </box>
         </geometry>
         <surface>
@@ -43,10 +43,10 @@
         </surface>
       </collision>
       <collision name="beverage_stand_beverage_stand_left_wall_collision">
-        <pose>-0.025286436 0.343714893 0.097283095 0 0 0</pose>
+        <pose>-0.025286436 0.343714893 0.093222082 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.300000012 0.009999990 0.139999986</size>
+            <size>0.300000012 0.009999990 0.155000001</size>
           </box>
         </geometry>
         <surface>
@@ -59,10 +59,10 @@
         </surface>
       </collision>
       <collision name="beverage_stand_beverage_stand_right_wall_collision">
-        <pose>-0.024855018 -0.046435252 0.097714543 0 0 0</pose>
+        <pose>-0.024855018 -0.046435252 0.093380004 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.300000012 0.009999998 0.139999986</size>
+            <size>0.300000012 0.009999998 0.155000001</size>
           </box>
         </geometry>
         <surface>
@@ -75,10 +75,10 @@
         </surface>
       </collision>
       <collision name="beverage_stand_beverage_stand_top_collision">
-        <pose>-0.115363777 0.148356289 0.171984613 0 0 0</pose>
+        <pose>-0.115363777 0.148356289 0.173309028 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.120000005 0.400000036 0.009999990</size>
+            <size>0.120000005 0.400000036 0.004999995</size>
           </box>
         </geometry>
         <surface>

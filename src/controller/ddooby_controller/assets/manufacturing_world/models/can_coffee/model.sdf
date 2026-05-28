@@ -1,36 +1,36 @@
 <?xml version="1.0"?>
 <sdf version="1.9">
-  <model name="sausage_tray_leg_left">
-    <static>true</static>
-    <link name="sausage_tray_leg_left_link">
+  <model name="can_coffee">
+    <static>false</static>
+    <link name="can_coffee_link">
       <inertial>
-        <mass>1.000000</mass>
+        <mass>0.100000</mass>
         <inertia>
-          <ixx>0.001000000</ixx>
-          <iyy>0.001000000</iyy>
-          <izz>0.001000000</izz>
+          <ixx>0.000100000</ixx>
+          <iyy>0.000100000</iyy>
+          <izz>0.000100000</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>
         </inertia>
       </inertial>
-      <visual name="sausage_tray_leg_left_visual">
+      <visual name="can_coffee_visual">
         <geometry>
           <mesh>
-            <uri>meshes/sausage_tray_leg_left.obj</uri>
+            <uri>meshes/can_coffee.obj</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.112500 0.112500 0.105000 1.000000</ambient>
-          <diffuse>0.450000 0.450000 0.420000 1.000000</diffuse>
+          <ambient>0.212500 0.162500 0.055000 1.000000</ambient>
+          <diffuse>0.850000 0.650000 0.220000 1.000000</diffuse>
           <specular>0.120000 0.120000 0.120000 1.000000</specular>
         </material>
       </visual>
-      <collision name="sausage_tray_leg_left_sausage_tray_leg_left_collision">
+      <collision name="can_coffee_can_coffee_collision">
         <pose>0.000000000 0.000000000 0.000000000 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.259999990 0.010000000 0.059999999</size>
+            <size>0.050000001 0.050000001 0.133000001</size>
           </box>
         </geometry>
         <surface>
