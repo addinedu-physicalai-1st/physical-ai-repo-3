@@ -3,11 +3,11 @@
 ACT model worker — lerobot venv에서 실행.
 shared memory로 이미지/관절을 받고, Unix socket으로 GO/DONE 신호만 주고받는다.
 
-설정은 act_serving_action_server.py가 전달하는 --config-path YAML 파일에서 읽는다.
+설정은 act_serving_orchestrator.py가 전달하는 --config-path YAML 파일에서 읽는다.
 이미지 shape, action chunk 크기 등은 act_serving_config.yaml로 동기화된다.
 
 프로토콜:
-  - act_serving_action_server.py가 shared memory에 top/wrist 이미지와 관절 상태를 쓴다.
+  - act_serving_orchestrator.py가 shared memory에 top/wrist 이미지와 관절 상태를 쓴다.
   - Unix socket으로 b'G' + uint32(delay)를 보내 추론을 요청한다.
   - worker는 action chunk를 shared memory에 쓰고 b'D'로 완료를 알린다.
 """

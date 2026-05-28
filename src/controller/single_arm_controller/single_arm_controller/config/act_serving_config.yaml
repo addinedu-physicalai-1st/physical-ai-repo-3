@@ -1,4 +1,4 @@
-# act_serving_action_server.py / act_policy_worker.py 공통 설정
+# act_serving_orchestrator.py / act_policy_worker.py 공통 설정
 # 이 파일의 값이 스크립트 하드코딩 상수를 대체한다.
 
 # ── 모델 ────────────────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ task:
   pickup_duration_s:  15.0
 
 # ── Shared Memory 레이아웃 ──────────────────────────────────────────────────
-# act_serving_action_server.py와 act_policy_worker.py가 반드시 동일한 값을 사용해야 한다.
+# act_serving_orchestrator.py와 act_policy_worker.py가 반드시 동일한 값을 사용해야 한다.
 memory:
   chunk_size:  100   # ACT config.chunk_size (모델 학습 설정과 일치)
   action_dim:  6     # 관절 수
