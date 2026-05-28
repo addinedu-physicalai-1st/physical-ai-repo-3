@@ -68,7 +68,6 @@ def generate_launch_description():
         default_value="0.035",
         description="Maximum TCP xy error allowed after pre-grasp before continuing to pick.",
     )
-
     moveit_config = MoveItConfigsBuilder(
         "openarm", package_name="openarm_bimanual_moveit_config"
     ).to_moveit_configs()

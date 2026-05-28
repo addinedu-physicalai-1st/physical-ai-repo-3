@@ -1,33 +1,33 @@
 <?xml version="1.0"?>
 <sdf version="1.9">
-  <model name="tray_stand">
+  <model name="sausage_tray_stand">
     <static>true</static>
-    <link name="tray_stand_link">
+    <link name="sausage_tray_stand_link">
       <inertial>
-        <mass>1.000000</mass>
+        <mass>4.000000</mass>
         <inertia>
-          <ixx>0.001000000</ixx>
-          <iyy>0.001000000</iyy>
-          <izz>0.001000000</izz>
+          <ixx>0.004000000</ixx>
+          <iyy>0.004000000</iyy>
+          <izz>0.004000000</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>
         </inertia>
       </inertial>
-      <visual name="tray_stand_visual">
+      <visual name="sausage_tray_stand_visual">
         <geometry>
           <mesh>
-            <uri>meshes/tray_stand.obj</uri>
+            <uri>meshes/sausage_tray_stand.obj</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.037500 0.087500 0.212500 1.000000</ambient>
-          <diffuse>0.150000 0.350000 0.850000 1.000000</diffuse>
+          <ambient>0.112500 0.112500 0.105000 1.000000</ambient>
+          <diffuse>0.450000 0.450000 0.420000 1.000000</diffuse>
           <specular>0.120000 0.120000 0.120000 1.000000</specular>
         </material>
       </visual>
-      <collision name="tray_stand_tray_stand_left_hook_collision">
-        <pose>0.000005484 0.087209657 0.032929718 0 0 0</pose>
+      <collision name="sausage_tray_stand_sausage_tray__stand_left_hook_001_collision">
+        <pose>0.000005484 0.087209642 0.032929718 0 0 0</pose>
         <geometry>
           <box>
             <size>0.200000003 0.030000001 0.009999998</size>
@@ -42,8 +42,8 @@
           </friction>
         </surface>
       </collision>
-      <collision name="tray_stand_tray_stand_left_wall_collision">
-        <pose>0.000005484 0.108309641 0.000229716 0 0 0</pose>
+      <collision name="sausage_tray_stand_sausage_tray__stand_left_wall_collision">
+        <pose>0.000005484 0.108309686 0.000229716 0 0 0</pose>
         <geometry>
           <box>
             <size>0.200000003 0.010000005 0.250000000</size>
@@ -58,8 +58,8 @@
           </friction>
         </surface>
       </collision>
-      <collision name="tray_stand_tray_stand_right_hook_collision">
-        <pose>0.000005484 -0.086490348 0.032929718 0 0 0</pose>
+      <collision name="sausage_tray_stand_sausage_tray__stand_right_hook_collision">
+        <pose>0.000005484 -0.086490333 0.032929718 0 0 0</pose>
         <geometry>
           <box>
             <size>0.200000003 0.030000001 0.009999998</size>
@@ -74,8 +74,8 @@
           </friction>
         </surface>
       </collision>
-      <collision name="tray_stand_tray_stand_right_wall_collision">
-        <pose>0.000005484 -0.108390346 -0.000270277 0 0 0</pose>
+      <collision name="sausage_tray_stand_sausage_tray__stand_right_wall_collision">
+        <pose>0.000005484 -0.108390331 -0.000270277 0 0 0</pose>
         <geometry>
           <box>
             <size>0.200000003 0.010000005 0.250000000</size>
@@ -90,7 +90,7 @@
           </friction>
         </surface>
       </collision>
-      <collision name="tray_stand_tray_stand_top_collision">
+      <collision name="sausage_tray_stand_sausage_tray__stand_top_collision">
         <pose>0.000005484 -0.000890344 0.120129734 0 0 0</pose>
         <geometry>
           <box>

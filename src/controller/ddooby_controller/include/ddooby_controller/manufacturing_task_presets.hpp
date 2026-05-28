@@ -100,7 +100,10 @@ inline constexpr MotionScalingPreset kDefaultMotionScaling{
 };
 
 // joint limit에 딱 붙지 않도록 안쪽으로 유지할 최소 margin.
-inline constexpr double kDefaultJointLimitSafetyMargin = 0.00005;
+inline constexpr double kDefaultJointLimitSafetyMargin = 0.00001;
+
+// MoveIt plan + execute를 같은 목표에 대해 재시도할 기본 횟수.
+inline constexpr int kDefaultPlanExecuteMaxAttempts = 5;
 
 // pre-grasp 도달 후 pick 진행을 허용할 최대 TCP xy 오차(m).
 inline constexpr double kDefaultMaxPreGraspXyError = 0.035;
@@ -164,7 +167,7 @@ inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
     ManufacturingTarget::Bread,
     ArmSide::Left,
     ManufacturingStage::PreGrasp,
-    {true, 0.313, 0.184, 0.360, 1.000, -0.000, 0.004, 0.000}
+    {true, 0.310, 0.189, 0.354, 1.000, -0.000, -0.004, 0.001}
   },
   // 빵 집기 pose, 비활성화 시 빵 위치 기준 자동 계산.
   {
@@ -178,14 +181,14 @@ inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
     ManufacturingTarget::Bread,
     ArmSide::Left,
     ManufacturingStage::PullOut,
-    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+    {true, 0.329, 0.188, 0.458, 1.000, 0.000, -0.004, 0.001}
   },
   // 케이스 위 빵 놓기 직전 pose.
   {
     ManufacturingTarget::Bread,
     ArmSide::Left,
     ManufacturingStage::Work,
-    {true, 0.195, -0.031, 0.411, 0.717, -0.697, 0.003, -0.003}
+    {true, 0.204, 0.031, 0.431, 0.708, -0.706, -0.002, 0.003}
   },
   // 케이스 위 빵 release pose, 비활성화 시 work pose에서 drop.
   {
@@ -213,7 +216,7 @@ inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
     ManufacturingTarget::Case,
     ArmSide::Right,
     ManufacturingStage::PreGrasp,
-    {true, 0.441, -0.190, 0.437, 0.720, 0.000, 0.694, -0.000}
+    {true, 0.424, -0.193, 0.425, 0.707, 0.000, 0.707, -0.000}
   },
   // 케이스 집기 pose, 비활성화 시 케이스 위치 기준 자동 계산.
   {
@@ -227,14 +230,14 @@ inline constexpr std::array<StagePosePreset, 14> kStagePosePresets{{
     ManufacturingTarget::Case,
     ArmSide::Right,
     ManufacturingStage::PullOut,
-    {true, 0.279, -0.191, 0.452, 0.720, -0.000, 0.694, 0.000}
+    {true, 0.312, -0.191, 0.437, 0.707, -0.000, 0.707, -0.000}
   },
   // 케이스를 빵 받는 위치로 내미는 pose, 비활성화 시 현재 오른손 pose 사용.
   {
     ManufacturingTarget::Case,
     ArmSide::Right,
     ManufacturingStage::Work,
-    {true, 0.189, -0.119, 0.376, 0.520, 0.480, 0.501, -0.497}
+    {true, 0.207, -0.033, 0.349, -0.499, -0.501, -0.499, 0.501}
   },
   // place pose, 현재는 비활성화.
   {
@@ -261,7 +264,8 @@ inline constexpr PickTuningPreset kLeftBreadPickTuning{
 // 케이스 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kRightCasePickTuning{
   -0.055,
-  {true, 0.034}
+  //{true, 0.033}
+  {true, 0.025}
 };
 
 inline const StagePosePreset * findStagePosePreset(

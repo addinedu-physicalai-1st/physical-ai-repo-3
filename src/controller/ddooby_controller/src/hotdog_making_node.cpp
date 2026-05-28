@@ -15,6 +15,7 @@
 
 #include <Eigen/Geometry>
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <builtin_interfaces/msg/duration.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 #include <moveit/move_group_interface/move_group_interface.hpp>
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
@@ -738,11 +739,18 @@ bool planRespectsJointLimitMargin(
   return true;
 }
 
+void enforceMinimumTrajectoryDuration(
+  const rclcpp::Logger & logger,
+  moveit_msgs::msg::RobotTrajectory & trajectory,
+  const std::string & label,
+  double min_duration_sec);
+
 bool planAndExecute(
   const rclcpp::Logger & logger,
   moveit::planning_interface::MoveGroupInterface & group,
   const std::string & label,
-  int max_attempts = 2)
+  int max_attempts = task_presets::kDefaultPlanExecuteMaxAttempts,
+  double min_duration_sec = 0.0)
 {
   for (int attempt = 1; attempt <= max_attempts; ++attempt) {
     moveit::planning_interface::MoveGroupInterface::Plan plan;
@@ -778,6 +786,8 @@ bool planAndExecute(
       }
       return false;
     }
+
+    enforceMinimumTrajectoryDuration(logger, plan.trajectory, label, min_duration_sec);
 
     if (group.execute(plan) == moveit::core::MoveItErrorCode::SUCCESS) {
       return true;
@@ -837,7 +847,8 @@ bool planAndExecuteStagePoseIfConfigured(
   ArmSide arm_side,
   task_presets::ManufacturingStage stage,
   const std::string & tcp_link,
-  bool & configured)
+  bool & configured,
+  double min_duration_sec = 0.0)
 {
   configured = false;
   const auto * preset = task_presets::findStagePosePreset(target, arm_side, stage);
@@ -854,7 +865,12 @@ bool planAndExecuteStagePoseIfConfigured(
 
   const std::string label =
     std::string("stage pose ") + task_presets::stageName(stage);
-  return planAndExecute(logger, arm, label, 1);
+  return planAndExecute(
+    logger,
+    arm,
+    label,
+    task_presets::kDefaultPlanExecuteMaxAttempts,
+    min_duration_sec);
 }
 
 bool planAndExecutePoseTarget(
@@ -863,12 +879,66 @@ bool planAndExecutePoseTarget(
   const geometry_msgs::msg::Pose & target_pose,
   const std::string & tcp_link,
   const std::string & label,
-  int max_attempts = 1)
+  int max_attempts = task_presets::kDefaultPlanExecuteMaxAttempts)
 {
   arm.clearPoseTargets();
   setBoundedStartState(arm);
   arm.setPoseTarget(target_pose, tcp_link);
   return planAndExecute(logger, arm, label, max_attempts);
+}
+
+double durationToSec(const builtin_interfaces::msg::Duration & duration)
+{
+  return static_cast<double>(duration.sec) + static_cast<double>(duration.nanosec) * 1e-9;
+}
+
+builtin_interfaces::msg::Duration durationFromSec(double seconds)
+{
+  builtin_interfaces::msg::Duration duration;
+  seconds = std::max(0.0, seconds);
+  duration.sec = static_cast<int32_t>(std::floor(seconds));
+  duration.nanosec = static_cast<uint32_t>(
+    std::round((seconds - static_cast<double>(duration.sec)) * 1e9));
+  if (duration.nanosec >= 1000000000U) {
+    ++duration.sec;
+    duration.nanosec -= 1000000000U;
+  }
+  return duration;
+}
+
+void enforceMinimumTrajectoryDuration(
+  const rclcpp::Logger & logger,
+  moveit_msgs::msg::RobotTrajectory & trajectory,
+  const std::string & label,
+  double min_duration_sec)
+{
+  auto & points = trajectory.joint_trajectory.points;
+  if (points.empty() || min_duration_sec <= 0.0) {
+    return;
+  }
+
+  const double original_duration_sec = durationToSec(points.back().time_from_start);
+  if (original_duration_sec <= 1e-6 || original_duration_sec >= min_duration_sec) {
+    return;
+  }
+
+  const double time_scale = min_duration_sec / original_duration_sec;
+  for (auto & point : points) {
+    point.time_from_start = durationFromSec(durationToSec(point.time_from_start) * time_scale);
+    for (double & velocity : point.velocities) {
+      velocity /= time_scale;
+    }
+    for (double & acceleration : point.accelerations) {
+      acceleration /= time_scale * time_scale;
+    }
+  }
+
+  RCLCPP_INFO(
+    logger,
+    "%s Cartesian path stretched: %.3fs -> %.3fs",
+    label.c_str(),
+    original_duration_sec,
+    min_duration_sec);
 }
 
 bool executeCartesian(
@@ -880,7 +950,8 @@ bool executeCartesian(
   double min_fraction,
   bool avoid_collisions,
   double velocity_scaling,
-  double acceleration_scaling)
+  double acceleration_scaling,
+  double min_duration_sec)
 {
   group.clearPoseTargets();
   setBoundedStartState(group);
@@ -918,21 +989,21 @@ bool executeCartesian(
     robot_trajectory.getRobotTrajectoryMsg(plan.trajectory);
     const auto & points = plan.trajectory.joint_trajectory.points;
     if (!points.empty()) {
-      const auto duration = points.back().time_from_start;
       RCLCPP_INFO(
         logger,
         "%s Cartesian path retimed: %.3fs with velocity_scale=%.3f acceleration_scale=%.3f",
         label.c_str(),
-        static_cast<double>(duration.sec) + static_cast<double>(duration.nanosec) * 1e-9,
+        durationToSec(points.back().time_from_start),
         velocity_scaling,
         acceleration_scaling);
     }
   }
+  enforceMinimumTrajectoryDuration(logger, plan.trajectory, label, min_duration_sec);
   if (!planRespectsJointLimitMargin(
       logger,
       group,
       plan,
-      task_presets::kDefaultJointLimitSafetyMargin))
+      0.0))
   {
     RCLCPP_ERROR(logger, "%s Cartesian path reached joint limit safety margin", label.c_str());
     return false;
@@ -990,7 +1061,7 @@ bool planAndExecutePreGrasp(
   arm.clearPoseTargets();
   setBoundedStartState(arm);
   arm.setPoseTarget(pre_grasp_pose, tcp_link);
-  if (planAndExecute(logger, arm, "left bread pre-grasp exact pose", 1)) {
+  if (planAndExecute(logger, arm, "pre-grasp exact pose")) {
     used_mode = PreGraspGoalMode::ExactPose;
     return true;
   }
@@ -1004,7 +1075,7 @@ bool planAndExecutePreGrasp(
       pre_grasp_pose.position.y,
       pre_grasp_pose.position.z,
       tcp_link);
-    if (planAndExecute(logger, arm, "left bread pre-grasp position only", 1)) {
+    if (planAndExecute(logger, arm, "pre-grasp position only")) {
       used_mode = PreGraspGoalMode::PositionOnly;
       return true;
     }
@@ -1015,7 +1086,7 @@ bool planAndExecutePreGrasp(
     arm.clearPoseTargets();
     setBoundedStartState(arm);
     if (arm.setApproximateJointValueTarget(pre_grasp_pose, tcp_link) &&
-      planAndExecute(logger, arm, "left bread pre-grasp approximate pose", 1))
+      planAndExecute(logger, arm, "pre-grasp approximate pose"))
     {
       used_mode = PreGraspGoalMode::ApproximatePose;
       return true;
@@ -1090,6 +1161,7 @@ public:
     cartesian_eef_step_ = declare_parameter<double>("cartesian_eef_step", 0.005);
     min_cartesian_fraction_ = declare_parameter<double>("min_cartesian_fraction", 0.90);
     cartesian_avoid_collisions_ = declare_parameter<bool>("cartesian_avoid_collisions", false);
+    cartesian_min_duration_sec_ = declare_parameter<double>("cartesian_min_duration_sec", 3.5);
     gripper_open_target_ = declare_parameter<std::string>("gripper_open_target", "open");
     gripper_grasp_target_ = declare_parameter<std::string>("gripper_grasp_target", "half_closed");
     remove_target_collision_before_grasp_ =
@@ -1347,7 +1419,8 @@ private:
           config.arm,
           task_presets::ManufacturingStage::Home,
           config.tcp_link,
-          home_stage_configured))
+          home_stage_configured,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1369,7 +1442,7 @@ private:
       }
     }
 
-    if (shouldRunStage(ManufacturingStage::PreGrasp) || shouldRunStage(ManufacturingStage::Pick)) {
+    if (shouldRunStage(ManufacturingStage::PreGrasp)) {
       RCLCPP_INFO(get_logger(), "%s: opening gripper", config.log_label.c_str());
       gripper.setNamedTarget(gripper_open_target_);
       if (!planAndExecute(get_logger(), gripper, config.log_label + " gripper open")) {
@@ -1471,7 +1544,8 @@ private:
           min_cartesian_fraction_,
           cartesian_avoid_collisions_,
           velocity_scaling_,
-          acceleration_scaling_))
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1503,7 +1577,8 @@ private:
             min_cartesian_fraction_,
             cartesian_avoid_collisions_,
             velocity_scaling_,
-            acceleration_scaling_))
+            acceleration_scaling_,
+            cartesian_min_duration_sec_))
         {
           return false;
         }
@@ -1532,7 +1607,8 @@ private:
           min_cartesian_fraction_,
           cartesian_avoid_collisions_,
           velocity_scaling_,
-          acceleration_scaling_))
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1556,7 +1632,8 @@ private:
           min_cartesian_fraction_,
           cartesian_avoid_collisions_,
           velocity_scaling_,
-          acceleration_scaling_))
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1572,7 +1649,8 @@ private:
           config.arm,
           task_presets::ManufacturingStage::Work,
           config.tcp_link,
-          optional_stage_configured))
+          optional_stage_configured,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1592,7 +1670,8 @@ private:
           config.arm,
           task_presets::ManufacturingStage::Place,
           config.tcp_link,
-          optional_stage_configured))
+          optional_stage_configured,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1612,7 +1691,8 @@ private:
           config.arm,
           task_presets::ManufacturingStage::ReturnHome,
           config.tcp_link,
-          optional_stage_configured))
+          optional_stage_configured,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1840,7 +1920,8 @@ private:
           ArmSide::Right,
           task_presets::ManufacturingStage::Work,
           right_tcp_link_,
-          right_work_pose_configured))
+          right_work_pose_configured,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1859,7 +1940,8 @@ private:
           ArmSide::Left,
           task_presets::ManufacturingStage::Work,
           left_tcp_link_,
-          left_work_pose_configured))
+          left_work_pose_configured,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1907,6 +1989,7 @@ private:
 
     geometry_msgs::msg::Pose release_pose = auto_release_pose;
     geometry_msgs::msg::Pose retreat_pose = auto_release_pose;
+    bool move_to_release_pose = true;
     bool retreat_after_release = false;
 
     if (place_preset != nullptr) {
@@ -1923,6 +2006,7 @@ private:
     } else if (work_preset != nullptr) {
       release_pose = makePoseFromPreset(work_preset->pose);
       retreat_pose = release_pose;
+      move_to_release_pose = false;
       RCLCPP_INFO(get_logger(), "Bread place uses work pose as drop/release pose");
     } else {
       RCLCPP_INFO(
@@ -1933,16 +2017,19 @@ private:
         release_pose.position.z);
     }
 
-    RCLCPP_INFO(get_logger(), "Bread place: moving to release pose");
-    if (!planAndExecutePoseTarget(
-        get_logger(),
-        left_arm,
-        release_pose,
-        left_tcp_link_,
-        "bread place release pose",
-        2))
-    {
-      return false;
+    if (move_to_release_pose) {
+      RCLCPP_INFO(get_logger(), "Bread place: moving to release pose");
+      if (!planAndExecutePoseTarget(
+          get_logger(),
+          left_arm,
+          release_pose,
+          left_tcp_link_,
+          "bread place release pose"))
+      {
+        return false;
+      }
+    } else {
+      RCLCPP_INFO(get_logger(), "Bread place: release pose is current work pose; opening gripper in place");
     }
     logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread place release pose");
 
@@ -1968,7 +2055,8 @@ private:
           min_cartesian_fraction_,
           cartesian_avoid_collisions_,
           velocity_scaling_,
-          acceleration_scaling_))
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -1986,7 +2074,8 @@ private:
           ArmSide::Left,
           task_presets::ManufacturingStage::ReturnHome,
           left_tcp_link_,
-          return_home_pose_configured))
+          return_home_pose_configured,
+          cartesian_min_duration_sec_))
       {
         return false;
       }
@@ -2044,6 +2133,7 @@ private:
   double cartesian_eef_step_{0.005};
   double min_cartesian_fraction_{0.90};
   bool cartesian_avoid_collisions_{false};
+  double cartesian_min_duration_sec_{3.5};
   std::string gripper_open_target_;
   std::string gripper_grasp_target_;
   bool remove_target_collision_before_grasp_{true};
