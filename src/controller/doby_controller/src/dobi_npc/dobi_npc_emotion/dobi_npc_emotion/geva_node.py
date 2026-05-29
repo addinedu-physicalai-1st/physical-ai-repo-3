@@ -24,6 +24,8 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python
@@ -135,6 +137,7 @@ class GevaNode(Node):
         super().__init__('geva_node')
 
         self.declare_parameter('camera_index', 0)
+        self.declare_parameter('image_topic', '')  # 비우면 camera_index 웹캠 직접; 설정 시 해당 Image 토픽 구독
         self.declare_parameter('publish_rate_hz', 10.0)
         self.declare_parameter('model_path', '')  # 비우면 share/models/face_landmarker.task
         self.declare_parameter('min_detection_confidence', 0.5)
@@ -145,6 +148,7 @@ class GevaNode(Node):
         # 생기면 git history 의 suspend/resume 패턴 (~2026-05-05) 복원.
 
         self._camera_index = self.get_parameter('camera_index').value
+        self._image_topic = self.get_parameter('image_topic').value
         publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
         model_path = self.get_parameter('model_path').value or self._default_model_path()
         min_det = float(self.get_parameter('min_detection_confidence').value)
@@ -156,14 +160,24 @@ class GevaNode(Node):
                 f"`scripts/download_models.sh` 실행 필요."
             )
 
-        self.cap = cv2.VideoCapture(self._camera_index)
-        if not self.cap.isOpened():
-            raise RuntimeError(f"웹캠 열기 실패: index={self._camera_index}")
-        self.get_logger().info(
-            f"웹캠 열림 (index={self._camera_index}) — "
-            f"{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
-            f"{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
-        )
+        self.cap = None
+        self._latest_frame = None
+        self._sub = None
+        if self._image_topic:
+            self._bridge = CvBridge()
+            self._sub = self.create_subscription(
+                Image, self._image_topic, self._on_image, 10)
+            self.get_logger().info(
+                f"이미지 토픽 구독: {self._image_topic} (카메라 직접 열지 않음)")
+        else:
+            self.cap = cv2.VideoCapture(self._camera_index)
+            if not self.cap.isOpened():
+                raise RuntimeError(f"웹캠 열기 실패: index={self._camera_index}")
+            self.get_logger().info(
+                f"웹캠 열림 (index={self._camera_index}) — "
+                f"{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
+                f"{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
+            )
 
         base_options = mp_python.BaseOptions(model_asset_path=model_path)
         options = mp_vision.FaceLandmarkerOptions(
@@ -191,13 +205,24 @@ class GevaNode(Node):
         share = get_package_share_directory('dobi_npc_emotion')
         return os.path.join(share, 'models', 'face_landmarker.task')
 
+    def _on_image(self, msg):
+        try:
+            self._latest_frame = self._bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as e:
+            self.get_logger().warning(f"imgmsg_to_cv2 실패: {e}")
+
     def _tick(self):
-        if self.cap is None:
-            return
-        ok, frame = self.cap.read()
-        if not ok:
-            self.get_logger().warning("웹캠 read 실패")
-            return
+        if self._image_topic:
+            frame = self._latest_frame
+            if frame is None:
+                return
+        else:
+            if self.cap is None:
+                return
+            ok, frame = self.cap.read()
+            if not ok:
+                self.get_logger().warning("웹캠 read 실패")
+                return
         self._frames += 1
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

@@ -1,0 +1,40 @@
+<?xml version='1.0'?>
+<!--
+  moca_navigation/launch/bringup_smachybrid_mppi.launch.xml
+  목적: SmacPlannerHybrid(REEDS_SHEPP) + MPPI 조합으로 Nav2 stack 기동 (비교 검증용).
+  방식: bringup_smac_mppi.launch.xml 와 동일 구조 — bringup_launch.xml 을 include 하면서
+        params_file 만 nav2_params_smachybrid_mppi.yaml 로 override.
+  기반: bringup_smac_mppi.launch.xml (SmacPlanner2D+MPPI) 를 그대로 참고.
+        차이는 params_file 하나 (planner 만 SmacPlannerHybrid 로 교체된 yaml).
+
+  ⚠ 배경/경고 (CLAUDE.md §M4+ 비교 시뮬, 메모리 project_vicpinky_smachybrid_failure):
+    SmacHybrid 는 vic_pinky(diff-drive)에서 "정차 직전 후미 충돌 사유로 영구 제외"
+    결정이 있던 조합이다. 본 launch 는 그 결정을 운영에 되돌리는 게 아니라,
+    REEDS_SHEPP 후진 곡선이 왜 부적합한지 재현/비교하기 위한 검증 전용이다.
+    운영 기본 스택은 여전히 bringup_smac_mppi.launch.xml (SmacPlanner2D+MPPI).
+
+  검증 시동 (PC 단독, 시뮬 도메인):
+    ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1 ros2 launch moca_navigation bringup_smachybrid_mppi.launch.xml
+  라이브 (RPi 도메인, 사용자 명시 승인 후 — 비교 목적상 권장하지 않음):
+    ros2 launch moca_navigation bringup_smachybrid_mppi.launch.xml
+-->
+<launch>
+    <arg name="namespace" default=""/>
+    <arg name="map" default="$(env MOCA_MAP_PATH $(find-pkg-share moca_navigation)/map/mapv6.yaml)"/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="autostart" default="True"/>
+    <arg name="use_composition" default="True"/>
+    <arg name="use_respawn" default="False"/>
+    <arg name="log_level" default="info"/>
+
+    <include file="$(find-pkg-share moca_navigation)/launch/bringup_launch.xml">
+        <arg name="namespace" value="$(var namespace)"/>
+        <arg name="map" value="$(var map)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+        <arg name="params_file" value="$(find-pkg-share moca_navigation)/params/nav2_params_smachybrid_mppi.yaml"/>
+        <arg name="autostart" value="$(var autostart)"/>
+        <arg name="use_composition" value="$(var use_composition)"/>
+        <arg name="use_respawn" value="$(var use_respawn)"/>
+        <arg name="log_level" value="$(var log_level)"/>
+    </include>
+</launch>
