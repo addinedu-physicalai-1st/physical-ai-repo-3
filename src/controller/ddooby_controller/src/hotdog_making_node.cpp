@@ -395,6 +395,16 @@ Eigen::Quaterniond poseOrientation(const geometry_msgs::msg::Pose & pose)
   return orientation;
 }
 
+double poseOrientationDistanceRad(
+  const geometry_msgs::msg::Pose & first,
+  const geometry_msgs::msg::Pose & second)
+{
+  const Eigen::Quaterniond first_orientation = poseOrientation(first);
+  const Eigen::Quaterniond second_orientation = poseOrientation(second);
+  const double dot = std::abs(first_orientation.dot(second_orientation));
+  return 2.0 * std::acos(std::clamp(dot, -1.0, 1.0));
+}
+
 const task_presets::TcpPosePreset * findPullOutPosePreset(
   ManufacturingTarget target,
   ArmSide arm)
@@ -845,7 +855,12 @@ bool moveGripperToJointPosition(
       joint_position);
     return false;
   }
-  return planAndExecute(logger, gripper, log_label + " gripper " + action);
+  return planAndExecute(
+    logger,
+    gripper,
+    log_label + " gripper " + action,
+    task_presets::kDefaultPlanExecuteMaxAttempts,
+    task_presets::kDefaultGripperMinDurationSec);
 }
 
 bool openGripperForPickApproach(
@@ -870,7 +885,12 @@ bool openGripperForPickApproach(
     log_label.c_str(),
     fallback_named_target.c_str());
   gripper.setNamedTarget(fallback_named_target);
-  return planAndExecute(logger, gripper, log_label + " gripper open");
+  return planAndExecute(
+    logger,
+    gripper,
+    log_label + " gripper open",
+    task_presets::kDefaultPlanExecuteMaxAttempts,
+    task_presets::kDefaultGripperMinDurationSec);
 }
 
 bool closeGripperForPick(
@@ -895,7 +915,12 @@ bool closeGripperForPick(
     log_label.c_str(),
     fallback_named_target.c_str());
   gripper.setNamedTarget(fallback_named_target);
-  return planAndExecute(logger, gripper, log_label + " grasp close");
+  return planAndExecute(
+    logger,
+    gripper,
+    log_label + " grasp close",
+    task_presets::kDefaultPlanExecuteMaxAttempts,
+    task_presets::kDefaultGripperMinDurationSec);
 }
 
 bool planAndExecuteStageWaypointPoseIfConfigured(
@@ -942,6 +967,21 @@ bool planAndExecutePoseTarget(
   int max_attempts = task_presets::kDefaultPlanExecuteMaxAttempts,
   double min_duration_sec = 0.0)
 {
+  const geometry_msgs::msg::Pose current_pose = arm.getCurrentPose(tcp_link).pose;
+  const double position_error = (posePosition(current_pose) - posePosition(target_pose)).norm();
+  const double orientation_error = poseOrientationDistanceRad(current_pose, target_pose);
+  if (position_error <= task_presets::kDefaultPoseTargetSkipPositionToleranceM &&
+    orientation_error <= task_presets::kDefaultPoseTargetSkipOrientationToleranceRad)
+  {
+    RCLCPP_INFO(
+      logger,
+      "%s skipped; current TCP is already near target (pos_error=%.4f m, rot_error=%.4f rad)",
+      label.c_str(),
+      position_error,
+      orientation_error);
+    return true;
+  }
+
   arm.clearPoseTargets();
   setBoundedStartState(arm);
   arm.setPoseTarget(target_pose, tcp_link);
@@ -1002,6 +1042,48 @@ void enforceMinimumTrajectoryDuration(
     min_duration_sec);
 }
 
+void alignTrajectoryStartToCurrentState(
+  const rclcpp::Logger & logger,
+  moveit::planning_interface::MoveGroupInterface & group,
+  moveit_msgs::msg::RobotTrajectory & trajectory,
+  const std::string & label)
+{
+  auto & points = trajectory.joint_trajectory.points;
+  if (points.empty()) {
+    return;
+  }
+
+  auto current_state = group.getCurrentState(2.0);
+  if (!current_state) {
+    return;
+  }
+
+  auto & first_point = points.front();
+  double max_delta = 0.0;
+  const size_t count =
+    std::min(trajectory.joint_trajectory.joint_names.size(), first_point.positions.size());
+  for (size_t i = 0; i < count; ++i) {
+    const auto & joint_name = trajectory.joint_trajectory.joint_names[i];
+    const double current_position = current_state->getVariablePosition(joint_name);
+    max_delta = std::max(max_delta, std::abs(first_point.positions[i] - current_position));
+    first_point.positions[i] = current_position;
+    if (i < first_point.velocities.size()) {
+      first_point.velocities[i] = 0.0;
+    }
+    if (i < first_point.accelerations.size()) {
+      first_point.accelerations[i] = 0.0;
+    }
+  }
+
+  if (max_delta > 1e-4) {
+    RCLCPP_INFO(
+      logger,
+      "%s Cartesian trajectory start aligned to current state (max_delta=%.6f rad)",
+      label.c_str(),
+      max_delta);
+  }
+}
+
 bool executeCartesian(
   const rclcpp::Logger & logger,
   moveit::planning_interface::MoveGroupInterface & group,
@@ -1060,6 +1142,7 @@ bool executeCartesian(
     }
   }
   enforceMinimumTrajectoryDuration(logger, plan.trajectory, label, min_duration_sec);
+  alignTrajectoryStartToCurrentState(logger, group, plan.trajectory, label);
   if (!planRespectsJointLimitMargin(
       logger,
       group,
@@ -1398,7 +1481,17 @@ private:
 
   bool runHotdogAssembly()
   {
-    if (start_from_stage_ != ManufacturingStage::Home || stop_after_stage_.has_value()) {
+    if (start_from_stage_ == ManufacturingStage::Place) {
+      RCLCPP_INFO(
+        get_logger(),
+        "New York hotdog assembly starts at completed-hotdog pickup-zone place");
+      return runCompletedHotdogPlace();
+    }
+
+    if (start_from_stage_ != ManufacturingStage::Home ||
+      (stop_after_stage_.has_value() &&
+      stop_after_stage_.value() != ManufacturingStage::Place))
+    {
       RCLCPP_WARN(
         get_logger(),
         "target:=hotdog currently runs the implemented full sequence and ignores start/stop stage slicing");
@@ -1447,12 +1540,15 @@ private:
       return false;
     }
 
-    RCLCPP_WARN(
-      get_logger(),
-      "Hotdog assembly step 5/5 completed-hotdog pickup-zone place is not implemented yet");
+    stop_after_stage_ = saved_stop_after_stage;
+    RCLCPP_INFO(get_logger(), "Hotdog assembly step 5/5: place completed hotdog at pickup zone");
+    if (!runCompletedHotdogPlace()) {
+      restore_state();
+      return false;
+    }
 
     restore_state();
-    RCLCPP_INFO(get_logger(), "New York hotdog assembly completed through ketchup squeeze");
+    RCLCPP_INFO(get_logger(), "New York hotdog assembly completed");
     return true;
   }
 
@@ -1664,7 +1760,8 @@ private:
       RCLCPP_INFO(get_logger(), "%s: planning to pre-grasp", config.log_label.c_str());
       const bool use_pre_grasp_clearance =
         pre_grasp_pose_configured &&
-        config.target == ManufacturingTarget::Sausage;
+        (config.target == ManufacturingTarget::Bread ||
+        config.target == ManufacturingTarget::Sausage);
       if (!planAndExecutePreGrasp(
           get_logger(),
           arm,
@@ -2397,7 +2494,13 @@ private:
 
     RCLCPP_INFO(get_logger(), "Bread place: opening left gripper at work pose");
     left_gripper.setNamedTarget(gripper_open_target_);
-    if (!planAndExecute(get_logger(), left_gripper, "bread place gripper open")) {
+    if (!planAndExecute(
+        get_logger(),
+        left_gripper,
+        "bread place gripper open",
+        task_presets::kDefaultPlanExecuteMaxAttempts,
+        task_presets::kDefaultGripperMinDurationSec))
+    {
       return false;
     }
     rclcpp::sleep_for(300ms);
@@ -2642,7 +2745,13 @@ private:
 
     RCLCPP_INFO(get_logger(), "Sausage place: opening left gripper");
     left_gripper.setNamedTarget(gripper_open_target_);
-    if (!planAndExecute(get_logger(), left_gripper, "sausage place gripper open")) {
+    if (!planAndExecute(
+        get_logger(),
+        left_gripper,
+        "sausage place gripper open",
+        task_presets::kDefaultPlanExecuteMaxAttempts,
+        task_presets::kDefaultGripperMinDurationSec))
+    {
       return false;
     }
     rclcpp::sleep_for(300ms);
@@ -2948,7 +3057,13 @@ private:
             "Ketchup squeeze: reopening gripper to named grasp target '%s'",
             gripper_grasp_target_.c_str());
           left_gripper.setNamedTarget(gripper_grasp_target_);
-          if (!planAndExecute(get_logger(), left_gripper, "ketchup squeeze release pressure")) {
+          if (!planAndExecute(
+              get_logger(),
+              left_gripper,
+              "ketchup squeeze release pressure",
+              task_presets::kDefaultPlanExecuteMaxAttempts,
+              task_presets::kDefaultGripperMinDurationSec))
+          {
             return false;
           }
         }
@@ -3076,6 +3191,285 @@ private:
     }
 
     RCLCPP_INFO(get_logger(), "Hotdog ketchup squeeze completed");
+    return true;
+  }
+
+  bool runCompletedHotdogPlace()
+  {
+    RCLCPP_INFO(get_logger(), "Completed hotdog pickup-zone place started");
+
+    if (dry_run_) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Completed hotdog place dry run skipped; live right TCP pose is required");
+      return true;
+    }
+
+    TargetObject pickup_zone;
+    TargetObject case_target;
+    if (!loadManufacturingTarget("pickup_zone", pickup_zone) ||
+      !loadManufacturingTarget(case_target_model_, case_target))
+    {
+      return false;
+    }
+
+    auto self = shared_from_this();
+    moveit::planning_interface::MoveGroupInterface right_arm(self, right_arm_group_);
+    moveit::planning_interface::MoveGroupInterface right_gripper(self, right_gripper_group_);
+
+    right_arm.setPlanningTime(planning_time_sec_);
+    right_arm.setNumPlanningAttempts(planning_attempts_);
+    right_arm.setMaxVelocityScalingFactor(velocity_scaling_);
+    right_arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
+    right_gripper.setMaxVelocityScalingFactor(gripper_velocity_scaling_);
+    right_gripper.setMaxAccelerationScalingFactor(gripper_acceleration_scaling_);
+
+    right_arm.setPoseReferenceFrame(right_arm.getPlanningFrame());
+    right_arm.setEndEffectorLink(right_tcp_link_);
+
+    logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Completed hotdog place initial");
+
+    const geometry_msgs::msg::Pose current_pose = right_arm.getCurrentPose(right_tcp_link_).pose;
+    const Eigen::Matrix3d tcp_rotation = poseOrientation(current_pose).toRotationMatrix();
+    const Eigen::Vector3d tcp_z = tcp_rotation.col(2).normalized();
+
+    const Eigen::Matrix3d pickup_rotation = rotationFromRpy(pickup_zone.rpy);
+    const Eigen::Vector3d pickup_center = pickup_zone.xyz + pickup_rotation * pickup_zone.local_center;
+    const double pickup_top_z = pickup_center.z() + pickup_zone.size.z() * 0.5;
+    const Eigen::Vector3d desired_case_center(
+      pickup_center.x(),
+      pickup_center.y(),
+      pickup_top_z + case_target.size.z() * 0.5 +
+      task_presets::kCompletedHotdogPickupPlaceClearanceM);
+
+    geometry_msgs::msg::Pose release_pose = current_pose;
+    const Eigen::Vector3d release_tcp_position =
+      desired_case_center -
+      tcp_z * (-task_presets::kRightCasePickTuning.grasp_tcp_z_offset_m);
+    release_pose.position.x = release_tcp_position.x();
+    release_pose.position.y = release_tcp_position.y();
+    release_pose.position.z = release_tcp_position.z();
+
+    geometry_msgs::msg::Pose approach_pose = release_pose;
+    approach_pose.position.z += task_presets::kCompletedHotdogPickupApproachHeightM;
+
+    bool release_pose_preset_configured = false;
+    if (const auto * release_pose_preset =
+        task_presets::findStageWaypointPosePreset(
+          ManufacturingTarget::Hotdog,
+          ArmSide::Right,
+          ManufacturingStage::Place,
+          "release_pose"))
+    {
+      release_pose_preset_configured = true;
+      release_pose = makePoseFromPreset(release_pose_preset->pose);
+      approach_pose = release_pose;
+      RCLCPP_INFO(get_logger(), "Completed hotdog place release_pose waypoint pose preset applied");
+    } else {
+      release_pose.orientation = approach_pose.orientation;
+      RCLCPP_INFO(
+        get_logger(),
+        "Completed hotdog auto approach pose: xyz=[%.3f %.3f %.3f]",
+        approach_pose.position.x,
+        approach_pose.position.y,
+        approach_pose.position.z);
+      RCLCPP_INFO(
+        get_logger(),
+        "Completed hotdog auto release pose: xyz=[%.3f %.3f %.3f]",
+        release_pose.position.x,
+        release_pose.position.y,
+        release_pose.position.z);
+    }
+
+    bool configured_carry_waypoint_used = false;
+    for (const char * waypoint_name : {"move1", "move2"}) {
+      const auto * waypoint_preset =
+        task_presets::findStageWaypointPosePreset(
+          ManufacturingTarget::Hotdog,
+          ArmSide::Right,
+          ManufacturingStage::Place,
+          waypoint_name);
+      if (waypoint_preset == nullptr) {
+        continue;
+      }
+
+      configured_carry_waypoint_used = true;
+      const geometry_msgs::msg::Pose waypoint_pose = makePoseFromPreset(waypoint_preset->pose);
+      RCLCPP_INFO(
+        get_logger(),
+        "Completed hotdog place: Cartesian carry to waypoint %s",
+        waypoint_name);
+      if (!executeCartesian(
+          get_logger(),
+          right_arm,
+          {waypoint_pose},
+          std::string("completed hotdog pickup ") + waypoint_name,
+          cartesian_eef_step_,
+          min_cartesian_fraction_,
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Completed hotdog pickup waypoint");
+      if (shouldStopAfterWaypoint(ManufacturingStage::Place, waypoint_name)) {
+        return true;
+      }
+    }
+
+    if (!configured_carry_waypoint_used && release_pose_preset_configured) {
+      geometry_msgs::msg::Pose midpoint_pose = current_pose;
+      midpoint_pose.position.x =
+        current_pose.position.x + (release_pose.position.x - current_pose.position.x) * 0.5;
+      midpoint_pose.position.y =
+        current_pose.position.y + (release_pose.position.y - current_pose.position.y) * 0.5;
+      midpoint_pose.position.z = std::max(current_pose.position.z, release_pose.position.z);
+
+      RCLCPP_INFO(get_logger(), "Completed hotdog place: Cartesian carry through auto midpoint");
+      if (!executeCartesian(
+          get_logger(),
+          right_arm,
+          {midpoint_pose},
+          "completed hotdog pickup auto midpoint",
+          cartesian_eef_step_,
+          min_cartesian_fraction_,
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(
+        get_logger(), right_arm, right_tcp_link_, "Completed hotdog pickup auto midpoint");
+    }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Completed hotdog place: Cartesian carry to pickup %s",
+      release_pose_preset_configured ? "release_pose" : "approach");
+    if (!executeCartesian(
+        get_logger(),
+        right_arm,
+        {approach_pose},
+        release_pose_preset_configured ?
+        "completed hotdog pickup release_pose" :
+        "completed hotdog pickup approach pose",
+        cartesian_eef_step_,
+        min_cartesian_fraction_,
+        cartesian_avoid_collisions_,
+        velocity_scaling_,
+        acceleration_scaling_,
+        cartesian_min_duration_sec_))
+    {
+      return false;
+    }
+    logCurrentTcpPose(
+      get_logger(),
+      right_arm,
+      right_tcp_link_,
+      release_pose_preset_configured ?
+      "Completed hotdog pickup release_pose" :
+      "Completed hotdog pickup approach");
+    if (shouldStopAfterWaypoint(
+        ManufacturingStage::Place,
+        release_pose_preset_configured ? "release_pose" : "approach"))
+    {
+      return true;
+    }
+
+    RCLCPP_INFO(get_logger(), "Completed hotdog place: Cartesian lower to pickup zone");
+    const geometry_msgs::msg::Pose before_release_pose =
+      right_arm.getCurrentPose(right_tcp_link_).pose;
+    const double release_position_error =
+      (posePosition(before_release_pose) - posePosition(release_pose)).norm();
+    const double release_orientation_error =
+      poseOrientationDistanceRad(before_release_pose, release_pose);
+    if (release_position_error <= task_presets::kDefaultPoseTargetSkipPositionToleranceM &&
+      release_orientation_error <= task_presets::kDefaultPoseTargetSkipOrientationToleranceRad)
+    {
+      RCLCPP_INFO(
+        get_logger(),
+        "completed hotdog pickup lower skipped; current TCP is already near release "
+        "(pos_error=%.4f m, rot_error=%.4f rad)",
+        release_position_error,
+        release_orientation_error);
+    } else if (!executeCartesian(
+        get_logger(),
+        right_arm,
+        {release_pose},
+        "completed hotdog pickup lower",
+        cartesian_eef_step_,
+        min_cartesian_fraction_,
+        cartesian_avoid_collisions_,
+        velocity_scaling_,
+        acceleration_scaling_,
+        cartesian_min_duration_sec_))
+    {
+      return false;
+    }
+    logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Completed hotdog pickup release");
+    if (shouldStopAfterWaypoint(ManufacturingStage::Place, "release_pose")) {
+      return true;
+    }
+
+    RCLCPP_INFO(get_logger(), "Completed hotdog place: opening right gripper");
+    right_gripper.setNamedTarget(gripper_open_target_);
+    if (!planAndExecute(
+        get_logger(),
+        right_gripper,
+        "completed hotdog place gripper open",
+        task_presets::kDefaultPlanExecuteMaxAttempts,
+        task_presets::kDefaultGripperMinDurationSec))
+    {
+      return false;
+    }
+    rclcpp::sleep_for(300ms);
+    if (shouldStopAfterWaypoint(ManufacturingStage::Place, "release")) {
+      return true;
+    }
+
+    if (shouldRunStage(ManufacturingStage::ReturnHome)) {
+      RCLCPP_INFO(get_logger(), "Completed hotdog place: Cartesian retreat");
+      if (!executeCartesian(
+          get_logger(),
+          right_arm,
+          {approach_pose},
+          "completed hotdog pickup retreat",
+          cartesian_eef_step_,
+          min_cartesian_fraction_,
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Completed hotdog pickup retreat");
+
+      bool return_home_pose_configured = false;
+      if (!planAndExecuteStageWaypointPoseIfConfigured(
+          get_logger(),
+          right_arm,
+          ManufacturingTarget::Hotdog,
+          ArmSide::Right,
+          task_presets::ManufacturingStage::ReturnHome,
+          "return_home",
+          right_tcp_link_,
+          return_home_pose_configured,
+          pose_min_duration_sec_))
+      {
+        return false;
+      }
+      if (return_home_pose_configured) {
+        logCurrentTcpPose(
+          get_logger(), right_arm, right_tcp_link_, "Completed hotdog return-home");
+      }
+    }
+
+    RCLCPP_INFO(get_logger(), "Completed hotdog pickup-zone place completed");
     return true;
   }
 

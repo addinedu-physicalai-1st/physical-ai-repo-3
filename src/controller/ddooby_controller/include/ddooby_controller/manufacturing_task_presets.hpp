@@ -203,6 +203,13 @@ inline constexpr double kDefaultJointLimitSafetyMargin = 0.00001;
 // MoveIt plan + execute를 같은 목표에 대해 재시도할 기본 횟수.
 inline constexpr int kDefaultPlanExecuteMaxAttempts = 5;
 
+// Gazebo gripper action이 짧은 trajectory를 timeout/abort 처리하지 않도록 보장할 최소 시간.
+inline constexpr double kDefaultGripperMinDurationSec = 2.0;
+
+// 현재 TCP가 pose target에 이미 충분히 가까우면 짧은 보정 trajectory 실행을 건너뛴다.
+inline constexpr double kDefaultPoseTargetSkipPositionToleranceM = 0.015;
+inline constexpr double kDefaultPoseTargetSkipOrientationToleranceRad = 0.05;
+
 // pre-grasp 도달 후 pick 진행을 허용할 최대 TCP xy 오차(m).
 inline constexpr double kDefaultMaxPreGraspXyError = 0.035;
 
@@ -259,7 +266,7 @@ inline constexpr const char * armName(ArmSide arm)
 // waypoint name과 개수는 target/task마다 다르게 정의할 수 있다.
 // 왼손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
 // 오른손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_right_hand_tcp
-inline constexpr std::array<StageWaypointPosePreset, 31> kStageWaypointPosePresets{{
+inline constexpr std::array<StageWaypointPosePreset, 36> kStageWaypointPosePresets{{
   // 빵 home stage: 작업 시작 pose, 비활성화 시 기존 ready pose 사용.
   {
     ManufacturingTarget::Bread,
@@ -392,6 +399,46 @@ inline constexpr std::array<StageWaypointPosePreset, 31> kStageWaypointPosePrese
   {
     ManufacturingTarget::Ketchup,
     ArmSide::Left,
+    ManufacturingStage::ReturnHome,
+    "return_home",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 완성 핫도그 place stage: pickup zone으로 가기 전 중간 경유 pose. 비활성화 시 건너뜀.
+  {
+    ManufacturingTarget::Hotdog,
+    ArmSide::Right,
+    ManufacturingStage::Place,
+    "move1",
+    {true, 0.451, -0.342, 0.507, 0.701, 0.033, 0.712, -0.025}
+  },
+  // 완성 핫도그 place stage: pickup zone으로 가기 전 두 번째 중간 경유 pose. 비활성화 시 건너뜀.
+  {
+    ManufacturingTarget::Hotdog,
+    ArmSide::Right,
+    ManufacturingStage::Place,
+    "move2",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 완성 핫도그 place stage: pickup zone에 놓기 직전 release pose. 비활성화 시 자동 계산.
+  {
+    ManufacturingTarget::Hotdog,
+    ArmSide::Right,
+    ManufacturingStage::Place,
+    "release_pose",
+    {true, 0.012, -0.572, 0.318, 0.510, -0.483, 0.502, 0.504}
+  },
+  // 완성 핫도그 place stage: gripper open 이후 release waypoint. pose preset으로는 사용하지 않음.
+  {
+    ManufacturingTarget::Hotdog,
+    ArmSide::Right,
+    ManufacturingStage::Place,
+    "release",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 완성 핫도그 return_home stage: 복귀 pose, 현재는 비활성화.
+  {
+    ManufacturingTarget::Hotdog,
+    ArmSide::Right,
     ManufacturingStage::ReturnHome,
     "return_home",
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
@@ -544,6 +591,10 @@ inline constexpr PickTuningPreset kLeftKetchupPickTuning{
 
 // 케첩 반환 시 음료 진열대 천장판을 넘기 위한 return_pose 직전 clearance 높이.
 inline constexpr double kLeftKetchupReturnLiftHeightM = 0.120;
+
+// 완성 핫도그를 pickup zone에 놓을 때 쓰는 오른손 접근 높이와 바닥 clearance.
+inline constexpr double kCompletedHotdogPickupApproachHeightM = 0.120;
+inline constexpr double kCompletedHotdogPickupPlaceClearanceM = 0.010;
 
 inline const StageWaypointPosePreset * findStageWaypointPosePreset(
   ManufacturingTarget target,
