@@ -1,0 +1,4 @@
+uint32 inference_delay
+---
+bool success
+string message

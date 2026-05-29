@@ -42,7 +42,13 @@ class DDoobyManufacturePort(Protocol):
 class DobyServingPort(Protocol):
     """Outbound port for starting serving in the Doby controller."""
 
-    def start_serving(self, command_id: str, order_id: int, table_number: int | None) -> bool:
+    def start_serving(
+        self,
+        command_id: str,
+        order_id: int,
+        table_number: int | None,
+        order_items: list | None = None,
+    ) -> bool:
         ...
 
 
@@ -171,6 +177,7 @@ class OrderWorkflowScheduler:
             ManufactureOrderItem(
                 product_id=int(item.product_id),
                 product_name=str(item.product_name),
+                product_type=str(item.product_type),
                 selected_options=list(item.selected_options),
                 quantity=int(item.quantity),
                 unit_price=int(item.unit_price),
@@ -254,6 +261,7 @@ class OrderWorkflowScheduler:
             item.serving_command_id,
             item.order_id,
             item.table_number,
+            item.order_items,
         )
         if not ok:
             raise RuntimeError("serving start rejected")

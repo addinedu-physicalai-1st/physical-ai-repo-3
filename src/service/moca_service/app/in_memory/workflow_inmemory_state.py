@@ -10,6 +10,7 @@ class ManufactureOrderItem:
 
     product_id: int
     product_name: str
+    product_type: str
     selected_options: list[Any]
     quantity: int
     unit_price: int

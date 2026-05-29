@@ -1,4 +1,5 @@
-# Goal (empty - just a trigger)
+# Goal
+bool has_drink
 ---
 # Result
 bool success

@@ -1,0 +1,42 @@
+# laser_filter_moca.yaml - moca laser filter chain (method B)
+# vendor laser_filter.yaml is untouched; bringup uses this via filter_yaml_path:=
+# filter1 = vendor self-reflection 0.22m square (kept). filter2..5 = 4 robot posts.
+# Post centers in base_link (RPi scan, 2026-05-27): A(+0.27,+0.16) B(-0.27,+0.17)
+#   C(-0.27,-0.19) D(+0.27,-0.17). Each box = measured bbox + 0.05m. invert:false = remove inside.
+/**:
+  ros__parameters:
+    filter1:
+      name: self_reflection
+      type: laser_filters/LaserScanPolygonFilter
+      params:
+        polygon_frame: base_link
+        polygon: '[[0.22, -0.22], [0.22, 0.22], [-0.22, 0.22], [-0.22, -0.22]]'
+        invert: false
+    filter2:
+      name: post_front_left
+      type: laser_filters/LaserScanPolygonFilter
+      params:
+        polygon_frame: base_link
+        polygon: '[[0.207, 0.07], [0.341, 0.07], [0.341, 0.232], [0.207, 0.232]]'
+        invert: false
+    filter3:
+      name: post_rear_left
+      type: laser_filters/LaserScanPolygonFilter
+      params:
+        polygon_frame: base_link
+        polygon: '[[-0.324, 0.107], [-0.216, 0.107], [-0.216, 0.236], [-0.324, 0.236]]'
+        invert: false
+    filter4:
+      name: post_rear_right
+      type: laser_filters/LaserScanPolygonFilter
+      params:
+        polygon_frame: base_link
+        polygon: '[[-0.320, -0.252], [-0.212, -0.252], [-0.212, -0.127], [-0.320, -0.127]]'
+        invert: false
+    filter5:
+      name: post_front_right
+      type: laser_filters/LaserScanPolygonFilter
+      params:
+        polygon_frame: base_link
+        polygon: '[[0.208, -0.238], [0.345, -0.238], [0.345, -0.07], [0.208, -0.07]]'
+        invert: false

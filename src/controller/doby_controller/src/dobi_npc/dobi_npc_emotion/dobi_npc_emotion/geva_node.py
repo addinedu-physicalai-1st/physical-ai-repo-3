@@ -29,6 +29,8 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python
@@ -142,14 +144,18 @@ class GevaNode(Node):
     def __init__(self):
         super().__init__('geva_node')
 
-        self.declare_parameter('image_topic', '/robot_cam/image_raw')
+        self.declare_parameter('camera_index', 0)
+        self.declare_parameter('image_topic', '/robot_cam/image_raw')  # 비우면 camera_index 웹캠 직접; 설정 시 해당 Image 토픽 구독
         self.declare_parameter('use_compressed', True)
+        self.declare_parameter('publish_rate_hz', 10.0)
         self.declare_parameter('model_path', '')  # 비우면 share/models/face_landmarker.task
         self.declare_parameter('min_detection_confidence', 0.5)
         self.declare_parameter('min_tracking_confidence', 0.5)
 
+        self._camera_index = self.get_parameter('camera_index').value
         image_topic = self.get_parameter('image_topic').value
         use_compressed = bool(self.get_parameter('use_compressed').value)
+        publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
         model_path = self.get_parameter('model_path').value or self._default_model_path()
         min_det = float(self.get_parameter('min_detection_confidence').value)
         min_trk = float(self.get_parameter('min_tracking_confidence').value)
@@ -162,6 +168,27 @@ class GevaNode(Node):
 
         self._bridge = CvBridge()
         self._latest_bgr = None
+        self.cap = None
+
+        if image_topic:
+            # ROS 토픽 구독 (로봇 카메라)
+            if use_compressed:
+                self.create_subscription(
+                    CompressedImage, image_topic + '/compressed', self._on_compressed, 10)
+            else:
+                self.create_subscription(Image, image_topic, self._on_image, 10)
+            self.get_logger().info(f"이미지 토픽 구독: {image_topic}")
+        else:
+            # 웹캠 직접 사용
+            self.cap = cv2.VideoCapture(self._camera_index)
+            if not self.cap.isOpened():
+                raise RuntimeError(f"웹캠 열기 실패: index={self._camera_index}")
+            self.create_timer(1.0 / publish_rate_hz, self._read_webcam)
+            self.get_logger().info(
+                f"웹캠 열림 (index={self._camera_index}) — "
+                f"{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
+                f"{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
+            )
 
         base_options = mp_python.BaseOptions(model_asset_path=model_path)
         options = mp_vision.FaceLandmarkerOptions(
@@ -176,18 +203,6 @@ class GevaNode(Node):
         )
         self.landmarker = mp_vision.FaceLandmarker.create_from_options(options)
         self.get_logger().info("FaceLandmarker 초기화 완료 (Blendshapes ON)")
-
-        # 이미지 구독 — 로봇 카메라 (person_tracking과 동일 소스)
-        if use_compressed:
-            self.create_subscription(
-                CompressedImage,
-                image_topic + '/compressed',
-                self._on_compressed, 10)
-        else:
-            self.create_subscription(
-                Image,
-                image_topic,
-                self._on_image, 10)
 
         # person_tracking tracks 구독 → bbox별 감정 분석 트리거
         self.create_subscription(
@@ -214,17 +229,23 @@ class GevaNode(Node):
     # ── 이미지 콜백 ────────────────────────────────────────────
 
     def _on_compressed(self, msg: CompressedImage):
-        import numpy as np
         arr = np.frombuffer(msg.data, np.uint8)
         frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if frame is not None:
             self._latest_bgr = frame
 
-    def _on_image(self, msg: Image):
+    def _on_image(self, msg):
         try:
             self._latest_bgr = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
         except Exception as e:
             self.get_logger().warn(f'image 변환 실패: {e}')
+
+    def _read_webcam(self):
+        """웹캠 직접 사용 시 타이머로 프레임 읽기."""
+        if self.cap:
+            ok, frame = self.cap.read()
+            if ok:
+                self._latest_bgr = frame
 
     # ── tracks 콜백 → bbox별 감정 분석 ────────────────────────
 
@@ -305,6 +326,8 @@ class GevaNode(Node):
             self._last_log = now
 
     def destroy_node(self):
+        if hasattr(self, 'cap') and self.cap:
+            self.cap.release()
         if hasattr(self, 'landmarker') and self.landmarker is not None:
             self.landmarker.close()
         super().destroy_node()

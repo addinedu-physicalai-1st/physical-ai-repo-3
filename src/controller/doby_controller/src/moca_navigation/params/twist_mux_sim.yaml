@@ -1,0 +1,40 @@
+# twist_mux_sim.yaml — Gazebo 시뮬 전용 cmd_vel mux
+#
+# 목적: 시뮬에는 실물 RPi bringup 의 twist_mux 가 없어 Nav2 의 /bt/cmd_vel 이
+#       Gazebo 구독 토픽 /cmd_vel 로 넘어가지 못함 (chain 끊김). 이 노드가 그
+#       다리를 이어줌. 출력 토픽은 launch 의 remap 으로 /cmd_vel 직결 (A 안 —
+#       실물의 velocity_smoother + collision_monitor 2단은 시뮬에서 생략).
+#
+# 실물 SoT: vicpinky_bringup/config/twist_mux.yaml (수정 금지 §0-B). 본 파일은
+#           그 사본 + 시뮬 차이 2 가지만 적용.
+#   1. use_sim_time false -> true  (Gazebo /clock 사용)
+#   2. locks(e_stop) 제거  (시뮬엔 e_stop 발행자 없음. twist_mux 4.5.0 은 e_stop
+#      메시지 미수신 시 default-locked 로 모든 cmd_vel 차단 -> 시뮬 주행 검증
+#      방해. 시뮬엔 물리 위험 없어 비상정지 불필요. 사용자 결정 2026-05-24.)
+#
+# 입력 3종 priority (실물과 동일 구조 보존):
+#   joy=100   운영자 직접 조작 — 시뮬엔 발행자 없음 (timeout 으로 자동 무시)
+#   bt=80     Nav2 자율주행 (nav2_velocity_smoother -> /bt/cmd_vel) — 시뮬 유일 활성
+#   follow=50 follow 모드 — 시뮬엔 발행자 없음
+#
+# 토픽 timeout 0.5s — 상위 우선순위 입력 끊기면 즉시 다음 우선순위 양보.
+
+twist_mux:
+  ros__parameters:
+    use_sim_time: true
+    # 실물과 동일: 발행자/구독자 모두 geometry_msgs/Twist (unstamped).
+    use_stamped: false
+
+    topics:
+      joy:
+        topic   : /joy/cmd_vel
+        timeout : 0.5
+        priority: 100
+      bt:
+        topic   : /bt/cmd_vel
+        timeout : 0.5
+        priority: 80
+      follow:
+        topic   : /follow/cmd_vel
+        timeout : 0.5
+        priority: 50

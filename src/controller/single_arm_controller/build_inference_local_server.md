@@ -183,8 +183,7 @@ ros2 run single_arm_controller serving 2>&1 | tee /tmp/serving_log.txt
 # 다른 터미널: serve 요청
 source /home/jr/ws/physical-ai-repo-3/device/single_arm_controller/install/setup.bash
 ros2 action send_goal /serve single_arm_controller_interfaces/action/Serve \
-  "{top_cam_path: '/dev/video4', wrist_cam_path: '/dev/video2', \
-    task: 'pick up cup and place at target zone'}" --feedback
+  "{has_drink: true}" --feedback
 
 # 취소
 ros2 service call /serve/_action/cancel_goal action_msgs/srv/CancelGoal "{}"

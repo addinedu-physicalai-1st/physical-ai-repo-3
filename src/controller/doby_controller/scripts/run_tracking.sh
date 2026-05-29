@@ -18,14 +18,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 DOBY_INSTALL="$SCRIPT_DIR/../install"
 
-VIDEO_DEVICE="${VIDEO_DEVICE:-/dev/video2}"
+# Astra 컬러 카메라 자동 탐지: by-id 이름은 고정이라 재연결로 /dev/videoN 번호가
+# 바뀌어도 readlink 로 현재 실제 노드를 찾는다. 없으면 /dev/video2 로 폴백.
+ASTRA_BYID=$(ls /dev/v4l/by-id/*Astra*video-index0 2>/dev/null | head -1)
+if [ -n "$ASTRA_BYID" ]; then
+  ASTRA_DEV=$(readlink -f "$ASTRA_BYID")
+else
+  ASTRA_DEV=/dev/video2
+fi
+VIDEO_DEVICE="${VIDEO_DEVICE:-$ASTRA_DEV}"
 
 echo "======================================================"
 echo " 카메라 + 탐지 + 시각화 시동"
 echo "======================================================"
 echo " WORKSPACE   : $WS"
 echo " VIDEO_DEVICE: $VIDEO_DEVICE"
-echo " DOMAIN_ID   : 22"
+echo " DOMAIN_ID   : ${ROS_DOMAIN_ID:-22}"
 echo "------------------------------------------------------"
 
 # 터미널 에뮬레이터 확인
@@ -38,7 +46,7 @@ else
     exit 1
 fi
 
-SOURCE_CMD="source /opt/ros/jazzy/setup.bash && source $WS/install/local_setup.bash 2>/dev/null || true && source $DOBY_INSTALL/local_setup.bash 2>/dev/null || true && export ROS_DOMAIN_ID=22"
+SOURCE_CMD="source /opt/ros/jazzy/setup.bash && source $WS/install/local_setup.bash 2>/dev/null || true && source $DOBY_INSTALL/local_setup.bash 2>/dev/null || true && export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-22}"
 
 # ============================================================
 # [0] 기존 노드 kill
@@ -73,7 +81,7 @@ echo " → 카메라 시동 완료"
 # ============================================================
 echo ""
 echo "[2/3] 탐지 시동... (YOLO 로딩 ~8초)"
-bash -c "$SOURCE_CMD && ros2 launch dobi_npc_bringup dev_common.launch.py" \
+bash -c "$SOURCE_CMD && ros2 launch dobi_npc_bringup dev_common.launch.py geva_image_topic:=/robot_cam/image_raw" \
   > /tmp/log_dev_common.log 2>&1 &
 sleep 10
 echo " → 탐지 시동 완료"
@@ -84,7 +92,8 @@ echo " → 탐지 시동 완료"
 echo ""
 echo "[3/3] 시각화 시동..."
 if [ "$TERM_CMD" = "gnome-terminal" ]; then
-    DISPLAY=:0 gnome-terminal --title="Tracking Viz" -- bash -c "
+    gnome-terminal --title="Tracking Viz" -- bash -c "
+
         $SOURCE_CMD
         python3 $WS/src/controller/doby_controller/scripts/viz_tracking.py
         echo '--- 종료. Enter로 창 닫기 ---'

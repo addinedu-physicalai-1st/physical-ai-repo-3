@@ -1,7 +1,5 @@
 # Goal
-string wrist_cam_path    # wrist camera device path (e.g. /dev/video8), empty = use default
-string top_cam_path      # top camera device path (e.g. /dev/video0), empty = use default
-string task              # task instruction, empty = use default
+bool has_drink
 ---
 # Result
 bool success

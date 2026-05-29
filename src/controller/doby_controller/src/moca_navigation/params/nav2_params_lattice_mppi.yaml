@@ -1,0 +1,488 @@
+# nav2_params_lattice_mppi.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# 목적: SmacPlannerLattice(diff control set) + MPPI 조합.
+#       SmacHybrid 의 "제자리 회전 불가 + 후진 곡선 후미 충돌" 두 약점을 동시에 해결.
+# 기반: nav2_params_smac_mppi.yaml 전체 복사 — planner_server 섹션만 교체.
+#       (amcl / controller_server(MPPI) / costmap / behavior 등은 동일.)
+#
+# 왜 Lattice + diff 인가:
+#   - SmacHybrid 는 최소회전반경 기반 Dubin/Reeds-Shepp 곡선만 써서 제자리 회전 불가
+#     → 좁은 카페(카운터 옆 등)에서 "no valid path found".
+#   - Lattice 는 미리 생성된 motion primitive 집합(control set)으로 탐색하는데,
+#     diff control set 에는 제자리 회전 primitive 가 32개 포함됨 (검증: 2026-05-26).
+#   - allow_reverse_expansion=false 로 두면 전진 + 제자리 회전만 사용 → 후진 경로 없음
+#     → SmacHybrid+REEDS_SHEPP 에서 났던 후미 충돌 원천 차단. MPPI(전진 선호)와도 정합.
+#
+# control set 출처: apt 설치 nav2_smac_planner 샘플 (모든 Jazzy 설치에 동일 경로 존재).
+#   5cm grid (우리 costmap 0.05 일치) / turning_radius 0.5m / 16 headings / 112 primitives.
+#   커스텀이 필요하면 nav2_smac_planner 의 generate_motion_primitives.py 로 재생성.
+#
+# ⚠ 성능 주의: Lattice 도 SE2 footprint planner 라, inflation_radius(0.5) < circumscribed
+#   radius(0.58) 면 potential-field 최적화가 꺼져 plan 이 느려진다 (smac_mppi 와 동일 경고).
+#   비교 baseline 유지 위해 costmap 은 smac_mppi 와 동일하게 둠. 너무 느리면 global/local
+#   costmap 의 inflation_radius 를 0.6 으로 올리면 빨라짐 (단 좁은 통로 path 영향 가능).
+#
+# 검증 시동 (PC 단독, 시뮬 도메인):
+#   ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1 ros2 launch moca_navigation \
+#     bringup_lattice_mppi.launch.xml \
+#     map:=<repo>/maps/mapv5_mocamap.yaml use_sim_time:=True
+# ─────────────────────────────────────────────────────────────────────────────
+
+amcl:
+  ros__parameters:
+    use_sim_time: False
+    # 2026-05-17 — Gazebo 시뮬 AMCL drift 회피 (alpha 축소 + recovery 활성 + particle ↑).
+    # 실 운영 시 wheel slip 발생하면 alpha 다시 0.1~0.2 로.
+    alpha1: 0.05
+    alpha2: 0.05
+    alpha3: 0.05
+    alpha4: 0.05
+    alpha5: 0.05
+    base_frame_id: "base_footprint"
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    # 2026-05-17 — beam_skip 활성. Gazebo world 는 가구 다수 (T01~T05 + bar_counter +
+    # kiosk + OpenARM + banner 등) 있고 PGM 은 furniture cleanup 됨 (2026-05-14).
+    # 가구 반사 빔이 "wrong match" 로 likelihood 떨어뜨려서 mirror basin lock-in 보조.
+    # do_beamskip=true → 매번 inconsistent 한 빔 (가구) 무시 → wall 빔만으로 매치.
+    do_beamskip: true
+    global_frame_id: "map"
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 100.0
+    laser_min_range: -1.0
+    laser_model_type: "likelihood_field"
+    max_beams: 60
+    max_particles: 4000
+    min_particles: 2000
+    odom_frame_id: "odom"
+    pf_err: 0.05
+    pf_z: 0.99
+    # 2026-05-17 — recovery 비활성. 카페 N-S symmetric layout + 가구 noise 로
+    # recovery_alpha_fast 가 wrong (mirror) basin 으로 particle collapse 시키는 사고.
+    # alpha=0 = 비활성 (Nav2 AMCL 표준 default). 라이브 evidence: AMCL pose
+    # (-36.9, -1.57, yaw=+π/2) vs Gazebo (-36.97, 2.70, yaw=-π/2) — y 4.27m +
+    # yaw 180° flip + covariance 작음 (확신) → mirror basin lock-in.
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    save_pose_rate: 0.5
+    sigma_hit: 0.2
+    tf_broadcast: true
+    transform_tolerance: 1.0
+    update_min_a: 0.2
+    update_min_d: 0.25
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+    scan_topic: scan_filtered
+    set_initial_pose: true
+    # 2026-05-17 (저녁) — dock vs staging 분리. AMCL init = staging (Nav2 시작 안전).
+    initial_pose:
+      x: -36.98
+      y: 2.0
+      z: 0.0
+      yaw: -1.571
+
+
+bt_navigator:
+  ros__parameters:
+    global_frame: map
+    robot_base_frame: base_footprint
+    odom_topic: /odom
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    wait_for_service_timeout: 1000
+    action_server_result_timeout: 900.0
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+    # 'default_nav_through_poses_bt_xml' and 'default_nav_to_pose_bt_xml' are use defaults:
+    # nav2_bt_navigator/navigate_to_pose_w_replanning_and_recovery.xml
+    # nav2_bt_navigator/navigate_through_poses_w_replanning_and_recovery.xml
+    # They can be set here or via a RewrittenYaml remap from a parent launch file to Nav2.
+
+    # plugin_lib_names is used to add custom BT plugins to the executor (vector of strings).
+    # Built-in plugins are added automatically
+    # plugin_lib_names: []
+
+    error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
+
+controller_server:
+  ros__parameters:
+    use_sim_time: False
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    goal_checker_plugins: ["general_goal_checker"] # "precise_goal_checker"
+    controller_plugins: ["FollowPath"]
+
+    # Progress checker parameters
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5
+      # 10->25 (2026-05-25): SimpleProgressChecker 는 위치 이동만 봄(회전 무시).
+      # 180도 U턴/정차 미세조정은 위치 이동이 적어 10s/0.5m 미달 -> "Failed to make
+      # progress" 오판 abort -> spin/backup recovery. 25s 로 회전+미세조정 시간 허용.
+      movement_time_allowance: 25.0
+    # Goal checker parameters
+    #precise_goal_checker:
+    #  plugin: "nav2_controller::SimpleGoalChecker"
+    #  xy_goal_tolerance: 0.25
+    #  yaw_goal_tolerance: 0.25
+    #  stateful: True
+    general_goal_checker:
+      stateful: True
+      plugin: "nav2_controller::SimpleGoalChecker"
+      # xy_tol 0.50->0.2 (2026-05-25): 50cm 거친 도착 -> 정차 위치 정확도 개선.
+      # 정차 직전 미세조정 늘면 progress_checker(10s/0.5m) ABORTED 주의.
+      xy_goal_tolerance: 0.2
+      yaw_goal_tolerance: 0.10
+    # MPPI parameters (DWB 에서 전환). diff-drive 모델. PreferForwardCritic 으로 후진 억제 -
+    # Lattice(diff, allow_reverse_expansion=false) 도 후진 경로를 안 만들어 정합.
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+      time_steps: 56
+      model_dt: 0.05
+      batch_size: 1500
+      vx_std: 0.2
+      vy_std: 0.2
+      wz_std: 0.4
+      vx_max: 0.25
+      vx_min: -0.05
+      vy_max: 0.0
+      # wz_max 0.3->0.8 (2026-05-25): 0.3 은 vx_max 0.25 와 함께 최소 회전반경
+      # 0.83m 를 강제 -> 급커브/제자리회전 추종 실패. 0.8 이면 최소 회전반경 ~0.31m.
+      wz_max: 0.8
+      ax_max: 0.8
+      ax_min: -0.5
+      ay_max: 0.0
+      az_max: 2.0
+      iteration_count: 1
+      prune_distance: 1.7
+      transform_tolerance: 0.2
+      temperature: 0.3
+      gamma: 0.015
+      motion_model: "DiffDrive"
+      visualize: false
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+      AckermannConstraints:
+        min_turning_r: 0.2
+      critics: ["ConstraintCritic", "ObstaclesCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+      ObstaclesCritic:
+        enabled: true
+        cost_power: 1
+        repulsion_weight: 1.5
+        critical_weight: 20.0
+        # footprint-aware 켬 - 사용자의 정차 직전 좌벽 충돌은 회전 sweep 가 폴리곤
+        # 일부로 벽 cell 에 닿는 문제. consider_footprint=true 로 두면 MPPI 가
+        # 실측 비대칭 footprint(앞쪽 +0.1m / 뒤쪽 -0.5m / 좌우 ±0.27m, v1 chassis_x_offset=-0.2 반영)
+        # 전체 cost 합산으로 trajectory 평가. (vic_pinky 트리 yaml 의 대칭 footprint 값은
+        # §0-B 라 doby 수정 X; moca_navigation 측만 실측 v1 정정본 유지.)
+        consider_footprint: true
+        collision_cost: 10000.0
+        collision_margin_distance: 0.1
+        near_goal_distance: 0.5
+        # 로컬 costmap inflation_radius(0.7) 와 일치시켜 critic 내부 평가 일관성 유지.
+        inflation_radius: 0.5
+        cost_scaling_factor: 10.0
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.2
+        mode: 0
+
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 10.0
+      publish_frequency: 5.0
+      global_frame: odom
+      robot_base_frame: base_link
+      use_sim_time: False
+      rolling_window: true
+      width: 5
+      height: 5
+      resolution: 0.05
+      # vicpinky chassis 0.6 (length, x) x 0.54 (width, y, wheel-outer) — base_footprint 중심
+      footprint: '[[0.1, -0.27], [0.1, 0.27], [-0.5, 0.27], [-0.5, -0.27]]'
+      plugins: ["voxel_layer", "inflation_layer"]
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # OPTION B (2026-05-17 저녁) — inflation 0.10 (inscribed 0.26 보다 작음, Nav2 WARN).
+        # 좁은 통로 (gate1/gate2) path 가능성 + start point 안전 마진. 충돌은 collision_monitor 의존.
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.5
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: True
+        publish_voxel_map: True
+        origin_z: 0.0
+        z_resolution: 0.05
+        z_voxels: 16
+        max_obstacle_height: 2.0
+        mark_threshold: 0
+        observation_sources: scan
+        scan:
+          topic: /scan_filtered
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      always_send_full_costmap: True
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_footprint
+      use_sim_time: False
+      # vicpinky chassis 0.6 (length, x) x 0.54 (width, y, wheel-outer) — base_footprint 중심
+      footprint: '[[0.1, -0.27], [0.1, 0.27], [-0.5, 0.27], [-0.5, -0.27]]'
+      resolution: 0.05
+      track_unknown_space: true
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan_filtered
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # OPTION B (2026-05-17 저녁) — inflation 0.10 (inscribed 0.26 보다 작음, Nav2 WARN).
+        # 좁은 통로 (gate1/gate2) path 가능성 + start point 안전 마진. 충돌은 collision_monitor 의존.
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.5
+      always_send_full_costmap: True
+
+map_server:
+  ros__parameters:
+    use_sim_time: False
+    # Overridden in launch by the "map" launch configuration or provided default value.
+    # To use in yaml, remove the default "map" value in the tb3_simulation_launch.py file & provide full path to map below.
+    yaml_filename: ""
+
+map_saver:
+  ros__parameters:
+    use_sim_time: False
+    save_map_timeout: 5.0
+    free_thresh_default: 0.25
+    occupied_thresh_default: 0.65
+    map_subscribe_transient_local: True
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 20.0
+    planner_plugins: ["GridBased"]
+    costmap_update_timeout: 1.0
+    # ─────────────────────────────────────────────────────────────────────────
+    # SmacPlannerLattice — diff control set (제자리 회전 primitive 32개 포함).
+    #   smac_mppi 와의 단일 변수 차이는 본 planner_server 섹션 뿐.
+    #   최소회전반경/motion model 은 lattice_filepath 의 control set metadata 가 결정
+    #   (turning_radius 0.5m, motion_model diff). 그래서 여기에 minimum_turning_radius /
+    #   motion_model_for_search 파라미터는 없음 (Hybrid 와 다른 점).
+    # ─────────────────────────────────────────────────────────────────────────
+    GridBased:
+      plugin: "nav2_smac_planner::SmacPlannerLattice"
+      allow_unknown: true
+      tolerance: 0.25                       # goal 도달 허용 거리 (m)
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 5.0                # SE2 planner 라 2D 보다 느림 → 여유
+      # ── analytic expansion (목표 근처에서 직접 곡선 연결) ──
+      analytic_expansion_ratio: 3.5
+      analytic_expansion_max_length: 3.0    # (m) 너무 길면 곡선이 장애물 통과 위험
+      analytic_expansion_max_cost: 200.0
+      analytic_expansion_max_cost_override: false
+      # ── penalty (탐색 비용 가중) ──
+      reverse_penalty: 2.0                  # 후진 패널티 (allow_reverse_expansion=false 면 사실상 무의미)
+      change_penalty: 0.05                  # 진행 방향 전환 패널티
+      non_straight_penalty: 1.05            # 곡선/회전 패널티
+      cost_penalty: 2.0                     # costmap cost 가중 (장애물 회피 강도)
+      rotation_penalty: 1.0                 # 제자리 회전 패널티. ↓ 낮추면 좁은 곳에서 회전 더 적극적. 튜닝 포인트.
+      retrospective_penalty: 0.015
+      # ── control set (제자리 회전 포함 diff primitives) ──
+      # apt nav2_smac_planner 샘플. 모든 Jazzy 설치에 동일 경로 존재.
+      lattice_filepath: "/opt/ros/jazzy/share/nav2_smac_planner/sample_primitives/5cm_resolution/0.5m_turning_radius/diff/output.json"
+      lookup_table_size: 20.0
+      cache_obstacle_heuristic: false
+      allow_reverse_expansion: true        # ★ 전진 + 제자리회전만. 후진 경로 차단 → 후미 충돌 방지.
+      smooth_path: True
+      smoother:
+        max_iterations: 1000
+        w_smooth: 0.3
+        w_data: 0.2
+        tolerance: 1.0e-10
+        do_refinement: true
+        refinement_num: 2
+
+smoother_server:
+  ros__parameters:
+    use_sim_time: False
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: True
+
+behavior_server:
+  ros__parameters:
+    local_costmap_topic: local_costmap/costmap_raw
+    global_costmap_topic: global_costmap/costmap_raw
+    local_footprint_topic: local_costmap/published_footprint
+    global_footprint_topic: global_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors::DriveOnHeading"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    assisted_teleop:
+      plugin: "nav2_behaviors::AssistedTeleop"
+    local_frame: odom
+    global_frame: map
+    robot_base_frame: base_link
+    transform_tolerance: 0.1
+    simulate_ahead_time: 2.0
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.4
+    rotational_acc_lim: 3.2
+
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: False
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: False
+    loop_rate: 20
+    stop_on_failure: false
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: True
+      waypoint_pause_duration: 200
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: False
+    smoothing_frequency: 20.0
+    scale_velocities: False
+    feedback: "CLOSED_LOOP"
+    max_velocity: [0.25, 0.0, 1.0]
+    min_velocity: [-0.25, 0.0, -1.0]
+    max_accel: [1.8, 0.0, 2.0]
+    max_decel: [-1.8, 0.0, -2.0]
+    odom_topic: "odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
+
+# 2026-05-26 — docking_server (opennav_docking). bringup_launch.xml 의 lifecycle_nodes_nav
+#   에 docking_server 가 들어가 있어, 이 섹션이 없으면 "Charging dock plugins not given!"
+#   으로 configure 실패 → lifecycle_manager 가 전체 Nav2 bringup 을 abort 시킴.
+#   nav2_params_smac_mppi.yaml 의 docking_server 섹션과 동일 (sync 유지).
+docking_server:
+  ros__parameters:
+    controller_frequency: 50.0
+    initial_perception_timeout: 5.0
+    dock_approach_timeout: 30.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.1
+    max_retries: 3
+    base_frame: "base_link"
+    fixed_frame: "odom"               # 최종 접근 odom 서보 (AMCL 점프 면역)
+    dock_backwards: false             # 전진 접근 (테이블 정면)
+    dock_prestaging_tolerance: 0.5
+    # dock 종류 — 카페 테이블은 충전핀/마커 없음 → non-charging + detection off (dead-reckoning)
+    dock_plugins: ['cafe_table']
+    cafe_table:
+      plugin: 'opennav_docking::SimpleNonChargingDock'
+      docking_threshold: 0.05         # 도착 판정 (m)
+      staging_x_offset: -0.7          # staging = dock 뒤 0.7m (sim 튜닝 대상). approach_dist 와 다른 개념.
+      use_external_detection_pose: false  # 마커 없음 → dock_pose 직접 dead-reckoning
+    # 최종 접근 컨트롤러 (pose-following) — Reeds-Shepp 후진 cusp 없음(SmacHybrid 문제 회피)
+    controller:
+      k_phi: 3.0
+      k_delta: 2.0
+      v_linear_min: 0.15
+      v_linear_max: 0.15
+      # 첫 sim 사이클은 collision detection off — 테이블이 local costmap 장애물로 잡혀
+      #   dock_collision_threshold 가 접근을 abort 시킬 위험. 1사이클 성공 후 아래 4줄 켜고 튜닝.
+      use_collision_detection: false
+      # costmap_topic: "local_costmap/costmap_raw"
+      # footprint_topic: "local_costmap/published_footprint"
+      # dock_collision_threshold: 0.3
+    velocity_timeout: 1.0

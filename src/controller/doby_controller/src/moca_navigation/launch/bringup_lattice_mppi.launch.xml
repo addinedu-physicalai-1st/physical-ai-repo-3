@@ -1,0 +1,42 @@
+<?xml version='1.0'?>
+<!--
+  moca_navigation/launch/bringup_lattice_mppi.launch.xml
+  목적: SmacPlannerLattice(diff control set) + MPPI 조합으로 Nav2 stack 기동.
+  방식: bringup_smac_mppi.launch.xml 와 동일 구조 — bringup_launch.xml 을 include 하면서
+        params_file 만 nav2_params_lattice_mppi.yaml 로 override.
+
+  왜 이걸 만들었나 (사용자 요청 2026-05-26):
+    "SmacHybrid 를 쓰되 제자리 회전이 가능하게" → SmacHybrid 는 설계상 불가
+    (최소회전반경 기반, 제자리 회전 primitive 없음). 대신 SmacPlannerLattice +
+    diff control set 이 정답. diff control set 에 제자리 회전 primitive 32개 포함되어
+    좁은 카페에서도 회전 진입 가능. allow_reverse_expansion=false 로 후진 경로를 막아
+    SmacHybrid+REEDS_SHEPP 의 후미 충돌도 동시 회피.
+
+  참고: 운영 기본 스택은 여전히 bringup_smac_mppi.launch.xml (SmacPlanner2D+MPPI).
+        본 launch 는 Lattice 비교/검증용. 좋으면 운영 채택 검토.
+
+  검증 시동 (PC 단독, 시뮬 도메인):
+    ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1 ros2 launch moca_navigation bringup_lattice_mppi.launch.xml
+  라이브 (RPi 도메인, 사용자 명시 승인 후):
+    ros2 launch moca_navigation bringup_lattice_mppi.launch.xml
+-->
+<launch>
+    <arg name="namespace" default=""/>
+    <arg name="map" default="$(env MOCA_MAP_PATH $(find-pkg-share moca_navigation)/map/mapv6.yaml)"/>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="autostart" default="True"/>
+    <arg name="use_composition" default="True"/>
+    <arg name="use_respawn" default="False"/>
+    <arg name="log_level" default="info"/>
+
+    <include file="$(find-pkg-share moca_navigation)/launch/bringup_launch.xml">
+        <arg name="namespace" value="$(var namespace)"/>
+        <arg name="map" value="$(var map)"/>
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+        <arg name="params_file" value="$(find-pkg-share moca_navigation)/params/nav2_params_lattice_mppi.yaml"/>
+        <arg name="autostart" value="$(var autostart)"/>
+        <arg name="use_composition" value="$(var use_composition)"/>
+        <arg name="use_respawn" value="$(var use_respawn)"/>
+        <arg name="log_level" value="$(var log_level)"/>
+    </include>
+</launch>
