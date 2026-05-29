@@ -1,0 +1,21 @@
+# ~/ws/physical-ai-repo-3/.venv 가상환경용 패키지
+#
+# 설치 방법:
+#   python3 -m venv ~/ws/physical-ai-repo-3/.venv
+#   source ~/ws/physical-ai-repo-3/.venv/bin/activate
+#   pip install -r requirements.txt
+#
+# 이 가상환경은 palm_direction_publisher 노드(MediaPipe 손 감지 + TTS)에 사용됩니다.
+# ROS2 / lerobot 패키지는 별도 환경에서 관리합니다.
+
+# ── MediaPipe (손 감지) ───────────────────────────────────────────────────────
+mediapipe==0.10.35
+
+# ── OpenCV (카메라 프레임 처리) ───────────────────────────────────────────────
+opencv-contrib-python==4.13.0.92
+
+# ── TTS (음성 안내) ───────────────────────────────────────────────────────────
+edge-tts==7.2.8
+
+# ── 공통 ─────────────────────────────────────────────────────────────────────
+numpy==2.4.6
