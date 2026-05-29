@@ -20,7 +20,7 @@
 -->
 <launch>
     <arg name="namespace" default=""/>
-    <arg name="map" default="$(env MOCA_MAP_PATH $(find-pkg-share moca_navigation)/../../../maps/mapv5.yaml)"/>
+    <arg name="map" default="$(env MOCA_MAP_PATH $(find-pkg-share moca_navigation)/map/mapv6.yaml)"/>
     <arg name="use_sim_time" default="False"/>
     <arg name="autostart" default="True"/>
     <arg name="use_composition" default="True"/>
