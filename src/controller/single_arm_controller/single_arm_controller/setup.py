@@ -32,9 +32,10 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'act_policy_server = single_arm_controller.act_policy_server:main',
+            'act_policy_server = single_arm_controller.act_policy_worker:main',
             'act_serving_controller = single_arm_controller.act_serving_action_server:main',
             'controller_status_monitor = single_arm_controller.controller_status_monitor:main',
+            'palm_direction_publisher = single_arm_controller.palm_direction_publisher:main',
         ],
     },
 )

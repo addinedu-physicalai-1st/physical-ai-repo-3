@@ -21,7 +21,14 @@ import cv2
 import numpy as np
 import requests
 import yaml
-from single_arm_controller_interfaces.srv import ActPolicyInference
+from single_arm_controller_interfaces.srv import ActPolicyInference, SetTask
+
+# ── 마커 상수 (학습 데이터와 동일하게 유지) ──────────────────────────────────
+_MARKER_SIZE = 100
+_MARKER_X = 640 - _MARKER_SIZE - 10   # 530
+_MARKER_Y = 10
+_COLOR_BLUE = (0, 0, 255)   # left
+_COLOR_RED  = (255, 0, 0)   # right
 
 
 _DEFAULT_CONFIG_PATH = str(Path(__file__).parent.parent / 'config' / 'act_serving_config.yaml')
@@ -46,6 +53,18 @@ class TaskOutcome:
 
 class TaskCompleted(Exception):
     pass
+
+
+def _add_marker(image_rgb: np.ndarray, color: tuple[int, int, int]) -> np.ndarray:
+    """RGB uint8 HWC 이미지 오른쪽 상단에 100×100 컬러 사각형을 그린다."""
+    img = image_rgb.copy()
+    cv2.rectangle(
+        img,
+        (_MARKER_X, _MARKER_Y),
+        (_MARKER_X + _MARKER_SIZE, _MARKER_Y + _MARKER_SIZE),
+        color, -1,
+    )
+    return img
 
 
 def check_task_completion_with_vlm(
@@ -131,6 +150,11 @@ class ActPolicyServerClient:
                 f'ACT policy service not available: {self._service_name}'
             )
 
+        set_task_name = ipc_config.get('set_task_service_name', '/act_policy/set_task')
+        self._set_task_client = node.create_client(SetTask, set_task_name)
+        if not self._set_task_client.wait_for_service(timeout_sec=self._connect_timeout_s):
+            raise RuntimeError(f'SetTask service not available: {set_task_name}')
+
         obs_name = ipc_config.get('shm_obs_name', 'act_policy_observation')
         act_name = ipc_config.get('shm_act_name', 'act_policy_action')
         self._shm_obs = self._attach_shared_memory(obs_name, observation_bytes)
@@ -184,6 +208,7 @@ class ActPolicyServerClient:
         wrist_image: np.ndarray,
         state: np.ndarray,
         inference_delay: int = 0,
+        task: str = 'pickup',
     ) -> tuple[np.ndarray, np.ndarray]:
         """추론 실행. shared memory에 observation을 쓰고 service로 trigger한다."""
         with self._lock:
@@ -193,6 +218,7 @@ class ActPolicyServerClient:
 
             request = ActPolicyInference.Request()
             request.inference_delay = int(inference_delay)
+            request.task = task
             future = self._client.call_async(request)
 
             done = threading.Event()
@@ -207,6 +233,27 @@ class ActPolicyServerClient:
                 raise RuntimeError(response.message)
 
             return self._action_buffer[0].copy(), self._action_buffer[1].copy()
+
+    def switch_to_task(self, task: str):
+        """다음 태스크 모델로 전환 요청 (비동기, 블로킹 없음)."""
+        req = SetTask.Request()
+        req.task = task
+        future = self._set_task_client.call_async(req)
+        done = threading.Event()
+
+        def _on_done(f):
+            try:
+                resp = f.result()
+                if resp.success:
+                    self._logger.info(f'Model switched: {resp.message}')
+                else:
+                    self._logger.error(f'Model switch failed: {resp.message}')
+            except Exception as e:
+                self._logger.error(f'Model switch error: {e}')
+            done.set()
+
+        future.add_done_callback(_on_done)
+        return done
 
     def close(self):
         self._shm_obs.close()
@@ -391,6 +438,7 @@ class ActServingOrchestrator:
         feedback_cb: FeedbackCallback,
         cancel_cb: CancelCallback,
     ) -> TaskOutcome:
+        vlm_completed = False
         try:
             self._run_act_task(
                 top_cam_path=top_cam_path,
@@ -399,9 +447,16 @@ class ActServingOrchestrator:
                 feedback_cb=feedback_cb,
                 cancel_cb=cancel_cb,
                 vlm_prompt=self._config['vlm'].get('pickup_prompt', ''),
+                task='pickup',
             )
         except TaskCompleted:
-            pass
+            vlm_completed = True
+
+        if vlm_completed:
+            self._logger.info('Pickup VLM complete -> switching to serve model')
+            threading.Thread(
+                target=self._model.switch_to_task, args=('serve',), daemon=True
+            ).start()
 
         if cancel_cb():
             return TaskOutcome('canceled', 'Pickup canceled.')
@@ -412,10 +467,19 @@ class ActServingOrchestrator:
         top_cam_path: str,
         wrist_cam_path: str,
         has_drink: bool,
+        direction: str,
         feedback_cb: FeedbackCallback,
         cancel_cb: CancelCallback,
     ) -> TaskOutcome:
-        self._logger.info(f'Running serve task. has_drink={has_drink}')
+        if not has_drink:
+            marker_color = _COLOR_BLUE
+        else:
+            marker_color = _COLOR_BLUE if direction == 'left' else _COLOR_RED
+        self._logger.info(
+            f'Running serve task. has_drink={has_drink} direction={direction} '
+            f'marker={"BLUE" if marker_color == _COLOR_BLUE else "RED"}'
+        )
+        vlm_completed = False
         try:
             self._run_act_task(
                 top_cam_path=top_cam_path,
@@ -424,8 +488,17 @@ class ActServingOrchestrator:
                 feedback_cb=feedback_cb,
                 cancel_cb=cancel_cb,
                 vlm_prompt=self._config['vlm'].get('serve_prompt', ''),
+                task='serve',
+                marker_color=marker_color,
             )
         except TaskCompleted:
+            vlm_completed = True
+
+        if vlm_completed:
+            self._logger.info('Serve VLM complete -> switching to pickup model')
+            threading.Thread(
+                target=self._model.switch_to_task, args=('pickup',), daemon=True
+            ).start()
             return TaskOutcome('success', 'Serve complete (home reached).')
 
         if cancel_cb():
@@ -440,6 +513,8 @@ class ActServingOrchestrator:
         feedback_cb: FeedbackCallback,
         cancel_cb: CancelCallback,
         vlm_prompt: str = '',
+        task: str = 'pickup',
+        marker_color: tuple[int, int, int] | None = None,
     ):
         """Pickup / Serve 공통 ACT 추론 + 실행 루프."""
         config = self._config
@@ -462,6 +537,7 @@ class ActServingOrchestrator:
             for k, v in home_config['ranges'].items()
         }
         home_dwell_s = float(home_config['dwell_s'])
+        return_duration_s = float(home_config.get('return_duration_s', 3.0))
 
         robot = DynamixelArm(config)
         initial_position = robot.get_positions()
@@ -536,6 +612,7 @@ class ActServingOrchestrator:
                         wrist_image=obs['wrist'],
                         state=obs['state'],
                         inference_delay=delay,
+                        task=task,
                     )
                     infer_s = time.perf_counter() - t_start
 
@@ -586,8 +663,9 @@ class ActServingOrchestrator:
             top_img = top_cam.read_latest()
             wrist_img = wrist_cam.read_latest()
             state = robot.get_positions()
+            top_obs = _add_marker(top_img, marker_color) if marker_color else top_img
             with obs_lock:
-                latest_obs = {'top': top_img, 'wrist': wrist_img, 'state': state}
+                latest_obs = {'top': top_obs, 'wrist': wrist_img, 'state': state}
 
             infer_thread.start()
 
@@ -603,6 +681,16 @@ class ActServingOrchestrator:
                 time.sleep(0.05)
             else:
                 raise RuntimeError('ACT inference did not produce actions within 60s')
+
+            # 첫 액션 위치로 2초에 걸쳐 부드럽게 이동
+            with queue_lock:
+                first_target = action_queue[0].copy()
+            self._logger.info('Smooth start: moving to first action position over 2s')
+            feedback_cb('Smooth start...')
+            robot.return_to_position(first_target, duration_s=2.0)
+            # 이동 중 쌓인 액션은 타이밍이 맞지 않으므로 버리고 새 추론을 기다림
+            with queue_lock:
+                action_queue.clear()
 
             prev_action_interp = None
             ema_state = None
@@ -620,8 +708,9 @@ class ActServingOrchestrator:
                 top_img = top_cam.read_latest()
                 wrist_img = wrist_cam.read_latest()
                 state = robot.get_positions()
+                top_obs = _add_marker(top_img, marker_color) if marker_color else top_img
                 with obs_lock:
-                    latest_obs = {'top': top_img, 'wrist': wrist_img, 'state': state}
+                    latest_obs = {'top': top_obs, 'wrist': wrist_img, 'state': state}
 
                 in_home = all(lo <= state[i] <= hi for i, (lo, hi) in home_ranges.items())
                 if not in_home:
@@ -638,6 +727,13 @@ class ActServingOrchestrator:
                         home_since = time.time()
                         self._logger.info('Home position entered.')
                     elif time.time() - home_since >= home_dwell_s:
+                        if time.time() - start_time < 5.0:
+                            self._logger.info(
+                                'Home reached but (now - infer_start) < 5s'
+                                'Skipping VLM check.'
+                            )
+                            home_since = None
+                            continue
                         vlm_config = config.get('vlm', {})
                         vlm_enabled = bool(vlm_config.get('enabled', False))
                         use_vlm = vlm_enabled and bool(vlm_prompt)
@@ -659,10 +755,12 @@ class ActServingOrchestrator:
                                 self._logger.info(
                                     f'VLM answer: "{vlm_answer}" -> complete={complete}'
                                 )
+                                feedback_cb(f'VLM: "{vlm_answer}" -> {"complete" if complete else "not complete"}')
                             except Exception as e:
                                 self._logger.warn(
                                     f'VLM check failed: {e}. Continuing.'
                                 )
+                                feedback_cb(f'VLM check failed: {e}')
                                 complete = False
 
                             if complete:
@@ -726,12 +824,11 @@ class ActServingOrchestrator:
             infer_thread.join(timeout=5.0)
             top_cam.close()
             wrist_cam.close()
-            if cancel_cb() or task_complete:
-                reason = 'Task complete' if task_complete else 'Canceled'
-                self._logger.info(f'{reason} - returning to initial position...')
-                try:
-                    robot.return_to_position(initial_position, duration_s=3.0)
-                except Exception as e:
-                    self._logger.warn(f'Return failed: {e}')
+            reason = 'Task complete' if task_complete else ('Canceled' if cancel_cb() else 'Duration elapsed')
+            self._logger.info(f'{reason} - returning to initial position ({return_duration_s}s)...')
+            try:
+                robot.return_to_position(initial_position, duration_s=return_duration_s)
+            except Exception as e:
+                self._logger.warn(f'Return failed: {e}')
             robot.close()
             self._logger.info('Hardware disconnected.')

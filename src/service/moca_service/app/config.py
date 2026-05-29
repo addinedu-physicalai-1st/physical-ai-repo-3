@@ -30,6 +30,7 @@ class MocaServiceConfig:
     ddooby_controller_action_timeout_sec: float
     order_orchestration_enabled: bool
     order_orchestration_tick_sec: float
+    opserver_url: str
 
 
 def load_config() -> MocaServiceConfig:
@@ -73,6 +74,7 @@ def load_config() -> MocaServiceConfig:
         order_orchestration_tick_sec=float(
             os.getenv("MOCA_ORDER_ORCHESTRATION_TICK_SEC", "1.0")
         ),
+        opserver_url=os.getenv("MOCA_OPSERVER_URL", "http://localhost:8800"),
     )
 
 

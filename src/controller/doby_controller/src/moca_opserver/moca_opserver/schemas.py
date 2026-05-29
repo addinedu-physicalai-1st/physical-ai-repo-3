@@ -48,6 +48,7 @@ class PickupRequest(BaseModel):
     order_id: str = ""
     target_table: str
     via_pickup: bool = True
+    has_drink: bool = True
     ready_at: str = ""
 
 

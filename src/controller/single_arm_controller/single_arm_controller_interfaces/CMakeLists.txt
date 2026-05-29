@@ -8,6 +8,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/Pickup.action"
   "action/Serve.action"
   "srv/ActPolicyInference.srv"
+  "srv/SetTask.srv"
 )
 
 ament_export_dependencies(rosidl_default_runtime)

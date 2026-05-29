@@ -139,6 +139,11 @@ class OpServerNode(Node):
         self._guiding_state: dict = {}
         self._last_patrol_completed_at: str = ''
 
+        # pickup action 비동기 진행 중 플래그 — drain/REST 재진입 차단
+        self._pickup_in_progress: bool = False
+        # 현재 serving 세션의 음료 여부 — CompletionWatcher 가 Serve goal 에 사용
+        self._current_serving_has_drink: bool = False
+
         # 캐시 / 큐 (M1 in-memory, M3 sqlite 영속화 검토)
         self._tables: dict[str, dict] = {
             tid: {
@@ -260,14 +265,75 @@ class OpServerNode(Node):
             return
         self.ws_hub.broadcast_threadsafe(self._fastapi_loop, msg_type, data)
 
+    # ---------- serving 진입 (pickup 선행 or 즉시) ----------
+
+    def start_serving_with_pickup(
+        self,
+        waypoint: str,
+        via_pickup: bool,
+        trigger_source: str,
+        has_drink: bool = True,
+        override_priority: bool = False,
+    ) -> dict:
+        """via_pickup=True 이면 Pickup action 완료 후 SetMode('serving').
+        via_pickup=False 이면 즉시 SetMode('serving').
+        항상 즉시 반환 (pickup 경로는 비동기 콜백).
+
+        has_drink: Pickup/Serve goal 에 전달되는 음료 여부 플래그.
+
+        반환:
+          via_pickup=False → orchestrator.request_mode_change() 결과 그대로
+          via_pickup=True  → {'ok': True, 'pickup_requested': True}
+                             (실패 시 {'ok': False, 'code': ..., 'message': ...})
+        """
+        params = {'waypoint': waypoint, 'via_pickup': via_pickup, 'has_drink': has_drink}
+        self._current_serving_has_drink = has_drink
+
+        if not via_pickup:
+            return self.orchestrator.request_mode_change(
+                target_mode='serving',
+                params=params,
+                trigger_source=trigger_source,
+                override_priority=override_priority,
+            )
+
+        if self._pickup_in_progress:
+            self.get_logger().warn('[pickup] 이미 pickup 진행 중 — 중복 요청 무시')
+            return {'ok': False, 'code': 'PICKUP_IN_PROGRESS',
+                    'message': 'pickup action already running'}
+
+        self._pickup_in_progress = True
+        self.get_logger().info(
+            f'[pickup] Pickup action 요청 → 완료 후 SetMode(serving) '
+            f'waypoint={waypoint} has_drink={has_drink}')
+
+        def _after_pickup(success: bool, msg: str) -> None:
+            self._pickup_in_progress = False
+            if not success:
+                self.get_logger().warn(
+                    f'[pickup] 실패 ({msg}) — SetMode(serving) 취소')
+                return
+            self.get_logger().info(
+                f'[pickup] 완료 — SetMode(serving) 요청 waypoint={waypoint}')
+            self.orchestrator.request_mode_change(
+                target_mode='serving',
+                params=params,
+                trigger_source=trigger_source,
+                override_priority=override_priority,
+            )
+
+        self.send_arm_pickup_goal(_after_pickup, has_drink=has_drink)
+        return {'ok': True, 'pickup_requested': True}
+
     # ---------- single_arm_controller Serve action ----------
 
-    def send_arm_serve_goal(self, done_cb) -> None:
+    def send_arm_serve_goal(self, done_cb, has_drink: bool | None = None) -> None:
         """Serve action goal 전송. 서버 미가동 시 done_cb(False, 'server_unavailable') 즉시 호출.
 
         CompletionWatcher 가 serving 완료 후 호출. node 계약의 일부.
         Args:
             done_cb: (success: bool, message: str) -> None
+            has_drink: None 이면 _current_serving_has_drink 사용.
         """
         if not self._arm_ac.wait_for_server(timeout_sec=1.0):
             self.get_logger().warn(
@@ -275,7 +341,9 @@ class OpServerNode(Node):
             done_cb(False, 'server_unavailable')
             return
 
-        goal = Serve.Goal()  # wrist_cam_path/realsense_serial/task 모두 '' → 노드 기본값
+        goal = Serve.Goal()
+        goal.has_drink = self._current_serving_has_drink if has_drink is None else has_drink
+        self.get_logger().info(f'[arm] Serve goal has_drink={goal.has_drink}')
 
         send_future = self._arm_ac.send_goal_async(
             goal,
@@ -307,11 +375,12 @@ class OpServerNode(Node):
 
     # ---------- single_arm_controller Pickup action ----------
 
-    def send_arm_pickup_goal(self, done_cb) -> None:
+    def send_arm_pickup_goal(self, done_cb, has_drink: bool = True) -> None:
         """Pickup action goal 전송. 서버 미가동 시 done_cb(False, 'server_unavailable') 즉시 호출.
 
         Args:
             done_cb: (success: bool, message: str) -> None
+            has_drink: Pickup.Goal.has_drink 에 전달.
         """
         if not self._pickup_ac.wait_for_server(timeout_sec=1.0):
             self.get_logger().warn(
@@ -319,7 +388,9 @@ class OpServerNode(Node):
             done_cb(False, 'server_unavailable')
             return
 
-        goal = Pickup.Goal()  # Goal 필드 없음 (empty trigger)
+        goal = Pickup.Goal()
+        goal.has_drink = has_drink
+        self.get_logger().info(f'[pickup] Pickup goal has_drink={goal.has_drink}')
 
         send_future = self._pickup_ac.send_goal_async(
             goal,
@@ -368,6 +439,11 @@ class OpServerNode(Node):
         if not self._test_safety_locked:
             self.safety_ok = bool(msg.safety_ok)
         self._last_mode_state_ts = time.time()
+        # has_drink 복구 — 재시작/외부 SetMode 경로에서도 일관성 유지
+        if msg.current_mode == 'serving':
+            self._current_serving_has_drink = bool(params_dict.get('has_drink', True))
+        elif msg.current_mode == 'idle':
+            self._current_serving_has_drink = False
         # IdlePatrolTimer 신호
         self.idle_patrol_timer.on_mode_state(msg.current_mode)
         self.ws_broadcast('mode_state', {
@@ -519,12 +595,15 @@ class OpServerNode(Node):
             self.get_logger().error(f'idle_patrol_timer.tick error: {e}')
 
     def _drain_serving_queue(self) -> None:
-        """idle 진입 + serving_queue 비어있지 않으면 첫 entry 로 SetMode('serving').
+        """idle 진입 + serving_queue 비어있지 않으면 첫 entry 로 serving 시작.
 
         guiding_design §10 G3 정책 — guiding 중 pickup 은 큐잉 → guiding 완료
         + idle 진입 + 본 tick 이 첫 entry 로 serving 자동 시작.
+        via_pickup=True 이면 start_serving_with_pickup 이 pickup 먼저 수행.
         """
         if self.current_mode != 'idle':
+            return
+        if self._pickup_in_progress:
             return
         if not self._serving_queue:
             return
@@ -536,10 +615,12 @@ class OpServerNode(Node):
             self._serving_queue.popleft()
             return
         via_pickup = bool(entry.get('via_pickup', True))
-        result = self.orchestrator.request_mode_change(
-            target_mode='serving',
-            params={'waypoint': target, 'via_pickup': via_pickup},
+        has_drink = bool(entry.get('has_drink', True))
+        result = self.start_serving_with_pickup(
+            waypoint=target,
+            via_pickup=via_pickup,
             trigger_source='queue_drain',
+            has_drink=has_drink,
             override_priority=False,
         )
         if result.get('ok'):

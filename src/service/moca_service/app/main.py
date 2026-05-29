@@ -122,7 +122,9 @@ def main() -> None:
     order_orchestration_runtime = OrderWorkflowScheduler(
         order_service=order_service,
         manufacture_port=manufacture_port,
-        serving_port=DobyModeServingPort(doby_controller_runtime, logger),
+        serving_port=DobyModeServingPort(
+            doby_controller_runtime, logger, opserver_url=config.opserver_url
+        ),
         logger=logger,
         tick_interval_sec=config.order_orchestration_tick_sec,
     )

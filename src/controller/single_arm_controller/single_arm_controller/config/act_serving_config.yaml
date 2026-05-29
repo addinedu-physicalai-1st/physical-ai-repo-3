@@ -1,9 +1,15 @@
 # act_serving_orchestrator.py / act_policy_server.py 공통 설정
 # 이 파일의 값이 스크립트 하드코딩 상수를 대체한다.
 
+# ── 환경 ────────────────────────────────────────────────────────────────────
+env:
+  venv_path:            /home/jr/ws/physical-ai-repo-3/.venv
+  mediapipe_model_path: /home/jr/ws/physical-ai-repo-3/models/hand_landmarker.task
+
 # ── 모델 ────────────────────────────────────────────────────────────────────
 model:
-  path:        /home/jr/ws/lerobot/outputs/act/pretrained_model
+  pickup_path: /home/jr/ws/lerobot/outputs/act_pickup/600000/pretrained_model
+  serving_path: /home/jr/ws/lerobot/outputs/act_serving/with_palm/400000/pretrained_model
   device:      cuda
   robot_type:  omx_follower
 
@@ -17,8 +23,8 @@ control:
 # ── 태스크 지속시간 ──────────────────────────────────────────────────────────
 # 0이면 무제한 (홈 포지션 감지 또는 수동 취소로 종료)
 task:
-  serve_duration_s:   30.0
-  pickup_duration_s:  15.0
+  serve_duration_s:   60.0
+  pickup_duration_s:  60.0
 
 # ── Shared Memory 레이아웃 ──────────────────────────────────────────────────
 # act_serving_orchestrator.py와 act_policy_server.py가 반드시 동일한 값을 사용해야 한다.
@@ -33,15 +39,17 @@ memory:
 # ACT policy server는 별도 ROS 노드로 실행된다. 대용량 이미지/action chunk는
 # shared memory로 교환하고, ROS service는 추론 trigger/완료 응답만 담당한다.
 ipc:
-  service_name:      /act_policy/infer
-  shm_obs_name:      act_policy_observation
-  shm_act_name:      act_policy_action
-  connect_timeout_s: 120.0
+  service_name:          /act_policy/infer
+  set_task_service_name: /act_policy/set_task
+  shm_obs_name:          act_policy_observation
+  shm_act_name:          act_policy_action
+  connect_timeout_s:     120.0
 
 # ── 카메라 ──────────────────────────────────────────────────────────────────
 cameras:
-  top_path:    /dev/video4
-  wrist_path:  /dev/video2
+  top_path:    /dev/video2
+  wrist_path:  /dev/video0
+  palm_index:  4
   width:       640
   height:      480
   fps:         30
@@ -59,17 +67,19 @@ robot:
 # 2=elbow_flex, 3=wrist_flex, 4=wrist_roll, 5=gripper
 home:
   dwell_s: 2.0
+  return_duration_s: 3.0   # 추론 종료 후 초기 위치 복귀 소요 시간(s)
   ranges:
-    1: [-75.0, -40.0]   # shoulder_lift  (홈: ~-64.8)
-    2: [44.0,   56.0]   # elbow_flex     (홈: ~54.9)
-    4: [-18.0,  16.0]   # wrist_roll     (홈: ~-1.4)
+    0: [-8.0,   8.0]    # shoulder_pan   (홈:  -1.0  → 태스크 중 크게 이동)
+    1: [-75.0, -55.0]   # shoulder_lift  (홈: -65.42)
+    2: [45.0,   65.0]   # elbow_flex     (홈:  54.87)
+    4: [-11.0,   9.0]   # wrist_roll     (홈:  -1.05)
 
 # ── VLM 완료 판단 ────────────────────────────────────────────────────────────
 # 홈 포지션 dwell_s 경과 후 top 카메라 이미지를 VLM에 보내 완료 여부 확인.
 # enabled: false이면 홈 포지션 감지만으로 완료 판단 (VLM 없이).
 vlm:
   enabled:   true
-  host:      http://localhost:11434   # Ollama 서버
+  host:      http://192.168.0.133:11434   # Ollama 서버
   model:     qwen3-vl:4b
   timeout_s: 30.0
   # 태스크마다 프롬프트를 바꿔서 완료 조건을 정의한다.
@@ -79,4 +89,4 @@ vlm:
     Answer with only "true" or "false".
   pickup_prompt: >-
     In the image, has the object been picked up and is no longer in the
-    pick-up area? Answer with only "true" or "false".
+    white zone on the right side? Answer with only "true" or "false".

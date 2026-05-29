@@ -9,6 +9,7 @@ trigger/completion signal.
 
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
+import threading
 
 import numpy as np
 import rclpy as rp
@@ -19,7 +20,7 @@ import yaml
 from lerobot.policies.act import ACTPolicy
 from lerobot.policies import make_pre_post_processors
 from lerobot.policies.utils import prepare_observation_for_inference
-from single_arm_controller_interfaces.srv import ActPolicyInference
+from single_arm_controller_interfaces.srv import ActPolicyInference, SetTask
 
 
 _DEFAULT_CONFIG_PATH = str(Path(__file__).parent.parent / 'config' / 'act_serving_config.yaml')
@@ -50,15 +51,26 @@ class ActPolicyServer(Node):
         self._config = load_act_serving_config(config_path)
 
         self._init_shared_memory()
-        self._load_model()
+        self._model_lock = threading.Lock()
+        self._load_model_for_task('pickup')
 
-        service_name = self._config.get('ipc', {}).get('service_name', '/act_policy/infer')
+        ipc_config = self._config.get('ipc', {})
+        service_name = ipc_config.get('service_name', '/act_policy/infer')
+        set_task_name = ipc_config.get('set_task_service_name', '/act_policy/set_task')
+
         self._service = self.create_service(
             ActPolicyInference,
             service_name,
             self.handle_inference_request,
         )
-        self.get_logger().info(f'ACT policy server ready: {service_name}')
+        self._set_task_service = self.create_service(
+            SetTask,
+            set_task_name,
+            self.handle_set_task_request,
+        )
+        self.get_logger().info(
+            f'ACT policy server ready: {service_name}, set_task: {set_task_name}'
+        )
 
     def _init_shared_memory(self):
         memory_config = self._config['memory']
@@ -108,16 +120,25 @@ class ActPolicyServer(Node):
             f'act={act_name} ({self._act_bytes} bytes)'
         )
 
-    def _load_model(self):
+    def _load_model_for_task(self, task: str):
+        """task에 맞는 모델을 로드한다. 기존 모델은 GPU에서 해제한다."""
         model_config = self._config['model']
-        self._device = torch.device(model_config['device'])
-        self._robot_type = model_config['robot_type']
+        model_paths = {
+            'pickup': model_config['pickup_path'],
+            'serve':  model_config['serving_path'],
+        }
+        if task not in model_paths:
+            raise ValueError(f'Unknown task: "{task}". Expected one of {list(model_paths)}')
 
-        self.get_logger().info(
-            f"Loading ACT model: {model_config['path']} on {model_config['device']}"
-        )
-        self._model = ACTPolicy.from_pretrained(model_config['path'])
-        self._model.to(self._device)
+        path = model_paths[task]
+        self.get_logger().info(f'Loading model for task={task}: {path}')
+
+        if hasattr(self, '_model') and self._model is not None:
+            del self._model
+            torch.cuda.empty_cache()
+
+        self._model = ACTPolicy.from_pretrained(path)
+        self._model.to(torch.device(model_config['device']))
         self._model.eval()
 
         model_chunk = self._model.config.chunk_size
@@ -129,44 +150,65 @@ class ActPolicyServer(Node):
 
         self._preprocess, self._postprocess = make_pre_post_processors(
             self._model.config,
-            model_config['path'],
+            path,
             preprocessor_overrides={'device_processor': {'device': model_config['device']}},
         )
-        self.get_logger().info(f'ACT model loaded. chunk_size={model_chunk}')
+        self._device = torch.device(model_config['device'])
+        self._robot_type = model_config['robot_type']
+        self._current_task = task
+        self.get_logger().info(f'Model ready: task={task} chunk_size={model_chunk}')
+
+    def handle_set_task_request(self, request, response):
+        """태스크 전환 요청 — 기존 모델 해제 후 다음 모델 로드."""
+        task = request.task
+        with self._model_lock:
+            if task == self._current_task:
+                response.success = True
+                response.message = f'Already on task={task}'
+                return response
+            try:
+                self._load_model_for_task(task)
+                response.success = True
+                response.message = f'Switched to task={task}'
+            except Exception as e:
+                self.get_logger().error(f'Model switch failed: {e}')
+                response.success = False
+                response.message = str(e)
+        return response
 
     def handle_inference_request(self, request, response):
-        del request  # Inference delay is reserved for future RTC-aware model APIs.
         try:
-            top_image = self._top_image_buffer.copy()
-            wrist_image = self._wrist_image_buffer.copy()
-            joint_state = self._joint_state_buffer.copy()
+            with self._model_lock:
+                top_image = self._top_image_buffer.copy()
+                wrist_image = self._wrist_image_buffer.copy()
+                joint_state = self._joint_state_buffer.copy()
 
-            obs_dict = {
-                'observation.images.top': top_image,
-                'observation.images.wrist': wrist_image,
-                'observation.state': joint_state,
-            }
-            observation = prepare_observation_for_inference(
-                obs_dict,
-                self._device,
-                task=None,
-                robot_type=self._robot_type,
-            )
-            observation = self._preprocess(observation)
+                obs_dict = {
+                    'observation.images.top': top_image,
+                    'observation.images.wrist': wrist_image,
+                    'observation.state': joint_state,
+                }
+                observation = prepare_observation_for_inference(
+                    obs_dict,
+                    self._device,
+                    task=None,
+                    robot_type=self._robot_type,
+                )
+                observation = self._preprocess(observation)
 
-            with torch.no_grad():
-                raw_action_chunk = self._model.predict_action_chunk(observation)
+                with torch.no_grad():
+                    raw_action_chunk = self._model.predict_action_chunk(observation)
 
-            original_chunk = raw_action_chunk.squeeze(0).clone()
-            processed_chunk = self._postprocess(raw_action_chunk).squeeze(0)
+                original_chunk = raw_action_chunk.squeeze(0).clone()
+                processed_chunk = self._postprocess(raw_action_chunk).squeeze(0)
 
-            original_np = original_chunk.cpu().numpy()
-            processed_np = processed_chunk.cpu().numpy()
-            rows = min(len(processed_np), self._action_chunk_size)
+                original_np = original_chunk.cpu().numpy()
+                processed_np = processed_chunk.cpu().numpy()
+                rows = min(len(processed_np), self._action_chunk_size)
 
-            self._action_buffer[:] = 0
-            self._action_buffer[0, :rows] = original_np[:rows]
-            self._action_buffer[1, :rows] = processed_np[:rows]
+                self._action_buffer[:] = 0
+                self._action_buffer[0, :rows] = original_np[:rows]
+                self._action_buffer[1, :rows] = processed_np[:rows]
 
             response.success = True
             response.message = f'inference complete rows={rows}'

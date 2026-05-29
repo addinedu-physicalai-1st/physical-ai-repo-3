@@ -48,6 +48,7 @@ class OrderItemCreate:
 class OrderItemRow:
     product_id: int
     product_name: str
+    product_type: str
     selected_options: list[Any]
     quantity: int
     unit_price: int
@@ -296,6 +297,7 @@ class OrderItemRepository:
                 SELECT
                     oi.product_id,
                     p.name AS product_name,
+                    p.product_type,
                     oi.selected_options,
                     oi.quantity,
                     oi.unit_price
@@ -311,6 +313,7 @@ class OrderItemRepository:
             OrderItemRow(
                 product_id=int(row["product_id"]),
                 product_name=str(row["product_name"]),
+                product_type=str(row["product_type"]),
                 selected_options=_decode_json(row["selected_options"]),
                 quantity=int(row["quantity"]),
                 unit_price=int(row["unit_price"]),
