@@ -33,7 +33,7 @@ echo " 카메라 + 탐지 + 시각화 시동"
 echo "======================================================"
 echo " WORKSPACE   : $WS"
 echo " VIDEO_DEVICE: $VIDEO_DEVICE"
-echo " DOMAIN_ID   : 22"
+echo " DOMAIN_ID   : ${ROS_DOMAIN_ID:-22}"
 echo "------------------------------------------------------"
 
 # 터미널 에뮬레이터 확인
@@ -46,7 +46,7 @@ else
     exit 1
 fi
 
-SOURCE_CMD="source /opt/ros/jazzy/setup.bash && source $WS/install/local_setup.bash 2>/dev/null || true && source $DOBY_INSTALL/local_setup.bash 2>/dev/null || true && export ROS_DOMAIN_ID=22"
+SOURCE_CMD="source /opt/ros/jazzy/setup.bash && source $WS/install/local_setup.bash 2>/dev/null || true && source $DOBY_INSTALL/local_setup.bash 2>/dev/null || true && export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-22}"
 
 # ============================================================
 # [0] 기존 노드 kill
