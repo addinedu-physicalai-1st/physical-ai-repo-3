@@ -8,14 +8,20 @@ ActServingOrchestrator, and converts the outcome back into ROS action results.
 
 from pathlib import Path
 
+import threading
+
 import rclpy as rp
 from rclpy.action import ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from std_msgs.msg import Empty, String
 
 from single_arm_controller.act_serving_orchestrator import ActServingOrchestrator
 from single_arm_controller_interfaces.action import Pickup, Serve
+
+_PALM_DIRECTION_TOPIC = '/palm_direction'
+_PALM_DIRECTION_TIMEOUT_S = 30.0
 
 
 _DEFAULT_CONFIG_PATH = str(Path(__file__).parent.parent / 'config' / 'act_serving_config.yaml')
@@ -36,6 +42,8 @@ class ActServingActionServer(Node):
             vlm_host=self.get_parameter('vlm_host').value,
         )
 
+        self._trigger_pub = self.create_publisher(Empty, '/palm_detect_trigger', 10)
+
         cb = ReentrantCallbackGroup()
         self._pickup_server = ActionServer(
             self, Pickup, 'pickup', self.execute_pickup_action,
@@ -48,6 +56,40 @@ class ActServingActionServer(Node):
             callback_group=cb,
         )
         self.get_logger().info('ACT serving action server ready (Pickup + Serve)')
+
+    def _wait_for_palm_direction(self) -> str:
+        """has_drink=True일 때 /palm_direction 메시지를 딱 한 번 기다린다."""
+        received = threading.Event()
+        direction_holder = ['left']
+
+        def _one_shot(msg: String):
+            if received.is_set():
+                return
+            val = msg.data.strip().lower()
+            if val in ('left', 'right'):
+                direction_holder[0] = val
+            else:
+                self.get_logger().warn(
+                    f'Invalid palm_direction: "{msg.data}". Use "left" or "right". Defaulting to left.'
+                )
+            received.set()
+
+        self.get_logger().info(
+            f'has_drink=True: waiting for /palm_direction message '
+            f'(timeout {_PALM_DIRECTION_TIMEOUT_S}s)...'
+        )
+        sub = self.create_subscription(String, _PALM_DIRECTION_TOPIC, _one_shot, 1)
+        timed_out = not received.wait(timeout=_PALM_DIRECTION_TIMEOUT_S)
+        self.destroy_subscription(sub)
+
+        if timed_out:
+            self.get_logger().warn(
+                'palm_direction timeout — defaulting to "left" (blue marker).'
+            )
+        else:
+            self.get_logger().info(f'palm_direction received: {direction_holder[0]}')
+
+        return direction_holder[0]
 
     def destroy_node(self):
         self._orchestrator.close()
@@ -115,11 +157,20 @@ class ActServingActionServer(Node):
         feedback = Serve.Feedback()
         self.publish_feedback(goal_handle, feedback, 'Serve in progress')
 
+        if has_drink:
+            self.publish_feedback(goal_handle, feedback, 'Waiting for palm direction...')
+            self._trigger_pub.publish(Empty())
+            self.get_logger().info('palm_detect_trigger 발행 → palm_side_publisher 감지 시작')
+            direction = self._wait_for_palm_direction()
+        else:
+            direction = 'left'
+
         try:
             outcome = self._orchestrator.run_serve(
                 top_cam_path=top_cam,
                 wrist_cam_path=wrist_cam,
                 has_drink=has_drink,
+                direction=direction,
                 feedback_cb=lambda status: self.publish_feedback(goal_handle, feedback, status),
                 cancel_cb=lambda: goal_handle.is_cancel_requested,
             )

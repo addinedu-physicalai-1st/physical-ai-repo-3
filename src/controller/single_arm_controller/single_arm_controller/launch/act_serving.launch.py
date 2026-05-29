@@ -55,4 +55,13 @@ def generate_launch_description():
                 'vlm_host':         ParameterValue(LaunchConfiguration('vlm_host'),         value_type=str),
             }],
         ),
+        Node(
+            package='single_arm_controller',
+            executable='palm_direction_publisher',
+            name='palm_direction_publisher',
+            output='screen',
+            parameters=[{
+                'config_path': ParameterValue(LaunchConfiguration('config_path'), value_type=str),
+            }],
+        ),
     ])
