@@ -1,0 +1,28 @@
+<?xml version='1.0'?>
+<!--
+  moca_navigation/launch/twist_mux_sim.launch.xml
+  목적: Gazebo 시뮬 전용 twist_mux. Nav2 /bt/cmd_vel -> /cmd_vel (Gazebo 구독) 연결.
+  배경: 시뮬엔 실물 RPi bringup 의 twist_mux 가 없어 cmd_vel chain 이 끊김.
+        controller -> nav2_velocity_smoother -> /bt/cmd_vel 까지만 가고 /cmd_vel
+        로 넘어가는 다리가 비어 로봇이 안 움직임. 이 launch 가 그 다리를 이음.
+  A 안: 출력을 /cmd_vel 로 직결 (실물의 velocity_smoother + collision_monitor
+        2단은 시뮬에서 생략. 주행 알고리즘 검증엔 충분).
+
+  ★ 시뮬 전용. 실물(RPi bringup)에는 이미 twist_mux 가 있으므로 이 launch 를
+    실물에서 띄우면 노드 이름 중복. CLAUDE.md §11.1 (실물 측 노드 재기동 금지) 준수
+    위해 본 launch 는 run_nav2_sim.sh (시뮬 경로)에서만 호출.
+
+  단독 기동:
+    ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1 ros2 launch moca_navigation twist_mux_sim.launch.xml
+-->
+<launch>
+    <arg name="config" default="$(find-pkg-share moca_navigation)/params/twist_mux_sim.yaml"/>
+
+    <!-- Phase A(시뮬): cmd_vel 우선순위 mux
+         입력  /joy/cmd_vel(100) /bt/cmd_vel(80) /follow/cmd_vel(50)
+         출력  /cmd_vel  (Gazebo ros_gz_bridge 구독 토픽) -->
+    <node pkg="twist_mux" exec="twist_mux" name="twist_mux" output="screen">
+        <param from="$(var config)"/>
+        <remap from="cmd_vel_out" to="cmd_vel"/>
+    </node>
+</launch>
