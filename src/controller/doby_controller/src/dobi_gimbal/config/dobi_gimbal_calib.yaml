@@ -1,0 +1,45 @@
+# dobi_gimbal calibration -- physical pan/tilt gimbal truth.
+#
+# effective_cmd_deg = desired_deg * sign + offset, then clamped to [min_deg, max_deg].
+# All *_deg values are ABSOLUTE servo degrees. Both axes are 270deg MG995 servos
+# (500..2500us full range).
+#
+# Hardware:
+#   Pan  : MG995 270deg on Arduino D9.  front = 150 (horn re-mounted +
+#          re-calibrated 2026-05-30), left = toward 320, right = toward 90,
+#          home 150, safe 90..320 (re-mount gives ~170deg of left travel).
+#   Tilt : MG995 270deg on Arduino D10. horn re-mounted + re-calibrated 2026-05-30.
+#          horizontal (level) = 115, home 115, down toward -45, up toward 240,
+#          safe -45..240.
+#
+# Meaning of "desired" (JointState position, radians):
+#   pan  : 0 = front, positive = LEFT (CCW), matching follow controller (+w = CCW).
+#   tilt : 0 = front, positive = DOWN (toward floor/table).
+#
+# NOTE: a one-time live calibration is still recommended (command a known desired,
+# read the servo_state echo, adjust offset/sign/scale). Dock-specific named poses
+# (pan_left_dock, tilt_down_dock) are deferred to a later phase.
+pan:
+  sign: 1
+  offset: 150.0
+  scale: 1.0
+  min_deg: 90.0
+  max_deg: 320.0
+  home_deg: 150.0
+tilt:
+  sign: -1
+  offset: 115.0
+  scale: 1.0
+  min_deg: -45.0
+  max_deg: 240.0
+  home_deg: 115.0
+
+# Named poses -- desired (JointState position, radians). 0,0 = home (front + level).
+# Live-calibrated 2026-05-30 for the left-side table docking feature.
+named_poses:
+  home:
+    pan: 0.0          # eff 150 (front)
+    tilt: 0.0         # eff 115 (level)
+  dock:
+    pan: 2.2514747    # 129 deg left  -> eff 279
+    tilt: 2.0071286   # 115 deg down  -> eff 0
