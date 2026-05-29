@@ -18,7 +18,7 @@ control:
 # 0이면 무제한 (홈 포지션 감지 또는 수동 취소로 종료)
 task:
   serve_duration_s:   30.0
-  pickup_duration_s:  15.0
+  pickup_duration_s:  30.0
 
 # ── Shared Memory 레이아웃 ──────────────────────────────────────────────────
 # act_serving_orchestrator.py와 act_policy_server.py가 반드시 동일한 값을 사용해야 한다.
@@ -69,7 +69,7 @@ home:
 # enabled: false이면 홈 포지션 감지만으로 완료 판단 (VLM 없이).
 vlm:
   enabled:   true
-  host:      http://localhost:11434   # Ollama 서버
+  host:      http://192.168.0.133:11434   # Ollama 서버
   model:     qwen3-vl:4b
   timeout_s: 30.0
   # 태스크마다 프롬프트를 바꿔서 완료 조건을 정의한다.
@@ -79,4 +79,4 @@ vlm:
     Answer with only "true" or "false".
   pickup_prompt: >-
     In the image, has the object been picked up and is no longer in the
-    pick-up area? Answer with only "true" or "false".
+    white zone on the right side? Answer with only "true" or "false".

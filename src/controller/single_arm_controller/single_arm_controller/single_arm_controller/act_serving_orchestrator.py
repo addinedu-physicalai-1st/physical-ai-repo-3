@@ -638,6 +638,13 @@ class ActServingOrchestrator:
                         home_since = time.time()
                         self._logger.info('Home position entered.')
                     elif time.time() - home_since >= home_dwell_s:
+                        if time.time() - start_time < 5.0:
+                            self._logger.info(
+                                'Home reached but (now - infer_start) < 5s'
+                                'Skipping VLM check.'
+                            )
+                            home_since = None
+                            continue
                         vlm_config = config.get('vlm', {})
                         vlm_enabled = bool(vlm_config.get('enabled', False))
                         use_vlm = vlm_enabled and bool(vlm_prompt)

@@ -1,4 +1,7 @@
+import json
 import logging
+import urllib.request
+import urllib.error
 from typing import Any, Callable
 
 from app.in_memory.workflow_inmemory_state import ManufactureOrderItem
@@ -81,11 +84,23 @@ class DDoobyActionManufacturePort:
 
 
 class DobyModeServingPort:
-    def __init__(self, doby_runtime: Any, logger: logging.Logger) -> None:
+    def __init__(
+        self,
+        doby_runtime: Any,
+        logger: logging.Logger,
+        opserver_url: str = "http://localhost:8800",
+    ) -> None:
         self.doby_runtime = doby_runtime
         self.logger = logger
+        self.opserver_url = opserver_url.rstrip("/")
 
-    def start_serving(self, command_id: str, order_id: int, table_number: int | None) -> bool:
+    def start_serving(
+        self,
+        command_id: str,
+        order_id: int,
+        table_number: int | None,
+        order_items: list[ManufactureOrderItem] | None = None,
+    ) -> bool:
         waypoint = self._table_number_to_waypoint(table_number)
         if waypoint is None:
             self.logger.warning(
@@ -96,23 +111,60 @@ class DobyModeServingPort:
             )
             return False
 
-        params = {
-            "waypoint": waypoint,
-            "via_pickup": True,
-            "command_id": command_id,
-            "order_id": order_id,
-        }
-        result = self.doby_runtime.request_mode_change(
-            "serving",
-            params,
+        has_drink = any(
+            item.product_type == 'DRINK' for item in (order_items or [])
         )
-        ok = bool(result.get("ok"))
-        if not ok:
+        payload = {
+            "event_id": f"serving:{command_id}",
+            "drink_id": command_id,
+            "order_id": str(order_id),
+            "target_table": waypoint,
+            "via_pickup": True,
+            "has_drink": has_drink,
+        }
+        body = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            f"{self.opserver_url}/api/v1/pickup",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                data = json.loads(resp.read())
+            ok = data.get("status") == "ok"
+        except urllib.error.HTTPError as e:
             self.logger.warning(
-                "doby serving start request failed command_id=%s order_id=%s result=%s",
+                "doby serving start request http error command_id=%s order_id=%s status=%s",
                 command_id,
                 order_id,
-                result,
+                e.code,
+            )
+            ok = False
+        except Exception as e:
+            self.logger.warning(
+                "doby serving start request failed command_id=%s order_id=%s error=%s",
+                command_id,
+                order_id,
+                e,
+            )
+            ok = False
+
+        if not ok:
+            self.logger.warning(
+                "doby serving start request failed command_id=%s order_id=%s has_drink=%s",
+                command_id,
+                order_id,
+                has_drink,
+            )
+        else:
+            self.logger.info(
+                "doby serving start request accepted command_id=%s order_id=%s "
+                "waypoint=%s has_drink=%s",
+                command_id,
+                order_id,
+                waypoint,
+                has_drink,
             )
         return ok
 

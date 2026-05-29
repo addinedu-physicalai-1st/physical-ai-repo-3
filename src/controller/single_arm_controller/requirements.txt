@@ -1,0 +1,98 @@
+# OMX 로봇 + ACT / SmolVLA 추론에 필요한 Python 패키지
+#
+# 설치 방법:
+#   pip install -r requirements.txt
+#
+# ⚠️  lerobot 자체는 이 파일로 설치하지 않는다.
+#     /home/jr/ws/lerobot 에서 `uv sync --locked` 로 설치한 venv를 사용하며,
+#     model_worker.py / act_worker.py 는 그 venv의 Python으로 실행된다.
+#
+#     serving.py / waiter.py (ROS2 노드)는 ROS2 환경 Python에서 실행되며
+#     아래 패키지들이 그 환경에 필요하다.
+#
+# 분류:
+#   [robot]  로봇 제어 (serving.py / waiter.py 공통)
+#   [smolvla] SmolVLA 추론 워커 (model_worker.py)
+#   [act]    ACT 추론 워커 (act_worker.py)
+#   [common] 양쪽 워커 공통
+
+# ── [robot] ROS2 노드 (serving.py / waiter.py) ────────────────────────────────
+# ROS2 관련 패키지(rclpy, single_arm_controller_interfaces)는 colcon으로 설치됨.
+
+# 카메라 프레임 처리 (비동기 캡처 스레드 포함)
+opencv-python>=4.9.0,<4.14.0
+
+# 로봇 모터 제어 (Dynamixel SDK)
+dynamixel-sdk>=3.8.4
+
+# HTTP 요청 (VLM 완료 판단 — Ollama API)
+requests>=2.32.0,<3.0.0
+
+# YAML 설정 파일 로드 (waiter.py / waiter_config.yaml)
+pyyaml>=6.0.0
+
+# NumPy (shared memory 배열 조작)
+numpy>=2.0.0,<2.3.0
+
+
+# ── [common] 추론 워커 공통 (model_worker.py / act_worker.py) ────────────────
+# 아래는 lerobot venv 내에서 이미 설치되어 있어야 한다.
+# 별도 환경에 워커를 실행할 경우 직접 설치 필요.
+
+# PyTorch (GPU 추론)
+# CUDA 버전에 맞는 wheel 사용:
+#   pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu124
+torch>=2.7.0,<2.13.0
+torchvision>=0.22.0,<0.28.0
+
+# 모델 직렬화
+safetensors>=0.4.3,<1.0.0
+
+# HuggingFace Hub (모델 다운로드 / 로딩)
+huggingface-hub>=1.0.0,<2.0.0
+
+# lerobot (핵심 패키지 — 반드시 개발 모드로 설치)
+# pip install -e /home/jr/ws/lerobot
+# 또는
+# cd /home/jr/ws/lerobot && uv sync --locked
+# lerobot 자체를 이 파일로 설치하지 않는 이유:
+#   uv.lock 기반 정확한 버전 고정이 필요하기 때문.
+
+
+# ── [smolvla] SmolVLA 추론 워커 (model_worker.py) ────────────────────────────
+# SmolVLA = lerobot[smolvla] extra에 해당
+#   pip install -e "/home/jr/ws/lerobot[smolvla]"
+
+# VLM backbone 지원 (SmolVLM)
+transformers>=5.4.0,<5.6.0
+
+# 텍스트 토크나이저
+tokenizers>=0.21.0
+
+# 숫자 → 단어 변환 (SmolVLA task 텍스트 전처리)
+num2words>=0.5.14,<0.6.0
+
+# 분산 학습 / 추론 지원
+accelerate>=1.7.0,<2.0.0
+
+# 어텐션 최적화 (선택, Linux + CUDA 환경):
+# flash-attn>=2.5.9,<3.0.0
+
+
+# ── [act] ACT 추론 워커 (act_worker.py) ──────────────────────────────────────
+# ACT = lerobot 기본 의존성에 포함 (별도 extra 없음)
+
+# 텐서 차원 연산 (ACT backbone)
+einops>=0.8.0,<0.9.0
+
+# YAML 설정 파일 로드 (act_worker.py --config-path)
+# pyyaml: [robot] 섹션에 이미 포함
+
+
+# ── 선택 패키지 ──────────────────────────────────────────────────────────────
+
+# Intel RealSense (serving.py 구버전 top 카메라 — 현재는 OpenCV로 대체됨)
+# pyrealsense2>=2.55.0
+
+# Pillow (이미지 처리 유틸리티)
+Pillow>=10.0.0,<13.0.0

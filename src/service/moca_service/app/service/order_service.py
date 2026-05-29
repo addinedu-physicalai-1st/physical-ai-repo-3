@@ -308,6 +308,7 @@ class OrderService:
                         ManufactureOrderItem(
                             product_id=int(item.product_id),
                             product_name=str(item.product_name),
+                            product_type=str(item.product_type),
                             selected_options=list(item.selected_options),
                             quantity=int(item.quantity),
                             unit_price=int(item.unit_price),

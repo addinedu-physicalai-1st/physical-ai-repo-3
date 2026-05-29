@@ -158,7 +158,10 @@ class CompletionWatcher:
             self._trigger_idle(completed_mode)
 
         try:
-            self.node.send_arm_serve_goal(_after_arm)
+            self.node.send_arm_serve_goal(
+                _after_arm,
+                has_drink=self.node._current_serving_has_drink,
+            )
         except Exception as e:
             self.node.get_logger().error(
                 f'[arm] goal send 실패: {e} — idle 전환')

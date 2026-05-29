@@ -295,14 +295,13 @@ def build_fastapi_app(opserver) -> FastAPI:
                 'preempted': False,
             })
 
-        # idle 또는 patrol/engaging → SetMode("serving") 시도 (priority 선점 가능)
-        # ★ orchestrator 성공 시 mode_manager 가 entry 를 추적 (params.waypoint) — 큐 등록 불필요.
-        #   성공 시 등록하면 serving 완료 후 _drain_serving_queue 가 같은 entry 로 재트리거 (중복 배달).
-        #   실패 시에만 큐 등록 — 추후 idle 진입 시 drain 이 처리.
-        result = opserver.orchestrator.request_mode_change(
-            target_mode='serving',
-            params={'waypoint': req.target_table, 'via_pickup': req.via_pickup},
+        # idle 또는 patrol/engaging → serving 시작 (via_pickup=True 이면 pickup 선행)
+        # ★ 성공 시 큐 등록 불필요 — 실패 시에만 큐 등록하여 drain 이 재시도.
+        result = opserver.start_serving_with_pickup(
+            waypoint=req.target_table,
+            via_pickup=req.via_pickup,
             trigger_source='openarm',
+            has_drink=req.has_drink,
             override_priority=False,
         )
 
