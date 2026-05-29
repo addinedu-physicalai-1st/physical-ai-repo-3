@@ -39,6 +39,38 @@ def bh_to_linear(bh: float, target_bh: float, kp: float, max_v: float,
     return max(0.0, min(max_v, v))
 
 
+def dist_to_linear(scan_dist, target_dist: float, kp: float,
+                   max_v: float, deadband: float) -> float:
+    """라이다 전방거리 → 전진속도. 후진 절대 금지(목표보다 가까우면 0).
+    scan_dist None/<=0(무효) 면 0. err=scan_dist-target (>0: 멀다→전진)."""
+    if scan_dist is None or scan_dist <= 0.0:
+        return 0.0
+    err = scan_dist - target_dist
+    if err < deadband:
+        return 0.0
+    return max(0.0, min(max_v, kp * err))
+
+
+def front_min_range(ranges, angle_min: float, angle_inc: float,
+                    forward_rad: float, half_rad: float,
+                    rmin: float, rmax: float):
+    """로봇 정면(forward_rad, 라이다프레임) ±half_rad 섹터의 유효 최근접 거리.
+    각도차로 판정해 ±π 랩어라운드 안전. inf/nan/[rmin,rmax] 밖 제외(섀시반사·미반사)."""
+    if not ranges or angle_inc == 0.0:
+        return None
+    best = None
+    for i, r in enumerate(ranges):
+        if r is None or math.isinf(r) or math.isnan(r):
+            continue
+        if r < rmin or r > rmax:
+            continue
+        a = angle_min + i * angle_inc
+        d = math.atan2(math.sin(a - forward_rad), math.cos(a - forward_rad))
+        if abs(d) <= half_rad and (best is None or r < best):
+            best = r
+    return best
+
+
 def yaw_from_quat(x: float, y: float, z: float, w: float) -> float:
     """쿼터니언 → yaw(rad)."""
     siny_cosp = 2.0 * (w * z + x * y)
@@ -89,10 +121,11 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import (QoSProfile, QoSDurabilityPolicy,
-                       QoSReliabilityPolicy, QoSHistoryPolicy)
+                       QoSReliabilityPolicy, QoSHistoryPolicy,
+                       qos_profile_sensor_data)
 
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import JointState, LaserScan
 from std_msgs.msg import String, Bool
 from nav_msgs.msg import Odometry
 from dobi_npc_msgs.msg import PersonTrackArray
@@ -125,6 +158,16 @@ class ScoutFollowController(Node):
         self.declare_parameter('rate_hz', 20.0)
         self.declare_parameter('cmd_topic', '/follow/cmd_vel')
         self.declare_parameter('servo_cmd_topic', '/scout_cam/cmd_pan_tilt')
+        # 거리 제어 소스: 'scan'(라이다 전방거리) | 'bbox'(bbox 높이, 근접 포화 한계)
+        self.declare_parameter('distance_source', 'scan')
+        self.declare_parameter('scan_topic', '/scan_filtered')
+        self.declare_parameter('target_dist', 1.5)      # 유지 거리 [m]
+        self.declare_parameter('kp_dist', 0.6)
+        self.declare_parameter('dist_deadband', 0.1)    # ±0.1m 는 정지
+        self.declare_parameter('scan_forward_deg', 0.0)  # 로봇 정면에 해당하는 라이다 각(장착 오프셋)
+        self.declare_parameter('scan_front_deg', 20.0)  # 전방 섹터 반각
+        self.declare_parameter('scan_min_range', 0.25)  # 섀시 자기반사 마스킹
+        self.declare_parameter('scan_range_max_follow', 5.0)  # 이보다 멀면 타깃 아님
 
         g = self.get_parameter
         self.W = int(g('image_width').value)
@@ -146,6 +189,15 @@ class ScoutFollowController(Node):
         self.handoff_sign = int(g('handoff_sign').value)
         self.lost_dwell = float(g('lost_dwell_sec').value)
         rate = float(g('rate_hz').value)
+        self.distance_source = str(g('distance_source').value)
+        self.target_dist = float(g('target_dist').value)
+        self.kp_dist = float(g('kp_dist').value)
+        self.dist_deadband = float(g('dist_deadband').value)
+        self.scan_forward_deg = float(g('scan_forward_deg').value)
+        self.scan_front_deg = float(g('scan_front_deg').value)
+        self.scan_min_range = float(g('scan_min_range').value)
+        self.scan_range_max_follow = float(g('scan_range_max_follow').value)
+        self.scan_dist = None
 
         self.state = 'SEARCH'
         self.call_state = 'searching'
@@ -173,11 +225,16 @@ class ScoutFollowController(Node):
         self.create_subscription(String, '/call/event', self._on_call_event, 10)
         self.create_subscription(Odometry, '/odom', self._on_odom, 10)
         self.create_subscription(PersonTrackArray, '/person_tracking/tracks', self._on_tracks, 10)
+        if self.distance_source == 'scan':
+            # 라이다는 best_effort 발행이 흔함 → sensor_data QoS 로 매칭
+            self.create_subscription(
+                LaserScan, g('scan_topic').value, self._on_scan, qos_profile_sensor_data)
 
         self.timer = self.create_timer(1.0 / max(1.0, rate), self._tick)
         self.get_logger().info(
             f'scout_follow_controller ready: {self.W}x{self.H} sign={self.sign:+d} '
-            f'max_v={self.max_v} max_w={self.max_w} target_bh={self.target_bh}')
+            f'max_v={self.max_v} max_w={self.max_w} dist_src={self.distance_source} '
+            f'target_dist={self.target_dist} target_bh={self.target_bh}')
 
         # 라이브 튜닝: ros2 param set 으로 게인 즉시 반영 (지그재그 비교 등)
         self._tunable = {
@@ -186,6 +243,10 @@ class ScoutFollowController(Node):
             'target_bh': 'target_bh', 'bh_stop': 'bh_stop', 'linear_deadband': 'dead_bh',
             'ema_alpha': 'alpha', 'handoff_base_w': 'handoff_w', 'handoff_sign': 'handoff_sign',
             'lost_dwell_sec': 'lost_dwell',
+            'target_dist': 'target_dist', 'kp_dist': 'kp_dist',
+            'dist_deadband': 'dist_deadband', 'scan_front_deg': 'scan_front_deg',
+            'scan_forward_deg': 'scan_forward_deg',
+            'scan_range_max_follow': 'scan_range_max_follow',
         }
         self.add_on_set_parameters_callback(self._on_set_params)
 
@@ -213,6 +274,14 @@ class ScoutFollowController(Node):
     def _on_odom(self, m: Odometry):
         q = m.pose.pose.orientation
         self.base_yaw = yaw_from_quat(q.x, q.y, q.z, q.w)
+
+    def _on_scan(self, m: LaserScan):
+        rmin = max(float(m.range_min), self.scan_min_range)
+        rmax = min(float(m.range_max), self.scan_range_max_follow)
+        self.scan_dist = front_min_range(
+            list(m.ranges), float(m.angle_min), float(m.angle_increment),
+            math.radians(self.scan_forward_deg), math.radians(self.scan_front_deg),
+            rmin, rmax)
 
     def _on_tracks(self, m: PersonTrackArray):
         out = []
@@ -303,9 +372,14 @@ class ScoutFollowController(Node):
                 self._publish_cmd(0.0, 0.0)
             else:
                 cx, cy, bw, bh_px = bbox
-                bh = bh_px / max(1.0, float(self.H))
                 w = cx_to_angular(cx, self.W, self.kp_w, self.max_w, self.dead_px, self.sign)
-                v = bh_to_linear(bh, self.target_bh, self.kp_v, self.max_v, self.bh_stop, self.dead_bh)
+                if self.distance_source == 'scan':
+                    v = dist_to_linear(self.scan_dist, self.target_dist,
+                                       self.kp_dist, self.max_v, self.dist_deadband)
+                else:
+                    bh = bh_px / max(1.0, float(self.H))
+                    v = bh_to_linear(bh, self.target_bh, self.kp_v,
+                                     self.max_v, self.bh_stop, self.dead_bh)
                 self._publish_cmd(v, w)
         elif new == 'LOST':
             self._publish_cmd(0.0, 0.0)

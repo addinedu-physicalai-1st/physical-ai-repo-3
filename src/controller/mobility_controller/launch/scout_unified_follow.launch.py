@@ -56,14 +56,23 @@ def generate_launch_description():
             'image_width': 640,
             'image_height': 480,
             'angular_sign': LaunchConfiguration('angular_sign'),
-            'max_linear': 0.22,           # 직진 속도↑
-            'kp_linear': 1.3,             # 좁은 bh 범위에서 전진 반응↑
-            'max_angular': 0.3,           # 회전 속도↓ (지그재그 완화)
+            'max_linear': 0.243,          # 직진 속도 (라이브 +10% 튜닝: 0.22→0.231→0.243)
+            'kp_linear': 1.3,             # 좁은 bh 범위에서 전진 반응↑ (bbox 폴백용)
+            'max_angular': 0.331,         # 회전 속도 (라이브 +10% 튜닝: 0.3→0.315→0.331)
             'kp_angular': 0.25,           # 회전 게인↓
             'angular_deadband_px': 60.0,  # 중앙 ±60px 는 회전 안 함 → 직진 유지
             'ema_alpha': 0.35,            # 스무딩↑ (cx jitter 완화)
-            'target_bh': 0.85,   # ≈2.4m 유지 (scout 세로FOV 실측: 2m=bh1.0, 3m=bh0.77)
-            'bh_stop': 0.95,     # bh≥0.95(≈2m 미만) = 너무 가까움 → 전진 0
+            # 거리 제어 = 라이다 전방거리 (bbox 높이는 근접 2m서 포화 → 1.5m 불가)
+            'distance_source': 'scan',
+            'scan_topic': '/scan_filtered',
+            'target_dist': 1.5,          # 유지 거리 [m]
+            'kp_dist': 0.6,
+            'dist_deadband': 0.1,        # ±0.1m 정지대
+            'scan_forward_deg': 180.0,   # 라이다 ~180° 회전 장착 → 로봇 정면=라이다 180°(실측)
+            'scan_front_deg': 30.0,      # 정면 ±30° 섹터 최근접
+            'scan_range_max_follow': 5.0,  # 5m 초과는 타깃 아님
+            'target_bh': 0.85,   # (bbox 폴백용) scout 세로FOV: 2m=bh1.0, 3m=bh0.77
+            'bh_stop': 0.95,
             'handoff_base_w': 0.0,       # 핸드오프 base 회전 제거(반대회전 방지) — FOLLOW cx 제어가 회전 담당
             'handoff_timeout_sec': 0.5,  # 핸드오프 즉시 통과 → FOLLOW
         }],

@@ -128,6 +128,26 @@
 - 검증: 빌드 OK, 실행체 설치 OK, launch 인자 OK, relay 기동 시 `/robot_cam/image_raw`+`/compressed` 생성 확인(벤치 DOMAIN=99).
 - 미검증: 실제 영상 흐름(scout 카메라 연결 후) + 통합 시 팀 발행과 이중 publish 회피(relay_scout_image:=false).
 
+## 10.6 거리제어 = 라이다 전방거리 전환 (1.5m 추종, 2026-05-29 저녁 실차)
+
+bbox-height 거리제어의 한계 + 해결.
+
+**문제:** scout PTZ 세로FOV 가 좁아 **bh(bbox높이)가 ~2m 이내 전부 1.0 으로 포화** → 거리 정보 소실. 실측: 사람이 3m 에 서 있어도 bbox 가 프레임 세로를 꽉 채워 bh≈0.99. → `err=target_bh−bh<0` + `bh≥bh_stop` 둘 다 전진 0 → 로봇이 "이미 가깝다" 오판하고 멀리(3m) 유지. **bh 로는 1.5m 추종 불가(포화).**
+
+**해결: 전진/거리 소스를 라이다 `/scan_filtered` 로 교체** (회전은 cx 유지).
+- 신규 순수함수 `dist_to_linear(scan_dist, target_dist, kp, max_v, deadband)` — 전진 전용(목표보다 가까우면 0, 후진 절대 금지, None/무효 0).
+- 신규 `front_min_range(ranges, angle_min, angle_inc, forward_rad, half_rad, rmin, rmax)` — 정면(forward_rad) ±half 섹터 유효 최근접. **각도차 판정 → ±π 랩어라운드 안전.**
+- 컨트롤러: `/scan_filtered`(sensor_data QoS) 구독 → `_on_scan` 가 정면섹터 최근접을 `self.scan_dist` 로. FOLLOW 에서 `distance_source=='scan'` 이면 `dist_to_linear` 사용.
+- 신규 파라미터(전부 live-tunable): `distance_source`(scan|bbox), `target_dist`(1.5), `kp_dist`(0.6), `dist_deadband`(0.1), `scan_forward_deg`, `scan_front_deg`(30), `scan_min_range`(0.25), `scan_range_max_follow`(5.0).
+
+**라이다 정면 오프셋 보정 (핵심 함정):** vicpinky 라이다는 **angle 0 가 로봇 정면이 아님** — 실측상 전체 스캔 최근접이 angle 0 엔 없고 ~180° 에 존재. **로봇 정면 = 라이다 180°.** → `scan_forward_deg=180.0` (launch). 0° 로 두면 전방섹터에 아무것도 안 잡혀 전진 영구 0.
+
+**실차 검증:** "2m 라이더 직진·회전 잘 동작" 확인. 전진-only + 정면±30° + collision_monitor 백업으로 보수적 동작.
+
+**속도 튜닝(라이브 +10%):** `max_angular` 0.3→0.315→**0.331**, `max_linear` 0.22→0.231→**0.243** (각 5%씩 2회). launch 기본값 반영.
+
+**단위테스트:** `dist_to_linear` 7 + `front_min_range` 5 신규 추가(후진금지·포워드오프셋180·섹터필터·랩어라운드).
+
 ## 11. 다음 세션 이어받기 (핸드오프) — 다음 테스트 = "scout_follower 추종 정확화"
 
 **결정된 다음 테스트:** 지그재그/full-vision 은 보류. **scout_follower 기반 추종(회전+전진 closed-loop)을 깨끗한 환경에서 정확하게 재검증** 하는 것이 최우선. (사용자 명시: "scout_follower 기반 추종부터 정확하게 수행할 수 있도록 집중.")
@@ -156,7 +176,7 @@ bash /home/gjkong/physical-ai-repo-3/src/controller/doby_controller/scripts/star
 - (b) 커밋: 브랜치 `feat/scout-unified-follow` (off origin/dev) **미커밋** — 사용자 직접 add/commit/push (커맨드만 제시).
 - (c) 대기: scout 7701→moca_opserver(8800) 대시보드 통합, 노트북캠 GEVA 감정, ReID customer_id(P0).
 
-**현재 상태 스냅샷:** 로컬 스택 전부 종료(깨끗), RPi disarm, 7701 free. 코드 5건 수정+빌드+실차검증+디버그로그 제거 완료, 26 단위테스트 통과. **DOMAIN 22 에 팀 engaging 스택 잔존(제3 머신).**
+**현재 상태 스냅샷 (저녁 갱신):** 팀 스택은 팀원 PC 재시작으로 정리됨, DOMAIN 22 깨끗. **scout follow 라이브 가동 중**(RPi bringup 클린 재기동 후 베이스 구동부 정상 — 처음엔 반쪽 bringup 으로 휠드라이버 미가동이라 안 움직였음, stop_vic_bringup→run_vic_bringup 로 해결). **회전 + 라이다 기반 1.5m 거리추종 실차 동작 확인**("2m 직진·회전 잘 동작"). 토픽 일원화(relay→/robot_cam/image_raw), 라이다 정면=180° 보정, 속도 +10%(0.331/0.243) 적용. 단위테스트 38(기존26+신규12). 테스트 일시정지(e-stop + 배터리 충전 중). 코드 변경 미커밋(6a25054 이후 scan 거리제어분).
 
 ---
 
