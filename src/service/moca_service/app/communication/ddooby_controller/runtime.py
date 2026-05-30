@@ -135,6 +135,13 @@ class DDoobyControllerRosRuntime:
             message.count = int(item["count"])
             goal.items.append(message)
 
+        self.logger.info(
+            "ddooby manufacture request action=%s command_id=%s order_id=%s items=%s",
+            self.action_name,
+            command_id,
+            order_id,
+            items,
+        )
         goal_future = self._action_client.send_goal_async(
             goal,
             feedback_callback=self._on_feedback,
@@ -178,9 +185,10 @@ class DDoobyControllerRosRuntime:
         status = getattr(feedback, "status", "")
         if status:
             self.logger.info(
-                "ddooby manufacture feedback action=%s status=%s",
+                "ddooby manufacture feedback action=%s status=%s feedback=%s",
                 self.action_name,
                 status,
+                feedback,
             )
 
     def _on_result(
@@ -205,18 +213,20 @@ class DDoobyControllerRosRuntime:
 
         if not bool(result.success):
             self.logger.warning(
-                "ddooby manufacture result rejected command_id=%s order_id=%s message=%s",
+                "ddooby manufacture result rejected command_id=%s order_id=%s message=%s result=%s",
                 command_id,
                 order_id,
                 result.message,
+                result,
             )
             return
 
         self.logger.info(
-            "ddooby manufacture result succeeded command_id=%s order_id=%s message=%s",
+            "ddooby manufacture result succeeded command_id=%s order_id=%s message=%s result=%s",
             command_id,
             order_id,
             result.message,
+            result,
         )
         if on_completed is not None:
             on_completed(order_id, command_id)

@@ -135,7 +135,7 @@ class AdminGuiCommunicationRuntime:
     def _handle_publish(self, frame: AdminGuiFrame, peer: tuple[str, int]) -> None:
         handler = self._publish_handlers.get((frame.topic, frame.event))
         if handler is None:
-            self.logger.info("no admin_gui publish handler topic=%s event=%s", frame.topic, frame.event)
+            self.logger.debug("no admin_gui publish handler topic=%s event=%s", frame.topic, frame.event)
             return
         handler(frame, peer)
 
@@ -156,7 +156,7 @@ class AdminGuiCommunicationRuntime:
         with self._lock:
             pending = self._pending.pop(frame.correlation_id, None)
         if pending is None:
-            self.logger.info("no pending admin_gui request correlation_id=%s", frame.correlation_id)
+            self.logger.debug("no pending admin_gui request correlation_id=%s", frame.correlation_id)
             return
         if frame.kind == KIND_ERROR:
             pending.error = frame.payload.decode("utf-8", errors="replace") or "admin_gui request failed"
