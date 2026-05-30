@@ -103,25 +103,22 @@ class ServiceManagementPage(QWidget):
                 status = table.get('status', 'empty')
                 order_id = table.get('active_order_id')
                 detail = f"주문 #{order_id}" if order_id else ('대기 가능' if status == 'empty' else '사용 중')
-                pos_x = table.get('pos_x', '0.000')
-                pos_y = table.get('pos_y', '0.000')
             else:
-                number, status, detail, pos_x, pos_y = table
-            self.table_grid.addWidget(self._table_card(number, status, detail, pos_x, pos_y), i // 4, i % 4)
+                number, status, detail = table
+            self.table_grid.addWidget(self._table_card(number, status, detail), i // 4, i % 4)
 
-    def _table_card(self, number, status, detail, pos_x, pos_y):
+    def _table_card(self, number, status, detail):
         color = ORANGE if status == 'occupied' else SUCCESS
         label = '사용 중' if status == 'occupied' else '비어 있음'
 
         card, lay = card_frame()
-        card.setMinimumSize(160, 130)
+        card.setMinimumSize(160, 112)
         top = QHBoxLayout()
         top.addWidget(mklbl(f'{number}번 테이블', 15, True))
         top.addStretch()
         top.addWidget(mkbadge(label, color))
         lay.addLayout(top)
         lay.addWidget(mklbl(detail, color=TEXT2))
-        lay.addWidget(mklbl(f'좌표 ({pos_x}, {pos_y})', 11, color=TEXT3))
         return card
 
     def _clear_table_grid(self):

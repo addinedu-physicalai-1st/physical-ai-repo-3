@@ -23,6 +23,7 @@ from app.communication.admin_gui.runtime import AdminGuiCommunicationRuntime
 from app.service.menu_service import MenuService
 from app.service.order_service import OrderService
 from app.service.map_service import MapService
+from app.service.table_service import TableService
 
 
 class AdminGuiMonitorPublisher:
@@ -31,6 +32,7 @@ class AdminGuiMonitorPublisher:
         runtime: AdminGuiCommunicationRuntime,
         menu_service: MenuService,
         order_service: OrderService,
+        table_service: TableService,
         logger,
         doby_runtime: AdminGuiDobyRosRuntime | None = None,
         map_service: MapService | None = None,
@@ -40,6 +42,7 @@ class AdminGuiMonitorPublisher:
         self.runtime = runtime
         self.menu_service = menu_service
         self.order_service = order_service
+        self.table_service = table_service
         self.doby_runtime = doby_runtime
         self.map_service = map_service
         self.logger = logger
@@ -181,7 +184,7 @@ class AdminGuiMonitorPublisher:
             self._last_orders = payload
 
     def _publish_tables(self) -> None:
-        payload = _json_payload(_table_snapshot(self.order_service.get_table_assignment()))
+        payload = _json_payload(_table_snapshot(self.table_service.get_tables()))
         self.runtime.publish_payload(TOPIC_TABLES, EVENT_SNAPSHOT, payload)
 
     def _publish_changed_maps(self) -> None:
@@ -258,9 +261,7 @@ def _table_snapshot(tables) -> list[dict[str, Any]]:
         {
             "table_id": table.table_id,
             "table_number": table.table_number,
-            "pos_x": table.pos_x,
-            "pos_y": table.pos_y,
-            "status": table.status,
+            "status": getattr(table, "status", "empty"),
         }
         for table in tables
     ]
