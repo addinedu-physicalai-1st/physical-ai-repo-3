@@ -24,14 +24,19 @@
   }
 
   html, body {
-    height: 100vh;
+    height: 100%;
     min-height: 100vh;
     background: #111;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     font-family: 'Noto Sans KR', sans-serif;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body {
+    padding: 20px 0;
   }
 
   #kiosk {
@@ -42,6 +47,8 @@
     overflow: hidden;
     border-radius: 24px;
     box-shadow: 0 0 80px rgba(232,168,76,0.15), 0 40px 120px rgba(0,0,0,0.8);
+    transform-origin: top center;
+    flex-shrink: 0;
   }
 
   .screen {
@@ -674,6 +681,26 @@
 </div><!-- #kiosk -->
 
 <script>
+// ─── RESPONSIVE SCALE ───────────────────────────────
+const KIOSK_W = 480;
+const KIOSK_H = 900;
+
+function scaleKiosk() {
+  const kiosk = document.getElementById('kiosk');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const padding = 40; // body padding 20px * 2
+  const scaleX = vw / KIOSK_W;
+  const scaleY = (vh - padding) / KIOSK_H;
+  const scale = Math.min(scaleX, scaleY, 1); // 1보다 크면 원본 유지
+  kiosk.style.transform = scale < 1 ? `scale(${scale.toFixed(4)})` : '';
+  // 스케일 축소 시 실제 점유 높이를 맞춰줌
+  kiosk.style.marginBottom = scale < 1 ? `${(KIOSK_H * scale - KIOSK_H)}px` : '';
+}
+
+window.addEventListener('resize', scaleKiosk);
+window.addEventListener('load', scaleKiosk);
+
 // ─── DATA (백엔드에서 fetch) ──────────────────────────
 let MENU = [];
 let ALLERGY_INFO = [];

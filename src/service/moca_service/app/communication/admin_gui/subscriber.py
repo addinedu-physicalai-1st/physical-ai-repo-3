@@ -74,7 +74,7 @@ class _TcpRequestHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         server: _ThreadingTcpServer = self.server
         peer = self.client_address
-        server.logger.info("%s client connected: %s", server.name, peer)
+        server.logger.debug("%s client connected: %s", server.name, peer)
         try:
             while True:
                 raw = self._read_exact(FRAME_SIZE)
@@ -87,7 +87,7 @@ class _TcpRequestHandler(socketserver.BaseRequestHandler):
                     continue
                 server.frame_handler(frame, peer)
         finally:
-            server.logger.info("%s client disconnected: %s", server.name, peer)
+            server.logger.debug("%s client disconnected: %s", server.name, peer)
 
     def _read_exact(self, size: int) -> bytes | None:
         server: _ThreadingTcpServer = self.server

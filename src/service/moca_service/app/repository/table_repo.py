@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
-from pymysql.connections import Connection
+if TYPE_CHECKING:
+    from pymysql.connections import Connection
 
 
 @dataclass(frozen=True)
@@ -14,7 +16,7 @@ class StoreTableRow:
 
 
 class TableRepository:
-    def list_all(self, conn: Connection) -> list[StoreTableRow]:
+    def list_all(self, conn: "Connection") -> list[StoreTableRow]:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -25,7 +27,7 @@ class TableRepository:
             )
             return [self._to_row(row) for row in cursor.fetchall()]
 
-    def get(self, conn: Connection, table_id: int) -> StoreTableRow | None:
+    def get(self, conn: "Connection", table_id: int) -> StoreTableRow | None:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -38,7 +40,7 @@ class TableRepository:
             row = cursor.fetchone()
             return self._to_row(row) if row is not None else None
 
-    def list_by_map_id(self, conn: Connection, map_id: int) -> list[StoreTableRow]:
+    def list_by_map_id(self, conn: "Connection", map_id: int) -> list[StoreTableRow]:
         with conn.cursor() as cursor:
             cursor.execute(
                 """

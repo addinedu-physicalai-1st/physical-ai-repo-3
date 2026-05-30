@@ -7,11 +7,13 @@ from tcp import create_admin_gui_communication_runtime
 from tcp.protocol import (
     ChunkAssembler,
     EVENT_EMERGENCY_STOP,
+    EVENT_APPLY_MAP,
     EVENT_SET_MODE,
     EVENT_SNAPSHOT,
     EVENT_START,
     EVENT_STOP,
     TOPIC_DOBY_CONTROLLER,
+    TOPIC_MAPS,
     TOPIC_MONITOR,
     TOPIC_ORDERS,
     TOPIC_PRODUCTS,
@@ -24,8 +26,10 @@ class AdminGuiRealtimeBridge(QObject):
     products_updated = pyqtSignal(list)
     orders_updated = pyqtSignal(list)
     tables_updated = pyqtSignal(list)
+    maps_updated = pyqtSignal(dict)
     doby_updated = pyqtSignal(dict)
     doby_control_result = pyqtSignal(dict)
+    map_apply_result = pyqtSignal(dict)
     error = pyqtSignal(str)
 
     def __init__(self, config: AdminGuiConfig | None = None, logger: logging.Logger | None = None):
@@ -45,6 +49,7 @@ class AdminGuiRealtimeBridge(QObject):
         self._runtime.subscribe(TOPIC_PRODUCTS, EVENT_SNAPSHOT, self._handle_snapshot)
         self._runtime.subscribe(TOPIC_ORDERS, EVENT_SNAPSHOT, self._handle_snapshot)
         self._runtime.subscribe(TOPIC_TABLES, EVENT_SNAPSHOT, self._handle_snapshot)
+        self._runtime.subscribe(TOPIC_MAPS, EVENT_SNAPSHOT, self._handle_snapshot)
         self._runtime.subscribe(TOPIC_DOBY_CONTROLLER, EVENT_SNAPSHOT, self._handle_snapshot)
 
     def start(self) -> None:
@@ -89,6 +94,30 @@ class AdminGuiRealtimeBridge(QObject):
     def request_doby_emergency_stop(self) -> None:
         self._request_doby_control(EVENT_EMERGENCY_STOP, b'{"reason":"operator"}')
 
+    def request_map_apply(self, map_id: int) -> None:
+        payload = json.dumps(
+            {"map_id": int(map_id)},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        try:
+            response = self._runtime.request(
+                TOPIC_MAPS,
+                EVENT_APPLY_MAP,
+                payload,
+                timeout=max(self.config.tcp_timeout_sec, 10.0),
+            )
+            decoded = json.loads(response.decode("utf-8")) if response else {}
+            if not isinstance(decoded, dict):
+                decoded = {"ok": False, "message": "invalid map apply response"}
+            self.map_apply_result.emit(decoded)
+            if not decoded.get("ok"):
+                self.error.emit(decoded.get("message") or decoded.get("reason") or "지도 적용 실패")
+        except Exception as exc:
+            message = f"지도 적용 요청 실패: {exc}"
+            self.logger.warning(message)
+            self.error.emit(message)
+
     def _request_doby_control(self, event: int, payload: bytes) -> None:
         try:
             response = self._runtime.request(
@@ -127,6 +156,15 @@ class AdminGuiRealtimeBridge(QObject):
                 self.error.emit(message)
                 return
             self.doby_updated.emit(decoded)
+            return
+
+        if frame.topic == TOPIC_MAPS:
+            if not isinstance(decoded, dict):
+                message = "map snapshot payload must be a JSON object"
+                self.logger.warning(message)
+                self.error.emit(message)
+                return
+            self.maps_updated.emit(decoded)
             return
 
         if not isinstance(decoded, list):

@@ -64,7 +64,7 @@ class AdminGuiPublisher:
                 self._sock = None
                 return False
 
-        self.logger.info(
+        self.logger.debug(
             "published admin_gui frame to %s kind=%s topic=%s event=%s correlation_id=%s",
             self.endpoint.name,
             frame.kind,

@@ -134,7 +134,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.stack.setStyleSheet(f"background:{BG};")
         for page in [
-            MapManagementPage(),
+            MapManagementPage(self.realtime),
             MenuPage(self.realtime),
             ServiceManagementPage(self.realtime),
             DeviceManagementPage(),

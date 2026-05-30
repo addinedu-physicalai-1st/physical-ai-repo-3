@@ -72,9 +72,10 @@ CREATE TABLE IF NOT EXISTS product_allergy (
 CREATE TABLE IF NOT EXISTS map (
     map_id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(64) NOT NULL,
-    width DECIMAL(10, 3) NOT NULL,
-    height DECIMAL(10, 3) NOT NULL,
-    address DECIMAL(10, 3) NOT NULL
+    image_blob MEDIUMBLOB NULL,
+    image_format VARCHAR(16) NOT NULL DEFAULT 'pgm',
+    yaml_config JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS store_table (
@@ -101,13 +102,26 @@ CREATE TABLE IF NOT EXISTS workspace (
         ON UPDATE CASCADE
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-INSERT INTO map (map_id, name, width, height, address) VALUES
-    (1, 'main', 0.000, 0.000, 0.000)
+INSERT INTO map (map_id, name, image_blob, image_format, yaml_config) VALUES
+    (
+        1,
+        'main',
+        LOAD_FILE('/var/lib/mysql-files/mapv6.pgm'),
+        'pgm',
+        JSON_OBJECT(
+            'resolution', 0.05,
+            'origin', JSON_ARRAY(0.0, 0.0, 0.0),
+            'negate', 0,
+            'occupied_thresh', 0.65,
+            'free_thresh', 0.25,
+            'mode', 'trinary'
+        )
+    )
 ON DUPLICATE KEY UPDATE
     name = VALUES(name),
-    width = VALUES(width),
-    height = VALUES(height),
-    address = VALUES(address);
+    image_blob = VALUES(image_blob),
+    image_format = VALUES(image_format),
+    yaml_config = VALUES(yaml_config);
 
 INSERT INTO store_table (table_id, map_id, table_number, pos_x, pos_y) VALUES
     (1, 1, '1', 0.000, 0.000),
@@ -177,12 +191,7 @@ INSERT INTO product (
 ) VALUES
     (1, 'hotdog', 'New York hotdog', 'hotdog', 7000, 'FOOD', 'ON_SALE'),
     (2, 'coke', 'Coke can', 'coke', 2500, 'DRINK', 'ON_SALE'),
-    (3, 'coffee', 'Coffee cup', 'coffee', 3500, 'DRINK', 'ON_SALE'),
-    (4, '바닐라라떼', '사용하지 않는 이전 메뉴', 'coffee', 5000, 'DRINK', 'PAUSED'),
-    (5, '카라멜마키아토', '사용하지 않는 이전 메뉴', 'coffee', 5500, 'DRINK', 'PAUSED'),
-    (6, '말차라떼', '사용하지 않는 이전 메뉴', 'coffee', 5500, 'DRINK', 'PAUSED'),
-    (7, '딸기스무디', '사용하지 않는 이전 메뉴', 'coffee', 6000, 'DRINK', 'PAUSED'),
-    (8, '치즈케이크', '사용하지 않는 이전 메뉴', 'hotdog', 7000, 'FOOD', 'PAUSED')
+    (3, 'coffee', 'Coffee cup', 'coffee', 3500, 'DRINK', 'ON_SALE')
 ON DUPLICATE KEY UPDATE
     name = VALUES(name),
     description = VALUES(description),
@@ -192,7 +201,16 @@ ON DUPLICATE KEY UPDATE
     menu_status = VALUES(menu_status);
 
 DELETE FROM product_option_group
-WHERE product_id IN (1, 2, 3, 4, 5, 6, 7, 8);
+WHERE product_id NOT IN (1, 2, 3);
+
+DELETE FROM product_allergy
+WHERE product_id NOT IN (1, 2, 3);
+
+DELETE FROM product
+WHERE product_id NOT IN (1, 2, 3);
+
+DELETE FROM product_option_group
+WHERE product_id IN (1, 2, 3);
 
 INSERT INTO allergy_category (allergy_category_id, name, icon) VALUES
     (1, '유제품', '🥛'),
@@ -206,7 +224,7 @@ ON DUPLICATE KEY UPDATE
     icon = VALUES(icon);
 
 DELETE FROM product_allergy
-WHERE product_id IN (1, 2, 3, 4, 5, 6, 7, 8);
+WHERE product_id IN (1, 2, 3);
 
 INSERT IGNORE INTO product_allergy (product_id, allergy_category_id)
 SELECT p.product_id, ac.allergy_category_id

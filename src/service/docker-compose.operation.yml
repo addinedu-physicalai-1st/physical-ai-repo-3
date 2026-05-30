@@ -40,6 +40,7 @@ services:
     volumes:
       - moca_db_data:/var/lib/mysql
       - ./moca_db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./moca_db/mapv6.pgm:/var/lib/mysql-files/mapv6.pgm
     healthcheck:
       test: ["CMD-SHELL", "mysql -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} $${MYSQL_DATABASE} -e 'SELECT 1'"]
       interval: 5s
