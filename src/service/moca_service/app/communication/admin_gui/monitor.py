@@ -6,11 +6,13 @@ from typing import Any
 
 from app.communication.admin_gui.protocol import (
     EVENT_EMERGENCY_STOP,
+    EVENT_APPLY_MAP,
     EVENT_SET_MODE,
     EVENT_SNAPSHOT,
     EVENT_START,
     EVENT_STOP,
     TOPIC_DOBY_CONTROLLER,
+    TOPIC_MAPS,
     TOPIC_MONITOR,
     TOPIC_ORDERS,
     TOPIC_PRODUCTS,
@@ -20,6 +22,7 @@ from app.communication.admin_gui.doby_runtime import AdminGuiDobyRosRuntime
 from app.communication.admin_gui.runtime import AdminGuiCommunicationRuntime
 from app.service.menu_service import MenuService
 from app.service.order_service import OrderService
+from app.service.map_service import MapService
 
 
 class AdminGuiMonitorPublisher:
@@ -30,6 +33,7 @@ class AdminGuiMonitorPublisher:
         order_service: OrderService,
         logger,
         doby_runtime: AdminGuiDobyRosRuntime | None = None,
+        map_service: MapService | None = None,
         *,
         interval_sec: float = 1.0,
     ) -> None:
@@ -37,6 +41,7 @@ class AdminGuiMonitorPublisher:
         self.menu_service = menu_service
         self.order_service = order_service
         self.doby_runtime = doby_runtime
+        self.map_service = map_service
         self.logger = logger
         self.interval_sec = interval_sec
         self._lock = threading.Lock()
@@ -45,6 +50,7 @@ class AdminGuiMonitorPublisher:
         self._last_products = b""
         self._last_orders = b""
         self._last_doby = b""
+        self._last_maps = b""
 
     def register(self) -> None:
         self.runtime.register_request_handler(TOPIC_MONITOR, EVENT_START, self._handle_start)
@@ -55,6 +61,7 @@ class AdminGuiMonitorPublisher:
             EVENT_EMERGENCY_STOP,
             self._handle_emergency_stop,
         )
+        self.runtime.register_request_handler(TOPIC_MAPS, EVENT_APPLY_MAP, self._handle_apply_map)
 
     def stop(self) -> None:
         with self._lock:
@@ -71,6 +78,7 @@ class AdminGuiMonitorPublisher:
                 self._last_products = b""
                 self._last_orders = b""
                 self._last_doby = b""
+                self._last_maps = b""
                 self._thread = threading.Thread(
                     target=self._run,
                     daemon=True,
@@ -118,6 +126,33 @@ class AdminGuiMonitorPublisher:
             )
         return _json_payload(self.doby_runtime.request_emergency_stop())
 
+    def _handle_apply_map(self, frame, _peer) -> bytes:
+        if self.map_service is None:
+            return _json_payload(
+                {
+                    "ok": False,
+                    "message": "map svc missing",
+                }
+            )
+        payload = _json_object(frame.payload)
+        try:
+            map_id = int(payload.get("map_id"))
+        except (TypeError, ValueError):
+            return _json_payload(
+                {
+                    "ok": False,
+                    "message": "map_id required",
+                }
+            )
+        result = self.map_service.apply_map(map_id)
+        message = str(result.get("message") or result.get("reason") or "")
+        return _json_payload(
+            {
+                "ok": bool(result.get("ok")),
+                "message": message[:24],
+            }
+        )
+
     def _run(self) -> None:
         self.logger.info("admin_gui monitor publisher started")
         try:
@@ -125,6 +160,7 @@ class AdminGuiMonitorPublisher:
                 self._publish_changed_products()
                 self._publish_changed_orders()
                 self._publish_tables()
+                self._publish_changed_maps()
                 self._publish_changed_doby()
                 self._stop_event.wait(self.interval_sec)
         finally:
@@ -147,6 +183,15 @@ class AdminGuiMonitorPublisher:
     def _publish_tables(self) -> None:
         payload = _json_payload(_table_snapshot(self.order_service.get_table_assignment()))
         self.runtime.publish_payload(TOPIC_TABLES, EVENT_SNAPSHOT, payload)
+
+    def _publish_changed_maps(self) -> None:
+        if self.map_service is None:
+            return
+        payload = _json_payload(self.map_service.get_snapshot())
+        if payload == self._last_maps:
+            return
+        if self.runtime.publish_payload(TOPIC_MAPS, EVENT_SNAPSHOT, payload):
+            self._last_maps = payload
 
     def _publish_changed_doby(self) -> None:
         if self.doby_runtime is None:

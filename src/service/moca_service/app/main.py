@@ -11,6 +11,7 @@ from app.communication.controller_ports import DDoobyActionManufacturePort, Doby
 from app.communication.ddooby_controller import create_ddooby_controller_runtime
 from app.communication.doby_controller import create_doby_controller_runtime
 from app.communication.web_service import create_web_service_tcp_server
+from app.in_memory.map_runtime_state import ActiveMapRuntimeState
 from app.in_memory.table_inmemory_state import TableInmemoryState
 from app.repository.catalog_repo import (
     AllergyCategoryRepository,
@@ -19,8 +20,10 @@ from app.repository.catalog_repo import (
     ProductRepository,
 )
 from app.repository.db import Database, DbConfig
+from app.repository.map_repo import MapRepository
 from app.repository.order_repo import OrderItemRepository, OrderRepository
 from app.repository.table_repo import TableRepository
+from app.service.map_service import MapService
 from app.scheduler.workflow_scheduler import OrderWorkflowScheduler
 from app.service.menu_service import MenuService
 from app.service.order_service import OrderService
@@ -49,7 +52,9 @@ def main() -> None:
     order_repository = OrderRepository()
     order_item_repository = OrderItemRepository()
     store_table_repository = TableRepository()
+    map_repository = MapRepository()
     table_inmemory_state = TableInmemoryState(database, store_table_repository)
+    active_map_runtime_state = ActiveMapRuntimeState()
     order_service = OrderService(
         database,
         product_repository,
@@ -97,20 +102,29 @@ def main() -> None:
         enabled=config.admin_gui_doby_ros_enabled,
         setmode_timeout_sec=config.admin_gui_doby_setmode_timeout_sec,
     )
-    admin_gui_monitor = AdminGuiMonitorPublisher(
-        admin_gui_runtime,
-        menu_service,
-        order_service,
-        logger,
-        admin_gui_doby_runtime,
-    )
-    admin_gui_monitor.register()
     doby_controller_runtime = create_doby_controller_runtime(
         logger=logger,
         node_name=config.doby_controller_node_name,
         enabled=config.doby_controller_ros_enabled,
         setmode_timeout_sec=config.doby_controller_setmode_timeout_sec,
     )
+    map_service = MapService(
+        database,
+        map_repository,
+        store_table_repository,
+        active_map_runtime_state,
+        doby_controller_runtime,
+        logger,
+    )
+    admin_gui_monitor = AdminGuiMonitorPublisher(
+        admin_gui_runtime,
+        menu_service,
+        order_service,
+        logger,
+        admin_gui_doby_runtime,
+        map_service,
+    )
+    admin_gui_monitor.register()
     ddooby_controller_runtime = create_ddooby_controller_runtime(
         logger=logger,
         node_name=config.ddooby_controller_node_name,

@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PatrolState.msg"
   "msg/RapportEvent.msg"
   "msg/TableReport.msg"
+  "srv/ApplyMap.srv"
   "srv/SetMode.srv"
   DEPENDENCIES std_msgs builtin_interfaces sensor_msgs
 )

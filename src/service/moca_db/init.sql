@@ -72,9 +72,10 @@ CREATE TABLE IF NOT EXISTS product_allergy (
 CREATE TABLE IF NOT EXISTS map (
     map_id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(64) NOT NULL,
-    width DECIMAL(10, 3) NOT NULL,
-    height DECIMAL(10, 3) NOT NULL,
-    address DECIMAL(10, 3) NOT NULL
+    image_blob MEDIUMBLOB NULL,
+    image_format VARCHAR(16) NOT NULL DEFAULT 'pgm',
+    yaml_config JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS store_table (
@@ -101,13 +102,26 @@ CREATE TABLE IF NOT EXISTS workspace (
         ON UPDATE CASCADE
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-INSERT INTO map (map_id, name, width, height, address) VALUES
-    (1, 'main', 0.000, 0.000, 0.000)
+INSERT INTO map (map_id, name, image_blob, image_format, yaml_config) VALUES
+    (
+        1,
+        'main',
+        LOAD_FILE('/var/lib/mysql-files/mapv6.pgm'),
+        'pgm',
+        JSON_OBJECT(
+            'resolution', 0.05,
+            'origin', JSON_ARRAY(0.0, 0.0, 0.0),
+            'negate', 0,
+            'occupied_thresh', 0.65,
+            'free_thresh', 0.25,
+            'mode', 'trinary'
+        )
+    )
 ON DUPLICATE KEY UPDATE
     name = VALUES(name),
-    width = VALUES(width),
-    height = VALUES(height),
-    address = VALUES(address);
+    image_blob = VALUES(image_blob),
+    image_format = VALUES(image_format),
+    yaml_config = VALUES(yaml_config);
 
 INSERT INTO store_table (table_id, map_id, table_number, pos_x, pos_y) VALUES
     (1, 1, '1', 0.000, 0.000),
