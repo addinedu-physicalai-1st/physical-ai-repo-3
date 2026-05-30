@@ -20,6 +20,7 @@ from typing import Callable
 import cv2
 import numpy as np
 import requests
+import rerun as rr
 import yaml
 from single_arm_controller_interfaces.srv import ActPolicyInference, SetTask
 
@@ -53,6 +54,24 @@ class TaskOutcome:
 
 class TaskCompleted(Exception):
     pass
+
+
+class FlickerBandingOverlay:
+    """학습 데이터의 형광등 플리커 줄무늬를 추론 이미지에 재현한다.
+
+    진폭(amplitude) × cos(2π·row / period + phase) 를 각 행의 RGB 채널에 가산한다.
+    파라미터는 학습 영상(file-000.mp4) 프레임 분석으로 도출.
+    """
+
+    def __init__(self, height: int, period_px: float, amplitude: float, phase_rad: float):
+        rows = np.arange(height, dtype=np.float32)
+        banding = amplitude * np.cos(2.0 * np.pi * rows / period_px + phase_rad)
+        # shape: (H, 1, 1) — W·C 방향 브로드캐스팅용
+        self._overlay = banding[:, np.newaxis, np.newaxis].astype(np.float32)
+
+    def apply(self, image_rgb: np.ndarray) -> np.ndarray:
+        """uint8 HWC RGB 이미지에 줄무늬 오버레이를 적용하고 uint8로 반환."""
+        return np.clip(image_rgb.astype(np.float32) + self._overlay, 0, 255).astype(np.uint8)
 
 
 def _add_marker(image_rgb: np.ndarray, color: tuple[int, int, int]) -> np.ndarray:
@@ -416,6 +435,16 @@ class ActServingOrchestrator:
         self._model = ActPolicyServerClient(node, config)
         self._logger.info('ACT policy server client ready.')
 
+        debug_config = config.get('debug', {})
+        self._rerun_enabled = bool(debug_config.get('rerun_enabled', False))
+        if self._rerun_enabled:
+            rr.init('act_serving', spawn=True)
+            # 스레드와 무관하게 동일한 스트림을 사용하도록 global recording을 저장
+            self._rr_rec = rr.get_global_data_recording()
+            self._logger.info('Rerun viewer launched (act_serving)')
+        else:
+            self._rr_rec = None
+
     @property
     def config(self) -> dict:
         return self._config
@@ -539,6 +568,25 @@ class ActServingOrchestrator:
         home_dwell_s = float(home_config['dwell_s'])
         return_duration_s = float(home_config.get('return_duration_s', 3.0))
 
+        rec = self._rr_rec  # None이면 rerun 비활성
+        debug_config = config.get('debug', {})
+        rerun_log_every_n = max(1, int(debug_config.get('rerun_log_every_n', 9)))
+        banding_config = config.get('banding_overlay', {})
+        if banding_config.get('enabled', False):
+            banding_overlay = FlickerBandingOverlay(
+                height=camera_config['height'],
+                period_px=float(banding_config.get('period_px', 120.0)),
+                amplitude=float(banding_config.get('amplitude', 24.4)),
+                phase_rad=float(banding_config.get('phase_rad', 2.845)),
+            )
+            self._logger.info(
+                f'Banding overlay enabled: period={banding_config.get("period_px")}px '
+                f'amplitude={banding_config.get("amplitude")} '
+                f'phase={banding_config.get("phase_rad")}rad'
+            )
+        else:
+            banding_overlay = None
+
         robot = DynamixelArm(config)
         initial_position = robot.get_positions()
         top_cam = ThreadedCamera(
@@ -661,9 +709,15 @@ class ActServingOrchestrator:
 
         try:
             top_img = top_cam.read_latest()
+            if banding_overlay is not None:
+                top_img = banding_overlay.apply(top_img)
             wrist_img = wrist_cam.read_latest()
             state = robot.get_positions()
             top_obs = _add_marker(top_img, marker_color) if marker_color else top_img
+            if rec is not None:
+                rr.set_time('step', sequence=0, recording=rec)
+                rr.log('camera/top', rr.Image(top_obs), recording=rec)
+                rr.log('camera/wrist', rr.Image(wrist_img), recording=rec)
             with obs_lock:
                 latest_obs = {'top': top_obs, 'wrist': wrist_img, 'state': state}
 
@@ -706,9 +760,15 @@ class ActServingOrchestrator:
                     break
 
                 top_img = top_cam.read_latest()
+                if banding_overlay is not None:
+                    top_img = banding_overlay.apply(top_img)
                 wrist_img = wrist_cam.read_latest()
                 state = robot.get_positions()
                 top_obs = _add_marker(top_img, marker_color) if marker_color else top_img
+                if rec is not None and step % rerun_log_every_n == 0:
+                    rr.set_time('step', sequence=step, recording=rec)
+                    rr.log('camera/top', rr.Image(top_obs), recording=rec)
+                    rr.log('camera/wrist', rr.Image(wrist_img), recording=rec)
                 with obs_lock:
                     latest_obs = {'top': top_obs, 'wrist': wrist_img, 'state': state}
 
@@ -727,56 +787,56 @@ class ActServingOrchestrator:
                         home_since = time.time()
                         self._logger.info('Home position entered.')
                     elif time.time() - home_since >= home_dwell_s:
-                        if time.time() - start_time < 5.0:
-                            self._logger.info(
-                                'Home reached but (now - infer_start) < 5s'
-                                'Skipping VLM check.'
-                            )
-                            home_since = None
-                            continue
-                        vlm_config = config.get('vlm', {})
-                        vlm_enabled = bool(vlm_config.get('enabled', False))
-                        use_vlm = vlm_enabled and bool(vlm_prompt)
+                        # if time.time() - start_time < 5.0:
+                        #     self._logger.info(
+                        #         'Home reached but (now - infer_start) < 5s'
+                        #         'Skipping VLM check.'
+                        #     )
+                        #     home_since = None
+                        #     continue
+                        # vlm_config = config.get('vlm', {})
+                        # vlm_enabled = bool(vlm_config.get('enabled', False))
+                        # use_vlm = vlm_enabled and bool(vlm_prompt)
 
-                        if use_vlm:
-                            self._logger.info(
-                                f'Home held for {home_dwell_s}s -> asking VLM...'
-                            )
-                            feedback_cb('Checking task completion via VLM...')
+                        # if use_vlm:
+                        #     self._logger.info(
+                        #         f'Home held for {home_dwell_s}s -> asking VLM...'
+                        #     )
+                        #     feedback_cb('Checking task completion via VLM...')
 
-                            effective_vlm_config = dict(vlm_config)
-                            if self._vlm_host:
-                                effective_vlm_config['host'] = self._vlm_host
+                        #     effective_vlm_config = dict(vlm_config)
+                        #     if self._vlm_host:
+                        #         effective_vlm_config['host'] = self._vlm_host
 
-                            try:
-                                complete, vlm_answer = check_task_completion_with_vlm(
-                                    top_img, vlm_prompt, effective_vlm_config
-                                )
-                                self._logger.info(
-                                    f'VLM answer: "{vlm_answer}" -> complete={complete}'
-                                )
-                                feedback_cb(f'VLM: "{vlm_answer}" -> {"complete" if complete else "not complete"}')
-                            except Exception as e:
-                                self._logger.warn(
-                                    f'VLM check failed: {e}. Continuing.'
-                                )
-                                feedback_cb(f'VLM check failed: {e}')
-                                complete = False
+                        #     try:
+                        #         complete, vlm_answer = check_task_completion_with_vlm(
+                        #             top_img, vlm_prompt, effective_vlm_config
+                        #         )
+                        #         self._logger.info(
+                        #             f'VLM answer: "{vlm_answer}" -> complete={complete}'
+                        #         )
+                        #         feedback_cb(f'VLM: "{vlm_answer}" -> {"complete" if complete else "not complete"}')
+                        #     except Exception as e:
+                        #         self._logger.warn(
+                        #             f'VLM check failed: {e}. Continuing.'
+                        #         )
+                        #         feedback_cb(f'VLM check failed: {e}')
+                        #         complete = False
 
-                            if complete:
-                                self._logger.info('VLM confirmed task complete.')
-                                task_complete = True
-                                raise TaskCompleted()
-                            else:
-                                self._logger.info('VLM says task not complete. Continuing.')
-                                home_since = None
-                        else:
-                            self._logger.info(
-                                f'Home held for {home_dwell_s}s -> task complete '
-                                f'(VLM disabled or no prompt).'
-                            )
-                            task_complete = True
-                            raise TaskCompleted()
+                        #     if complete:
+                        #         self._logger.info('VLM confirmed task complete.')
+                        #         task_complete = True
+                        #         raise TaskCompleted()
+                        #     else:
+                        #         self._logger.info('VLM says task not complete. Continuing.')
+                        #         home_since = None
+                        # else:
+                        self._logger.info(
+                            f'Home held for {home_dwell_s}s -> task complete '
+                            f'(VLM disabled).'
+                        )
+                        task_complete = True
+                        raise TaskCompleted()
 
                 with queue_lock:
                     qsize = len(action_queue)

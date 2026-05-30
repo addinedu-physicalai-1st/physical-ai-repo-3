@@ -47,8 +47,8 @@ ipc:
 
 # ── 카메라 ──────────────────────────────────────────────────────────────────
 cameras:
-  top_path:    /dev/video2
-  wrist_path:  /dev/video0
+  top_path:    /dev/video0
+  wrist_path:  /dev/video2
   palm_index:  4
   width:       640
   height:      480
@@ -74,11 +74,25 @@ home:
     2: [45.0,   65.0]   # elbow_flex     (홈:  54.87)
     4: [-11.0,   9.0]   # wrist_roll     (홈:  -1.05)
 
+# ── 디버그 / 시각화 ──────────────────────────────────────────────────────────
+debug:
+  rerun_enabled: false   # true이면 추론 중 top/wrist 카메라를 rerun viewer에 표시
+  rerun_log_every_n: 9  # N step마다 1번 로깅 (30Hz÷9≈3.3Hz). 크게 할수록 렉 감소
+
+# ── 형광등 줄무늬 오버레이 ──────────────────────────────────────────────────────
+# 학습 데이터(top view)에 포함된 형광등 플리커 줄무늬를 추론 시 재현.
+# 파라미터는 file-000.mp4 분석 결과 (주기 120px, 진폭 24.4, 위상 2.845 rad).
+banding_overlay:
+  enabled:    true
+  period_px:  120.0
+  amplitude:  24.4
+  phase_rad:  2.845
+
 # ── VLM 완료 판단 ────────────────────────────────────────────────────────────
 # 홈 포지션 dwell_s 경과 후 top 카메라 이미지를 VLM에 보내 완료 여부 확인.
 # enabled: false이면 홈 포지션 감지만으로 완료 판단 (VLM 없이).
 vlm:
-  enabled:   true
+  enabled:   flase
   host:      http://192.168.0.133:11434   # Ollama 서버
   model:     qwen3-vl:4b
   timeout_s: 30.0

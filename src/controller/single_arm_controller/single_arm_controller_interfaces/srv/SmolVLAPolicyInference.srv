@@ -1,0 +1,6 @@
+uint32 inference_delay
+bool has_prev_chunk
+string task
+---
+bool success
+string message
