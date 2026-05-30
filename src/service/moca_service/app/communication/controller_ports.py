@@ -78,7 +78,7 @@ class DDoobyActionManufacturePort:
     def _manufacture_items(order_items: list[ManufactureOrderItem]) -> list[dict[str, Any]]:
         counts: dict[str, int] = {}
         for item in order_items:
-            name = item.product_name
+            name = _map_manufacture_item_name(item.product_name)
             counts[name] = counts.get(name, 0) + int(item.quantity)
         return [{"name": name, "count": count} for name, count in counts.items()]
 
@@ -173,3 +173,13 @@ class DobyModeServingPort:
         if table_number is None or int(table_number) <= 0:
             return None
         return f"T{int(table_number):02d}"
+
+
+def _map_manufacture_item_name(product_name: str) -> str:
+    normalized = str(product_name).strip()
+    mapped_name_by_product = {
+        "핫도그": "hotdog",
+        "콜라": "coke",
+        "커피": "coffee",
+    }
+    return mapped_name_by_product.get(normalized, normalized)
