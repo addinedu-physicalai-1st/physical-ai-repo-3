@@ -54,3 +54,5 @@ setuptools
 jinja2
 typeguard
 empy==3.3.4
+catkin_pkg
+lark

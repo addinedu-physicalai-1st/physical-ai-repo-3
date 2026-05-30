@@ -49,15 +49,20 @@ def generate_launch_description():
     initial_mode_arg = DeclareLaunchArgument(
         'initial_mode', default_value='idle',
         description='mode_manager 초기 모드 (idle|serving|patrol|guiding|engaging|follow)')
+    geva_image_topic_arg = DeclareLaunchArgument(
+        'geva_image_topic', default_value='',
+        description='geva_node 입력. 비우면 camera_index 웹캠, 설정 시 해당 Image 토픽 구독 (예: /robot_cam/image_raw)')
 
     return LaunchDescription([
         fullscreen_arg,
         persona_arg,
         initial_mode_arg,
+        geva_image_topic_arg,
 
         Node(
             package='dobi_npc_emotion', executable='geva_node',
             name='geva_node', output='screen',
+            parameters=[{'image_topic': LaunchConfiguration('geva_image_topic')}],
         ),
         Node(
             package='dobi_npc_emotion', executable='rapport_tracker',

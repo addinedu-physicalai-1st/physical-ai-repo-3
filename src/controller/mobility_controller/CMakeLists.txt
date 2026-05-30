@@ -18,6 +18,18 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/scout_follow_controller_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME scout_follow_controller
+)
+
+install(PROGRAMS
+  scripts/scout_image_relay_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME scout_image_relay
+)
+
 install(DIRECTORY
   config
   launch
