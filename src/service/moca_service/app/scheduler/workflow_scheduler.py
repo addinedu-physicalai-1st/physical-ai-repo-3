@@ -123,7 +123,7 @@ class OrderWorkflowScheduler:
         )
         complete_now = item.receive_type == TAKE_OUT_RECEIVE_TYPE
         if complete_now:
-            self._mark_order_completed(item)
+            self._mark_order_completed(item, completed_after="manufacture")
         else:
             self.state.enqueue_serving(order_id)
         return True
@@ -137,7 +137,7 @@ class OrderWorkflowScheduler:
             order_id,
             command_id,
         )
-        self._mark_order_completed(item)
+        self._mark_order_completed(item, completed_after="serving")
         return True
 
     def list_work_items(self) -> list[WorkItem]:
@@ -266,11 +266,20 @@ class OrderWorkflowScheduler:
         if not ok:
             raise RuntimeError("serving start rejected")
 
-    def _mark_order_completed(self, item: WorkItem) -> None:
+    def _mark_order_completed(self, item: WorkItem, *, completed_after: str) -> None:
         completed = self.order_service.complete_workflow_order(item.order_id)
         if completed:
             self.state.remove_order(item.order_id)
-            self.logger.info("order completed order_id=%s", item.order_id)
+            self.logger.info(
+                "order completed order_id=%s completed_after=%s receive_type=%s "
+                "table_number=%s manufacture_command_id=%s serving_command_id=%s",
+                item.order_id,
+                completed_after,
+                item.receive_type,
+                item.table_number,
+                item.manufacture_command_id,
+                item.serving_command_id,
+            )
 
     def _handle_retry_decision(self, decision: RetryDecision | None) -> None:
         if decision is None:
