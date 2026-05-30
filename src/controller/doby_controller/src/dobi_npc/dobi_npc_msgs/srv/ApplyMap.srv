@@ -1,0 +1,10 @@
+int32 map_id
+string map_name
+string image_format
+uint8[] image_data
+string yaml_config_json
+string tables_json
+---
+bool success
+string applied_map_path
+string reason

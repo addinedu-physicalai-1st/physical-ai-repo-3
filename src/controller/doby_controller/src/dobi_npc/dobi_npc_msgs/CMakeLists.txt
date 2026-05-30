@@ -29,6 +29,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetTableStatus.srv"
   "srv/SetPatrolSchedule.srv"
   "srv/ScanTable.srv"
+  "srv/ApplyMap.srv"
   DEPENDENCIES std_msgs builtin_interfaces sensor_msgs
 )
 
