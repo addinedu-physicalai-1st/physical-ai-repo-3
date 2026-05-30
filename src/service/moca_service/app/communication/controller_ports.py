@@ -78,9 +78,27 @@ class DDoobyActionManufacturePort:
     def _manufacture_items(order_items: list[ManufactureOrderItem]) -> list[dict[str, Any]]:
         counts: dict[str, int] = {}
         for item in order_items:
-            name = item.product_name
+            name = DDoobyActionManufacturePort._canonical_manufacture_name(item.product_name)
             counts[name] = counts.get(name, 0) + int(item.quantity)
         return [{"name": name, "count": count} for name, count in counts.items()]
+
+    @staticmethod
+    def _canonical_manufacture_name(product_name: str) -> str:
+        name = product_name.strip()
+        lowered = name.lower()
+        if lowered in {"hotdog", "hot dog", "new york hotdog", "new york hot dog"}:
+            return "hotdog"
+        if lowered in {"coke", "cola"}:
+            return "coke"
+        if lowered == "coffee":
+            return "coffee"
+        if any(token in name for token in ("핫도그", "뉴욕")):
+            return "hotdog"
+        if any(token in name for token in ("콜라", "코카콜라")):
+            return "coke"
+        if "커피" in name:
+            return "coffee"
+        return lowered
 
 
 class DobyModeServingPort:

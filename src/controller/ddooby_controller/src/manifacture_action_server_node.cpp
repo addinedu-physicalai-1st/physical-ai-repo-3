@@ -82,37 +82,18 @@ bool containsAny(const std::string & value, const std::vector<std::string> & nee
   return false;
 }
 
-std::optional<std::string> temporaryBackendForItem(const std::string & item_name)
+std::optional<std::string> manufactureBackendForItem(const std::string & item_name)
 {
   const std::string lowered = toLowerAscii(item_name);
-  if (containsAny(lowered, {"hot dog", "hotdog", "new york", "핫도그", "뉴욕", "cake", "케이크"})) {
+  if (lowered == "hotdog" || lowered == "hot dog" ||
+    containsAny(lowered, {"new york", "핫도그", "뉴욕"}))
+  {
     return "hotdog_placeholder";
   }
-  if (containsAny(
-      lowered,
-      {"ade", "lemonade", "smoothie", "drink", "soda", "cola", "beverage", "에이드", "스무디", "딸기", "음료", "탄산", "콜라"})) {
+  if (lowered == "coke" || lowered == "cola" || containsAny(lowered, {"콜라"})) {
     return "ade_cup";
   }
-  if (containsAny(
-      lowered,
-      {
-        "coffee",
-        "espresso",
-        "americano",
-        "latte",
-        "mocha",
-        "cappuccino",
-        "cold brew",
-        "coldbrew",
-        "커피",
-        "에스프레소",
-        "아메리카노",
-        "라떼",
-        "모카",
-        "카푸치노",
-        "콜드브루",
-      }))
-  {
+  if (lowered == "coffee" || containsAny(lowered, {"커피"})) {
     return "espresso_cup";
   }
   return std::nullopt;
@@ -205,6 +186,11 @@ public:
       declare_parameter<std::string>("beverage_launch_package", "ddooby_controller");
     beverage_launch_file_ =
       declare_parameter<std::string>("beverage_launch_file", "beverage_making_test.launch.py");
+    hotdog_launch_package_ =
+      declare_parameter<std::string>("hotdog_launch_package", "ddooby_controller");
+    hotdog_launch_file_ =
+      declare_parameter<std::string>("hotdog_launch_file", "hotdog_making.launch.py");
+    hotdog_use_sim_time_ = declare_parameter<bool>("hotdog_use_sim_time", true);
     reset_world_on_start_ = declare_parameter<bool>("reset_world_on_start", true);
     use_gz_cli_reset_ = declare_parameter<bool>("use_gz_cli_reset", true);
     gazebo_set_pose_service_ =
@@ -368,11 +354,11 @@ private:
         continue;
       }
 
-      const auto ingredient_model = temporaryBackendForItem(item.name);
+      const auto ingredient_model = manufactureBackendForItem(item.name);
       if (!ingredient_model.has_value()) {
         error =
           "unsupported manufacture item '" + item.name +
-          "': backend supports coffee, ade/drink, and hotdog items only";
+          "': backend supports hotdog, coke, and coffee items only";
         return false;
       }
 
@@ -567,12 +553,7 @@ private:
     const BeverageRun & run) const
   {
     if (isHotdogPlaceholder(run)) {
-      return runScenarioTaskProcess(
-        goal_handle,
-        run,
-        hotdog_task_executable_,
-        "Hotdog task scenario completed",
-        "");
+      return runHotdogTaskLaunch(goal_handle, run);
     }
 
     if (useScenarioTaskNodes()) {
@@ -585,6 +566,42 @@ private:
     }
 
     return runBeverageTestProcess(goal_handle, run);
+  }
+
+  ProcessResult runHotdogTaskLaunch(
+    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
+    const BeverageRun & run) const
+  {
+    std::vector<std::string> args{
+      ros2_executable_,
+      "launch",
+      "--noninteractive",
+      "--show-all-subprocesses-output",
+      hotdog_launch_package_,
+      hotdog_launch_file_,
+      "task:=hotdog",
+      std::string("use_sim_time:=") + (hotdog_use_sim_time_ ? "true" : "false"),
+    };
+
+    RCLCPP_INFO(get_logger(), "Starting hotdog manufacture process: %s", joinCommandForLog(args).c_str());
+    const auto command_result = runCommandAndCollectOutput(args, goal_handle, command_timeout_sec_);
+    if (command_result.canceled) {
+      return ProcessResult{false, true, "manufacture canceled while running hotdog task"};
+    }
+    if (!command_result.success) {
+      return ProcessResult{
+        false,
+        false,
+        "hotdog manufacture failed for item '" + run.item_name + "': " + command_result.message};
+    }
+    if (command_result.output.find("New York hotdog assembly completed") == std::string::npos) {
+      return ProcessResult{
+        false,
+        false,
+        "hotdog manufacture exited without completion marker for item '" + run.item_name + "'"};
+    }
+
+    return ProcessResult{true, false, "hotdog manufacture completed"};
   }
 
   ProcessResult runScenarioTaskProcess(
@@ -849,6 +866,9 @@ private:
   std::string gz_executable_;
   std::string beverage_launch_package_;
   std::string beverage_launch_file_;
+  std::string hotdog_launch_package_;
+  std::string hotdog_launch_file_;
+  bool hotdog_use_sim_time_;
   bool reset_world_on_start_;
   bool use_gz_cli_reset_;
   std::string gazebo_set_pose_service_;

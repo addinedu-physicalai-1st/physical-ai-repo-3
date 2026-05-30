@@ -1,282 +1,197 @@
 # Quick Setup And Run
 
-이 문서는 MOCA 단일 로컬 컴퓨터 개발 환경을 빠르게 설치하고 실행하기 위한 절차입니다.
+MOCA 웹 주문을 `ddooby_controller` 제조 action으로 받아서 실물 OpenArm으로 뉴욕 핫도그를 제조하는 빠른 실행 문서.
 
-아래 내용을 위에서부터 차례대로 실행하면 됩니다. `터미널 1`, `터미널 2`처럼 번호가 붙은 실행 명령은 각각 새 터미널에서 실행해 주세요.
+현재 구현/검증 기준:
 
-이 문서는 repo 안의 `src/controller/ddooby_controller/` 아래에 있습니다.
+```text
+web_service 주문
+  -> moca_service
+  -> custom_msg/action/Manifacture.action
+  -> ddooby_controller manifacture action server
+  -> hotdog_making_node task:=hotdog use_sim_time:=false
+  -> 실물 OpenArm 제조
+  -> moca_service 주문 완료 처리
+```
 
-아래 명령들은 clone 위치와 상관없이 repo root를 자동으로 찾습니다. 각 새 터미널은 repo 안 아무 위치에서 열고 실행하면 됩니다.
+현재 제조 가능한 주문 item:
+
+```text
+hotdog
+coke
+coffee
+```
+
+현재 실제 제조 동작은 `hotdog`만 구현되어 있다.
+`coke`, `coffee`는 주문 item 이름으로는 들어올 수 있지만, 실물 제조 검증은 핫도그 1개 기준으로 한다.
+
+아래 명령은 repo root 기준이다.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ```
 
-이 문서가 있는 디렉터리에서 터미널을 열었다면 `cd ../../..`로 repo root에 갈 수도 있습니다.
+## 0. 공통 주의
 
-## 빠른 설치
-
-### 1. 시스템 패키지 설치
-
-ROS 2 Jazzy가 이미 설치되어 있다는 전제입니다.
+실물 로봇 제조 연동은 기본 ROS domain을 쓴다.
 
 ```bash
-sudo apt update
-sudo apt install -y \
-  docker.io \
-  docker-compose-v2 \
-  python3-pip \
-  python3-venv \
-  python3-pygame \
-  libxcb-cursor0 \
-  ros-jazzy-behaviortree-cpp \
-  ros-jazzy-navigation2 \
-  ros-jazzy-nav2-bringup \
-  ros-jazzy-nav2-amcl \
-  ros-jazzy-nav2-msgs
+export ROS_DOMAIN_ID=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+unset ROS_LOCALHOST_ONLY
 ```
 
-Docker를 일반 사용자로 실행할 수 있게 설정합니다.
+`src/service/run_moca_service_native.sh`는 `ROS_DOMAIN_ID`를 안 주면 기본값으로 `99`를 잡는다.
+실물 OpenArm bringup은 기본 domain에서 떠 있으므로, 웹 주문 연동 테스트에서는 `moca_service`를 반드시 `ROS_DOMAIN_ID=0`으로 실행한다.
 
-```bash
-sudo usermod -aG docker "$USER"
-newgrp docker
-docker ps
+성공했던 실물 테스트의 핵심 설정:
+
+```text
+manifacture_action_server.launch.py hotdog_use_sim_time:=false
+moca_service ROS_DOMAIN_ID=0
+moca_service MOCA_DDOOBY_CONTROLLER_ACTION_NAME=ddooby/manifacture
+manufacturing_openarm.launch.py enable_gravity_comp:=true
+hotdog_making_node task:=hotdog use_sim_time:=false
 ```
 
-`docker ps`에서 권한 문제가 계속 나면 현재 터미널에서는 아래처럼 실행합니다.
-
-```bash
-sg docker -c 'docker ps'
-```
-
-### 2. Python 의존성 설치
+## 1. 빌드
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-
-python3 -m pip install --user --break-system-packages -r src/controller/doby_controller/requirements.txt
-python3 -m pip install --user --break-system-packages -r src/app/admin_gui/requirements.txt
-
-python3 -m pip uninstall --break-system-packages -y numpy opencv-python opencv-contrib-python
-```
-
-설치 확인:
-
-```bash
-python3 - <<'PY'
-for m in ["edge_tts", "pygame", "mediapipe", "PyQt6", "fastapi", "uvicorn", "pydantic", "ultralytics", "boxmot"]:
-    try:
-        __import__(m)
-        print(m, "OK")
-    except Exception as e:
-        print(m, "MISSING", e)
-
-import numpy, cv2
-print("numpy", numpy.__version__)
-print("cv2", cv2.__version__)
-PY
-```
-
-### 3. 모델과 필수 디렉터리 준비
-
-```bash
-cd "$(git rev-parse --show-toplevel)/src/controller/doby_controller"
-
-mkdir -p src/moca_gazebo/models
-bash scripts/download_models.sh
-
-mkdir -p src/dobi_npc/person_tracking_pkg/models
-curl -L \
-  -o src/dobi_npc/person_tracking_pkg/models/pose_landmarker_lite.task \
-  https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task
-```
-
-### 4. doby_controller ROS 빌드
-
-```bash
-cd "$(git rev-parse --show-toplevel)/src/controller/doby_controller"
-
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install
+colcon build
 source install/setup.bash
 ```
 
-### 5. ddooby_controller 음료 제조 시뮬레이션 빌드
+## 2. 웹/DB 실행
 
-주문과 Gazebo 음료 제조 테스트 노드를 연결하려면 `ddooby_controller`도 빌드되어 있어야 합니다.
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-
-source /opt/ros/jazzy/setup.bash
-rosdep update
-rosdep install \
-  --from-paths src/controller/ddooby_controller src/controller/ddooby_controller/openarm_vendor \
-  --ignore-src \
-  -r \
-  -y
-colcon build \
-  --base-paths src/controller/ddooby_controller src/controller/ddooby_controller/openarm_vendor \
-  --symlink-install
-source install/setup.bash
-```
-
-### 6. web_service HTTPS 설정
-
-개발용 self-signed 인증서를 생성합니다.
+터미널 1.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/src/service"
 
-mkdir -p certs
-openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout certs/key.pem \
-  -out certs/cert.pem \
-  -days 365 \
-  -subj "/CN=localhost" \
-  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-
-cat > .env <<'EOF'
-WEB_SERVICE_SSL_CERT=/certs/cert.pem
-WEB_SERVICE_SSL_KEY=/certs/key.pem
-EOF
+docker compose -f docker-compose.operation.yml up -d
+docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 ```
 
-`web_service`가 mount하는 오디오 디렉터리도 준비합니다.
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-mkdir -p src/app/order_vui/audio
-```
-
-### 7. admin_gui venv 준비
-
-```bash
-cd "$(git rev-parse --show-toplevel)/src/app/admin_gui"
-
-python3 -m venv --system-site-packages .venv
-./.venv/bin/python -m pip install -r requirements.txt
-```
-
-## 빠른 실행
-
-아래는 터미널을 나누어 실행합니다.
-
-### 터미널 1. ROS bringup
-
-```bash
-cd "$(git rev-parse --show-toplevel)/src/controller/doby_controller"
-
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-
-export ROS_DOMAIN_ID=99
-export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-export ROS_LOCALHOST_ONLY=1
-export MPLCONFIGDIR=/tmp/moca_matplotlib
-
-# 로컬 감정 GIF 백업이 있는 경우만 본인 경로로 설정합니다.
-# export MOCA_GIF_DIR="$HOME/path/to/pinky_emotion/emotion"
-
-ros2 launch dobi_npc_bringup dev_common.launch.py fullscreen:=false initial_mode:=idle
-```
-
-### 터미널 2. Gazebo 제조 world
-
-커밋된 `assets/manufacturing_world/layout.json`과 `assets/manufacturing_world/models/`를 기준으로 제조 Gazebo world를 실행합니다. 각 물체는 Gazebo 안에서 개별 model/entity로 spawn됩니다.
-
-실행 전에 기존 Gazebo/MoveIt/RViz 프로세스가 남아 있지 않은지 확인합니다. 중복 world가 떠 있으면 model이 중복 spawn되고 controller 상태가 꼬일 수 있습니다.
-
-```bash
-pgrep -af '[r]os2|[g]z sim|[r]viz2|[m]ove_group|[r]obot_state_publisher|[c]ontroller_manager|[h]otdog_making_node|[p]arameter_bridge|[s]pawner'
-```
-
-남아 있으면 해당 실행 터미널에서 `Ctrl+C`로 종료합니다. 터미널이 이미 닫힌 경우에만 PID를 확인해서 해당 PID만 종료합니다.
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
-  ros2 launch ddooby_controller manufacturing_world_gz.launch.py
-```
-
-Gazebo 제조 world, MoveGroup, RViz를 한 번에 띄우고 RViz에서 로봇 제어를 확인하려면 아래처럼 실행합니다. 이 경우 터미널 3, 터미널 4는 따로 실행하지 않아도 됩니다.
-`layout.json`과 각 `model.sdf`의 collision box도 MoveIt planning scene에 자동 반영되므로 RViz MotionPlanning 화면에서 제조 물체를 장애물로 볼 수 있습니다.
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
-  ros2 launch ddooby_controller manufacturing_world_gz.launch.py with_rviz:=true
-```
-
-아래 로그가 보이면 MoveIt planning scene까지 준비된 상태입니다.
+정상 예:
 
 ```text
-You can start planning now!
-applied 6 collision objects / 16 boxes to MoveIt planning scene
+moca_db       Up ... (healthy)   0.0.0.0:3307->3306/tcp
+web_service   Up ...             0.0.0.0:8000->8000/tcp, 0.0.0.0:9004->9004/tcp
 ```
 
-기존 테스트 station만 독립적으로 실행하고 싶을 때는 아래 launch도 사용할 수 있습니다.
+헬스 체크:
+
+```bash
+curl -k https://127.0.0.1:8000/health
+```
+
+정상 응답:
+
+```json
+{"status":"ok","service":"web_service"}
+```
+
+`moca_service`를 아직 안 띄운 상태에서는 `/api/menu`가 실패할 수 있다.
+메뉴 확인은 `moca_service` 실행 후 다시 한다.
+
+## 3. 실물 OpenArm Bringup
+
+터미널 2.
+
+CAN 설정은 로봇 전원/PC 재시작 후 한 번 수행한다.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
-__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
-  ros2 launch ddooby_controller beverage_station_gz.launch.py
+
+openarm-can-cli -i can0 can_configure
+openarm-can-cli -i can1 can_configure
 ```
 
-### 터미널 3. MoveGroup
+제로 캘리브레이션이 필요할 때만 수행한다.
+매 실행마다 필수는 아니다.
+
+```bash
+openarm-can-zero-position-calibration --canport can0 --arm-side right_arm
+openarm-can-zero-position-calibration --canport can1 --arm-side left_arm
+```
+
+실물 bringup:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-ros2 launch openarm_gazebo move_group_gz.launch.py
-```
-
-### 터미널 4. RViz
-
-RViz는 필수는 아니지만, Gazebo 제조 task 동작을 관찰하기 위해 함께 켜는 것을 권장합니다.
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
-  ros2 launch openarm_gazebo moveit_rviz_gz.launch.py
-```
-
-### 추가 터미널. ddooby_controller 제조 action server
-
-`moca_service`가 제조 요청을 보낼 `custom_msg/action/Manifacture.action` server입니다. Gazebo world와 MoveGroup이 먼저 떠 있어야 기본 backend에서 커피/에이드 제조 테스트 노드가 실제 Gazebo 모션을 실행할 수 있습니다.
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 
-export ROS_DOMAIN_ID=99
+export ROS_DOMAIN_ID=0
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 
-ros2 launch ddooby_controller manifacture_action_server.launch.py
+ROS_HOME=/tmp/ros_home ROS_LOG_DIR=/tmp/ros_logs \
+ros2 launch ddooby_controller manufacturing_openarm.launch.py \
+  start_moveit:=true \
+  sync_planning_scene:=true \
+  use_fake_hardware:=false \
+  hardware_plugin:=openarm_hardware/OpenArmHW \
+  robot_controller:=forward_position_controller \
+  right_can_interface:=can0 \
+  left_can_interface:=can1 \
+  return_to_zero_on_activate:=false \
+  hold_current_on_activate:=true \
+  enable_gravity_comp:=true \
+  enable_coriolis_comp:=false
 ```
 
-실제 제조 task-node skeleton만 확인하려면 아래처럼 실행합니다. 이 모드는 아직 실제 MoveIt 경로를 수행하지 않고, `hotdog_making_node`와 `drink_serving_node`의 시나리오 단계만 실행합니다.
+이 launch는 실물 로봇을 제어한다.
+`return_to_zero_on_activate:=false`, `hold_current_on_activate:=true`로 현재 자세를 유지하면서 controller를 올린다.
+
+ROS graph 확인:
 
 ```bash
-ros2 launch ddooby_controller manifacture_action_server.launch.py execution_backend:=scenario_task_nodes
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+unset ROS_LOCALHOST_ONLY
+
+ros2 node list | sort
+ros2 action list | sort
+```
+
+정상적으로 보여야 하는 주요 항목:
+
+```text
+/move_group
+/controller_manager
+/left_forward_joint_trajectory_bridge
+/right_forward_joint_trajectory_bridge
+/left_joint_trajectory_controller/follow_joint_trajectory
+/right_joint_trajectory_controller/follow_joint_trajectory
+/left_gripper_controller/gripper_cmd
+/right_gripper_controller/gripper_cmd
+```
+
+## 4. ddooby 제조 Action Server
+
+터미널 3.
+
+실물 제조에서는 `hotdog_use_sim_time:=false`로 실행한다.
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+export ROS_DOMAIN_ID=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+unset ROS_LOCALHOST_ONLY
+export ROS_HOME=/tmp/ros_home
+export ROS_LOG_DIR=/tmp/ros_logs
+
+ros2 launch ddooby_controller manifacture_action_server.launch.py \
+  hotdog_use_sim_time:=false
 ```
 
 정상 로그:
@@ -285,201 +200,15 @@ ros2 launch ddooby_controller manifacture_action_server.launch.py execution_back
 DDooby manufacture action server ready: ddooby/manifacture
 ```
 
-### 실물 OpenArm MoveIt 연동. 이동 실행 없음
-
-실물 로봇을 이미 MoveIt으로 띄워둔 경우 제조 collision scene만 반영합니다.
+다른 터미널에서 action 확인:
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"
-
 source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-
-ros2 launch ddooby_controller manufacturing_openarm.launch.py start_moveit:=false
-```
-
-MoveIt/ros2_control까지 함께 시작해야 할 때만 아래를 사용합니다. 이 launch는 trajectory를 보내지 않습니다.
-
-```bash
-ros2 launch ddooby_controller manufacturing_openarm.launch.py \
-  start_moveit:=true \
-  use_fake_hardware:=false \
-  right_can_interface:=can0 \
-  left_can_interface:=can1
-```
-
-실물 환경에서 제조 노드 계산만 확인하려면 반드시 `dry_run:=true`를 사용합니다.
-
-```bash
-ros2 launch ddooby_controller hotdog_making.launch.py \
-  use_sim_time:=false \
-  target:=bread \
-  arm:=left \
-  stop_after_stage:=work \
-  dry_run:=true
-```
-
-### 추가 터미널. 뉴욕 핫도그 pick 검증
-
-터미널 2에서 `manufacturing_world_gz.launch.py with_rviz:=true`를 실행하고, planning scene sync 로그까지 확인한 뒤 실행합니다.
-
-계산만 먼저 확인:
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-
-ros2 launch ddooby_controller hotdog_making.launch.py target:=bread arm:=left stop_after_stage:=pick dry_run:=true
-```
-
-정상 로그 예:
-
-```text
-Target 'bread': xyz=[0.313 0.183 0.303], size=[0.150 0.050 0.025], principal=[1.000 0.000 0.000], closing=[-0.000 1.000 0.000]
-```
-
-실제 빵 pick 실행:
-
-```bash
-ros2 launch ddooby_controller hotdog_making.launch.py target:=bread arm:=left stop_after_stage:=pick
-```
-
-주의:
-
-```text
-ros2 run ddooby_controller hotdog_making_node ...
-```
-
-위 방식으로 직접 실행하지 않습니다. MoveIt의 `robot_description_semantic` 파라미터가 주입되지 않아 robot model 생성에 실패합니다. 실제 MoveIt 제어는 `hotdog_making.launch.py`를 사용합니다.
-
-엔드이펙터 위치 확인:
-
-```bash
-ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
-```
-
-빵 layout 위치 확인:
-
-```bash
-python3 - <<'PY'
-import json
-from pathlib import Path
-layout = Path("src/controller/ddooby_controller/assets/manufacturing_world/layout.json")
-for model in json.loads(layout.read_text())["models"]:
-    if model["name"] == "bread":
-        print(model["xyz"])
-PY
-```
-
-
-### 터미널 5. web_service, moca_db
-
-```bash
-cd "$(git rev-parse --show-toplevel)/src/service"
-
-sg docker -c 'docker compose -f docker-compose.operation.yml up -d'
-curl -k https://localhost:8000/health
-```
-
-정상 응답:
-
-```json
-{"status":"ok","service":"web_service"}
-```
-
-### 터미널 6. moca_service
-
-`moca_service`는 주문 확정 후 제조가 필요한 항목을 `custom_msg/action/Manifacture.action` goal로 `ddooby_controller`에 보냅니다. 현재 임시 매핑은 아래와 같습니다.
-
-```text
-커피류   -> espresso_cup -> Gazebo 음료 제조 테스트 노드 실행
-에이드류 -> ade_cup      -> Gazebo 음료 제조 테스트 노드 실행
-핫도그류 -> temporary hotdog placeholder
-```
-
-웹 주문에서 커피/에이드를 고르면 action server가 `beverage_making_test_node`를 실행합니다. 제조 노드는 시작할 때 Gazebo 컵/스틱 오브젝트를 초기 위치로 reset하고, 완료되면 action result로 성공/실패를 반환합니다.
-
-```bash
-cd "$(git rev-parse --show-toplevel)/src/service"
-
-export MOCA_DOBY_CONTROLLER_ROS_ENABLED=false
-export MOCA_DDOOBY_CONTROLLER_ROS_ENABLED=true
-export MOCA_DDOOBY_CONTROLLER_ACTION_NAME=ddooby/manifacture
-export MOCA_DDOOBY_CONTROLLER_ACTION_TIMEOUT_SEC=5.0
-export ROS_DOMAIN_ID=99
+export ROS_DOMAIN_ID=0
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 
-./run_moca_service_native.sh
-```
-
-주문/서비스만 테스트하고 제조 action을 실행하지 않으려면 아래처럼 끕니다.
-
-```bash
-export MOCA_DDOOBY_CONTROLLER_ROS_ENABLED=false
-./run_moca_service_native.sh
-```
-
-### 터미널 7. 키오스크 브라우저
-
-```bash
-google-chrome \
-  --user-data-dir=/tmp/moca-kiosk-chrome \
-  --kiosk \
-  --ignore-certificate-errors \
-  https://localhost:8000/kiosk
-```
-
-브라우저에서 `NET::ERR_CERT_AUTHORITY_INVALID`가 뜨면 개발용 self-signed 인증서 때문입니다. 로컬 테스트에서는 `고급`을 눌러 계속 진행하면 됩니다.
-
-### 터미널 8. admin_gui
-
-```bash
-cd "$(git rev-parse --show-toplevel)/src/app/admin_gui"
-
-ADMIN_GUI_HOST=127.0.0.1 ./.venv/bin/python main.py
-```
-
-
-## 웹 주문-가제보 제조 시뮬레이션 검증
-
-목표 흐름은 아래입니다.
-
-```text
-웹/키오스크 주문
-  -> moca_service 주문확인
-  -> Manifacture.action goal 전송
-  -> ddooby_controller action server
-  -> beverage_making_test_node 실행
-  -> Gazebo 제조 시뮬레이션 완료
-  -> Manifacture.action result 성공
-  -> moca_service 주문 완료
-```
-
-### 1. 실행 상태 확인
-
-아래 프로세스가 떠 있어야 합니다.
-
-```bash
-pgrep -af 'beverage_station_gz|gz sim|move_group_gz|move_group|manifacture_action_server|moca_service'
-docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-```
-
-ROS action server 확인:
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-
-export ROS_DOMAIN_ID=99
-export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-unset ROS_LOCALHOST_ONLY
-
-ros2 action list
+ros2 action list | grep ddooby
 ```
 
 정상 출력:
@@ -488,91 +217,131 @@ ros2 action list
 /ddooby/manifacture
 ```
 
-web_service 확인:
+## 5. moca_service 실행
+
+터미널 4.
+
+웹 주문을 받아서 `/ddooby/manifacture` action goal을 보내는 서비스다.
+실물 연동에서는 `ROS_DOMAIN_ID=0`을 반드시 명시한다.
 
 ```bash
-curl -k https://localhost:8000/health
+cd "$(git rev-parse --show-toplevel)/src/service"
+
+export ROS_DOMAIN_ID=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+unset ROS_LOCALHOST_ONLY
+
+export MOCA_DOBY_CONTROLLER_ROS_ENABLED=false
+export MOCA_DDOOBY_CONTROLLER_ROS_ENABLED=true
+export MOCA_DDOOBY_CONTROLLER_ACTION_NAME=ddooby/manifacture
+export MOCA_DDOOBY_CONTROLLER_ACTION_TIMEOUT_SEC=5.0
+
+./run_moca_service_native.sh
 ```
 
-정상 응답:
-
-```json
-{"status":"ok","service":"web_service"}
-```
-
-### 2. 웹 UI에서 주문
-
-키오스크를 열고 커피 또는 에이드 메뉴를 주문합니다.
-
-```bash
-google-chrome \
-  --user-data-dir=/tmp/moca-kiosk-chrome \
-  --kiosk \
-  --ignore-certificate-errors \
-  https://localhost:8000/kiosk
-```
-
-검증용 추천 메뉴:
+정상 로그:
 
 ```text
-아메리카노   -> espresso_cup 제조 테스트
-딸기스무디   -> ade_cup 제조 테스트
+ddooby_controller ROS runtime started node=moca_ddooby_controller action=ddooby/manifacture
+order orchestration runtime started
+ros domain id:       0
 ```
 
-`doby_controller` 서빙을 끈 상태에서는 `take_out`으로 주문하세요. `dine_in`으로 주문하면 제조 완료 후 서빙 단계로 넘어가며, 서빙 ROS 런타임이 꺼져 있으면 주문 전체가 실패 처리될 수 있습니다. 제조 action result 검증 자체는 제조 완료 시점에 이미 성공입니다.
+`ros domain id: 99`로 보이면 잘못 실행한 것이다.
+`Ctrl+C`로 끄고 위 명령처럼 `ROS_DOMAIN_ID=0`을 명시해서 다시 실행한다.
 
-### 3. API로 같은 흐름 재현
+## 6. 메뉴 확인
 
-브라우저 대신 아래 명령으로 같은 흐름을 재현할 수 있습니다. `menu_id=1`은 아메리카노라서 `espresso_cup` Gazebo 제조 테스트가 실행됩니다.
+터미널 5.
+
+```bash
+curl -k https://127.0.0.1:8000/api/menu
+```
+
+정상 예:
+
+```json
+[
+  {"id":1,"name":"hotdog","aliases":[],"emoji":"hotdog","price":7000,"hot":false,"shot":false,"ice":false,"milk":false},
+  {"id":2,"name":"coke","aliases":[],"emoji":"coke","price":2500,"hot":false,"shot":false,"ice":false,"milk":false},
+  {"id":3,"name":"coffee","aliases":[],"emoji":"coffee","price":3500,"hot":false,"shot":false,"ice":false,"milk":false}
+]
+```
+
+`host.docker.internal:9001` 또는 incomplete tcp read 에러가 나면 `moca_service`가 아직 안 떴거나 재시작 중인 것이다.
+몇 초 기다렸다가 다시 확인한다.
+
+## 7. 웹/API로 핫도그 1개 주문
+
+실물 팔이 움직이는 단계다.
+로봇 주변을 비우고, 필요하면 바로 정지할 수 있게 준비한 뒤 실행한다.
+
+API로 주문:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
 ORDER_ID="$(
-  curl -k -sS -X POST https://localhost:8000/api/orders \
+  curl -k -sS -X POST https://127.0.0.1:8000/api/orders \
     -H 'Content-Type: application/json' \
     -d '{"channel":"kiosk","payment":"card","items":[{"menu_id":1,"qty":1}]}' \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["order_id"])'
 )"
 
-curl -k -sS -X POST https://localhost:8000/api/tables \
+echo "ORDER_ID=${ORDER_ID}"
+
+curl -k -sS -X POST https://127.0.0.1:8000/api/tables \
   -H 'Content-Type: application/json' \
   -d '{"order_id":'"${ORDER_ID}"',"receive_type":"take_out"}'
 ```
 
-에이드 경로를 검증하려면 주문 생성 payload의 `menu_id`를 `7`로 바꿉니다.
+웹 UI로 주문:
 
-### 4. 성공 로그 확인
-
-`moca_service` 터미널에서 아래 흐름을 확인합니다.
-
-```text
-accepted order claimed ...
-manufacture command start ...
-ddooby manufacture action send ...
-ddooby manufacture feedback ... manufacturing ...
-ddooby manufacture result succeeded ...
-manufacture completed subscribed ...
-order completed ...
+```bash
+google-chrome \
+  --user-data-dir=/tmp/moca-kiosk-chrome \
+  --ignore-certificate-errors \
+  https://127.0.0.1:8000/kiosk
 ```
 
-`ddooby_controller` action server 터미널에서 아래 흐름을 확인합니다.
+키오스크에서 `hotdog` 1개를 주문하고 `take_out`으로 확정한다.
+
+## 8. 성공 로그 확인
+
+`moca_service` 터미널에서 확인:
 
 ```text
-Accepted manufacture goal ...
-manufacturing ... with espresso_cup 또는 ade_cup ...
-Resetting Gazebo model with CLI ...
-Starting beverage test process ...
-Beverage task manager sequence completed
-completed ... run 1/1
-manufacture completed: 1 temporary task(s)
+accepted order claimed order_id=...
+manufacture command start order_id=...
+ddooby manufacture action send action=ddooby/manifacture ... items=[{'name': 'hotdog', 'count': 1}]
+ddooby manufacture feedback ... manufacture started: 1 task(s)
+ddooby manufacture feedback ... manufacturing hotdog with hotdog_making_node
+ddooby manufacture feedback ... completed hotdog run 1/1
+ddooby manufacture result succeeded ... message=manufacture completed: 1 task(s)
+manufacture completed subscribed order_id=...
+order completed order_id=...
 ```
 
-DB에서 주문 완료 상태를 확인합니다.
+`ddooby_controller` action server 터미널에서 확인:
+
+```text
+Accepted manufacture goal with 1 item entries
+Starting hotdog manufacture process: ros2 launch ... hotdog_making.launch.py task:=hotdog use_sim_time:=false
+New York hotdog assembly started
+Hotdog assembly step 1/5: pick and present case
+Hotdog assembly step 2/5: pick and place bread
+Hotdog assembly step 3/5: pick and place sausage
+Hotdog assembly step 4/5: pick, aim, and squeeze ketchup
+Hotdog assembly step 5/5: place completed hotdog at pickup zone
+New York hotdog assembly completed
+manufacture completed: 1 task(s)
+```
+
+DB에서 주문 완료 확인:
 
 ```bash
 docker exec moca_db mysql -uroot -prootpassword business \
-  -e "SELECT order_id, order_status, receive_type, table_id, total_price FROM orders WHERE order_id=${ORDER_ID};"
+  -e "SELECT order_id, order_status, receive_type, total_price FROM orders ORDER BY order_id DESC LIMIT 5;"
 ```
 
 성공 기준:
@@ -582,158 +351,179 @@ order_status = COMPLETED
 receive_type = TAKE_OUT
 ```
 
-### 5. 빠른 문제 구분
+## 9. 직접 제조 노드 실행
 
-- `/ddooby/manifacture`가 안 보이면 action server 터미널을 확인합니다.
-- `Starting beverage test process` 이후 진행이 없으면 Gazebo station과 MoveGroup이 떠 있는지 확인합니다.
-- `Gazebo set pose service` 또는 reset 관련 실패가 보이면 Gazebo world가 완전히 올라오기 전에 주문한 것입니다. Gazebo controller spawner가 모두 끝난 뒤 다시 주문합니다.
-- `ddooby manufacture result succeeded`는 보이는데 주문이 실패하면 제조 이후 단계 문제입니다. `dine_in` 주문에서 `doby_controller` 서빙이 꺼져 있을 때 흔히 발생합니다. 제조 연동 검증은 성공으로 봅니다.
+웹/서버를 거치지 않고 실물에서 핫도그 제조 노드만 실행할 때:
 
-## 빠른 종료
+```bash
+cd "$(git rev-parse --show-toplevel)"
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
 
-실행했던 터미널을 열어둔 상태라면 아래 순서대로 종료합니다.
+export ROS_DOMAIN_ID=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+unset ROS_LOCALHOST_ONLY
 
-### 1. 네이티브 프로세스 종료
-
-아래 터미널에서 각각 `Ctrl+C`를 누릅니다.
-
-```text
-터미널 1. ROS bringup
-터미널 2. Gazebo 제조 world
-터미널 3. MoveGroup
-터미널 4. RViz
-터미널 6. moca_service
-터미널 8. admin_gui
+ROS_HOME=/tmp/ros_home ROS_LOG_DIR=/tmp/ros_logs \
+ros2 launch ddooby_controller hotdog_making.launch.py \
+  use_sim_time:=false \
+  task:=hotdog
 ```
 
-키오스크 브라우저는 창을 닫으면 됩니다.
+## 10. Gazebo 제조 world 참고
 
-### 2. Docker 서비스 종료
+Gazebo에서 먼저 검증할 때:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
+ros2 launch ddooby_controller manufacturing_world_gz.launch.py with_rviz:=true
+```
+
+RViz 없이 Gazebo + MoveIt만 띄울 때:
+
+```bash
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only \
+ros2 launch ddooby_controller manufacturing_world_gz.launch.py with_moveit:=true with_rviz:=false
+```
+
+`with_rviz:=false`만 주면 MoveIt도 안 뜰 수 있으므로, 긴 검증에서 RViz만 끄려면 `with_moveit:=true with_rviz:=false`를 같이 준다.
+
+Gazebo 제조 노드:
+
+```bash
+ros2 launch ddooby_controller hotdog_making.launch.py task:=hotdog
+```
+
+## 11. TF / Pose 확인
+
+엔드이펙터 pose 확인:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+ros2 run tf2_ros tf2_echo world openarm_right_hand_tcp
+ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
+```
+
+ROS topic 확인:
+
+```bash
+ros2 topic echo /joint_states --once
+ros2 action list | sort
+ros2 node list | sort
+```
+
+## 12. 문제 구분
+
+`/ddooby/manifacture`가 안 보일 때:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+unset ROS_LOCALHOST_ONLY
+
+ros2 action list | grep ddooby
+```
+
+안 보이면 `manifacture_action_server.launch.py hotdog_use_sim_time:=false` 터미널을 확인한다.
+
+`moca_service`가 주문은 받는데 제조가 안 시작될 때:
+
+```text
+1. moca_service 로그의 ros domain id가 0인지 확인
+2. ddooby action server 로그에 Accepted manufacture goal이 찍히는지 확인
+3. /ddooby/manifacture action이 같은 ROS_DOMAIN_ID에서 보이는지 확인
+```
+
+`moca_service` 로그에 아래처럼 보이면 domain이 잘못된 경우가 많다.
+
+```text
+ros domain id:       99
+```
+
+실물 테스트에서는 `ROS_DOMAIN_ID=0`으로 다시 실행한다.
+
+웹 `/api/menu`가 예전 커피 메뉴로 보일 때:
+
+```text
+1. moca_db 초기 데이터가 최신인지 확인
+2. moca_service가 최신 코드로 실행 중인지 확인
+3. web_service가 moca_service 9001에 연결되는지 확인
+```
+
+메뉴 확인:
+
+```bash
+curl -k https://127.0.0.1:8000/api/menu
+```
+
+로봇이 움직이지 않거나 execute가 timeout 날 때:
+
+```text
+1. manufacturing_openarm.launch.py가 살아 있는지 확인
+2. /move_group이 보이는지 확인
+3. /right_joint_trajectory_controller/follow_joint_trajectory가 보이는지 확인
+4. CAN can0/can1 상태 확인
+```
+
+```bash
+ip link show can0
+ip link show can1
+ros2 node list | grep move_group
+ros2 action list | grep follow_joint_trajectory
+```
+
+## 13. 종료
+
+각 실행 터미널에서 `Ctrl+C`로 종료한다.
+
+종료 대상:
+
+```text
+manufacturing_openarm.launch.py
+manifacture_action_server.launch.py
+run_moca_service_native.sh
+web_service / moca_db docker compose
+```
+
+Docker 종료:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/src/service"
-sg docker -c 'docker compose -f docker-compose.operation.yml down'
+docker compose -f docker-compose.operation.yml down
 ```
 
-### 3. 종료 확인
-
-Docker 컨테이너가 남아 있는지 확인합니다.
+남은 프로세스 확인:
 
 ```bash
-sg docker -c 'docker ps --format "{{.Names}} {{.Status}}"'
+pgrep -af 'manufacturing_openarm|hotdog_making_node|manifacture_action_server|moca_service|ros2|rviz2|move_group|controller_manager|gz sim'
 ```
 
-아무 것도 출력되지 않으면 현재 실행 중인 Docker 컨테이너가 없는 상태입니다.
-
-프로젝트 관련 프로세스가 남아 있는지 확인합니다.
-
-```bash
-pgrep -af 'doby_controller|ddooby_controller|moca_service|admin_gui|dobi_npc|web_service|ros2|rviz|gazebo|gz sim'
-```
-
-아무 것도 출력되지 않으면 프로젝트 관련 host 프로세스가 종료된 상태입니다.
-
-주요 포트가 닫혔는지 확인합니다.
-
-```bash
-ss -ltnp | grep -E ':8000|:9001|:9002|:9004|:3307' || true
-```
-
-아무 것도 출력되지 않으면 `web_service`, `moca_service`, `admin_gui`, `moca_db` 관련 포트가 닫힌 상태입니다.
-
-### 4. 프로세스가 남아 있을 때
-
-정상 종료가 안 된 프로세스가 있으면 먼저 PID를 확인합니다.
-
-```bash
-pgrep -af 'doby_controller|ddooby_controller|moca_service|admin_gui|dobi_npc|web_service|ros2|rviz|gazebo|gz sim'
-```
-
-확인한 PID만 지정해서 종료합니다.
+확인한 PID만 종료한다.
 
 ```bash
 kill <PID>
 ```
 
-예를 들어 `admin_gui`가 `./.venv/bin/python main.py`로 남아 있다면 해당 PID만 종료합니다.
+## 14. 로컬 생성 파일
 
-```bash
-kill <admin_gui_PID>
-```
-
-그래도 종료되지 않는 경우에만 마지막 수단으로 강제 종료합니다.
-
-```bash
-kill -9 <PID>
-```
-
-## 참고
-
-### `docker-compose-plugin` 패키지를 찾을 수 없는 경우
-
-Ubuntu 환경에 따라 `docker-compose-plugin` 대신 `docker-compose-v2`를 설치해야 합니다.
-
-```bash
-sudo apt install -y docker-compose-v2
-```
-
-### `python3 -m pip`가 없는 경우
-
-```bash
-sudo apt install -y python3-pip
-```
-
-### Chrome 인증서 경고
-
-현재 문서는 로컬 개발용 self-signed 인증서를 사용합니다. 그래서 `https://localhost:8000/kiosk` 접속 시 인증서 경고가 뜰 수 있습니다.
-
-실제 장기 테스트나 스마트폰 연동까지 고려하면 `mkcert`로 로컬 CA를 구성하는 편이 더 안전하고 편합니다.
-
-### assets와 models 디렉터리 구분
-
-커밋해야 하는 작은 시뮬레이션 자산은 `assets/`에 둡니다. 예를 들어 `ddooby_controller`의 컵, 테이블, 스틱 SDF 자산은 `src/controller/ddooby_controller/assets/` 아래에 있습니다.
-
-`models/`는 MediaPipe, YOLO, LLM weight처럼 다운로드되는 AI 모델 산출물 용도로 보고 기본적으로 git ignore합니다.
-
-## 보안 영향 검토
-
-### 결론
-
-현재까지 진행한 설치와 실행이 Google 계정, 브라우저 계정, SSH key, API key 같은 민감정보를 직접 읽거나 업로드하는 흐름은 확인되지 않았습니다.
-
-다만 개발 편의를 위해 로컬 PC 보안 모델에 영향을 주는 설정이 있으므로 아래 항목은 주의해야 합니다.
-
-### 주의할 점
-
-- Docker group 권한을 부여했습니다. `docker` 그룹 사용자는 Docker 데몬을 통해 사실상 root에 가까운 권한을 얻을 수 있습니다.
-- `web_service`, `moca_service`, `moca_db` 일부 포트가 `0.0.0.0`로 열립니다. 같은 네트워크의 다른 장비에서 접근할 수 있으므로 공용 Wi-Fi에서는 실행하지 않는 편이 안전합니다.
-- MySQL 계정은 개발용 기본값입니다. 외부 네트워크에 노출되는 환경에서는 비밀번호를 반드시 변경해야 합니다.
-- `src/service/certs/key.pem`은 로컬 개발용 private key입니다. 외부에 공유하거나 커밋하면 안 됩니다.
-- Chrome을 `--ignore-certificate-errors`로 실행하면 인증서 검증을 우회합니다. 이 옵션은 별도 프로필과 `localhost` 테스트 주소에만 사용하고, 일반 웹 브라우징이나 Google 로그인에는 사용하지 않는 것이 안전합니다.
-- `python3 -m pip install --user --break-system-packages`는 사용자 Python 환경에 패키지를 설치하므로 ROS Python 환경과 충돌할 수 있습니다. 그래서 pip로 설치된 `numpy`, `opencv-python`, `opencv-contrib-python`은 제거하고 ROS/Ubuntu 시스템 버전을 사용하도록 정리했습니다.
-- 설치 과정에서 Docker image, apt 패키지, pip 패키지, MediaPipe 모델을 인터넷에서 다운로드합니다. 외부 서비스가 접속 IP와 일반 다운로드 요청 로그를 볼 수는 있지만, Google 계정 정보를 제공하는 흐름은 아닙니다.
-
-### 로컬 생성 파일
-
-아래 파일과 디렉터리는 로컬 실행을 위해 생성되며, 커밋하지 않는 것이 좋습니다.
+커밋하지 않는 로컬 산출물:
 
 ```text
 src/service/certs/
 src/service/.env
+src/service/moca_service/.venv/
+src/service/moca_service/.ros_ws/
 src/app/admin_gui/.venv/
 src/app/order_vui/audio/
-src/controller/doby_controller/build/
-src/controller/doby_controller/install/
-src/controller/doby_controller/log/
-src/controller/doby_controller/src/moca_gazebo/models/
-src/controller/doby_controller/src/dobi_npc/dobi_npc_emotion/models/
-src/controller/doby_controller/src/dobi_npc/dobi_npc_minigame/models/
-src/controller/doby_controller/src/dobi_npc/person_tracking_pkg/models/
+build/
+install/
+log/
 ```
-
-### 권장 운영 방식
-
-- 로컬 개발 중에는 `localhost` 또는 신뢰할 수 있는 사설망에서만 실행합니다.
-- Chrome 인증서 우회 옵션은 키오스크 테스트 전용 별도 프로필에만 사용합니다.
-- 장기 테스트 또는 스마트폰 연동에는 `mkcert`로 로컬 CA를 구성합니다.
-- 공용 네트워크에서 실행해야 한다면 방화벽으로 `8000`, `9001`, `9002`, `9004`, `3307` 접근 범위를 제한합니다.

@@ -12,6 +12,7 @@ def generate_launch_description():
     end_step = LaunchConfiguration("end_step")
     execution_backend = LaunchConfiguration("execution_backend")
     scenario_step_delay_ms = LaunchConfiguration("scenario_step_delay_ms")
+    hotdog_use_sim_time = LaunchConfiguration("hotdog_use_sim_time")
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -49,6 +50,11 @@ def generate_launch_description():
             default_value="150",
             description="Delay between scenario skeleton steps when task-node backend is used",
         ),
+        DeclareLaunchArgument(
+            "hotdog_use_sim_time",
+            default_value="true",
+            description="Use simulated time for hotdog_making.launch.py. Set false for physical OpenArm.",
+        ),
         Node(
             package="ddooby_controller",
             executable="manifacture_action_server_node",
@@ -63,6 +69,7 @@ def generate_launch_description():
                     "end_step": end_step,
                     "execution_backend": execution_backend,
                     "scenario_step_delay_ms": scenario_step_delay_ms,
+                    "hotdog_use_sim_time": hotdog_use_sim_time,
                 }
             ],
         ),
