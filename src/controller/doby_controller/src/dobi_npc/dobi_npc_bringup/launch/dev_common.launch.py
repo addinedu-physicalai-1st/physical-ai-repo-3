@@ -11,6 +11,7 @@ mode_manager 가 모드별 stack 을 spawn/kill 할 때 살아있어야 하는 �
   face_avatar               (/face_avatar/expression → 풀스크린/윈도우 GIF 표시)
   tts_node                  (/dialog/utter → 음성 출력)
   mode_manager              (/mode/request, /mode/state, mode stack spawn/kill)
+  map_apply                 (/map/apply → Nav2 map_server load_map)
   person_tracking_node      (/robot_cam/image_raw → /person_tracking/tracks)
   group_approach_node       (/person_tracking/tracks → /person_tracking/approach_target)
   approach_controller_node  (/person_tracking/approach_target → /cmd_vel, bbox 기반 PD 제어)
@@ -94,6 +95,10 @@ def generate_launch_description():
             package='dobi_npc_bringup', executable='mode_manager',
             name='mode_manager', output='screen',
             parameters=[{'initial_mode': LaunchConfiguration('initial_mode')}],
+        ),
+        Node(
+            package='dobi_npc_bringup', executable='map_apply',
+            name='map_apply', output='screen',
         ),
         Node(
             package='person_tracking_pkg', executable='person_tracking_node',

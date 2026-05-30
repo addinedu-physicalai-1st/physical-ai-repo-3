@@ -32,6 +32,8 @@ class DobyControllerRosRuntime:
         self._has_amcl_pose = False
         self._set_mode_client: Any | None = None
         self._set_mode_request_type: Any | None = None
+        self._apply_map_client: Any | None = None
+        self._apply_map_request_type: Any | None = None
 
     def start(self) -> None:
         if not self.enabled:
@@ -45,7 +47,7 @@ class DobyControllerRosRuntime:
         from rclpy.executors import SingleThreadedExecutor
         from rclpy.node import Node
         from dobi_npc_msgs.msg import ModeState
-        from dobi_npc_msgs.srv import SetMode
+        from dobi_npc_msgs.srv import ApplyMap, SetMode
         from geometry_msgs.msg import PoseWithCovarianceStamped
         from nav_msgs.msg import Odometry
 
@@ -73,6 +75,8 @@ class DobyControllerRosRuntime:
         )
         self._set_mode_client = self._node.create_client(SetMode, "/mode/request")
         self._set_mode_request_type = SetMode.Request
+        self._apply_map_client = self._node.create_client(ApplyMap, "/map/apply")
+        self._apply_map_request_type = ApplyMap.Request
         self._executor.add_node(self._node)
         self._spin_thread = threading.Thread(
             target=self._executor.spin,
@@ -105,6 +109,8 @@ class DobyControllerRosRuntime:
         self._spin_thread = None
         self._set_mode_client = None
         self._set_mode_request_type = None
+        self._apply_map_client = None
+        self._apply_map_request_type = None
         self._started = False
         self.logger.info("doby_controller ROS runtime stopped node=%s", self.node_name)
 
@@ -174,6 +180,75 @@ class DobyControllerRosRuntime:
             "ok": False,
             "code": "TIMEOUT",
             "message": "/mode/request timed out",
+        }
+
+    def apply_map(
+        self,
+        *,
+        map_id: int,
+        map_name: str,
+        image_format: str,
+        image_data: bytes,
+        yaml_config: dict[str, Any],
+        tables: list[dict[str, Any]],
+        timeout_sec: float | None = None,
+    ) -> dict[str, Any]:
+        if not self.enabled:
+            return {
+                "ok": False,
+                "code": "ROS_DISABLED",
+                "message": "doby_controller ROS runtime disabled",
+            }
+        if (
+            not self._started
+            or self._apply_map_client is None
+            or self._apply_map_request_type is None
+        ):
+            return {
+                "ok": False,
+                "code": "ROS_NOT_STARTED",
+                "message": "doby_controller ROS runtime not started",
+            }
+
+        request = self._apply_map_request_type()
+        request.map_id = int(map_id)
+        request.map_name = str(map_name)
+        request.image_format = str(image_format)
+        request.image_data = list(image_data)
+        request.yaml_config_json = json.dumps(yaml_config, ensure_ascii=False, separators=(",", ":"))
+        request.tables_json = json.dumps(tables, ensure_ascii=False, separators=(",", ":"))
+
+        timeout = max(self.setmode_timeout_sec, 10.0) if timeout_sec is None else timeout_sec
+        if not self._apply_map_client.wait_for_service(timeout_sec=timeout):
+            return {
+                "ok": False,
+                "code": "SERVICE_UNAVAILABLE",
+                "message": "/map/apply service unavailable",
+            }
+
+        future = self._apply_map_client.call_async(request)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if future.done():
+                response = future.result()
+                if response is None:
+                    return {
+                        "ok": False,
+                        "code": "NULL_RESPONSE",
+                        "message": "/map/apply returned no response",
+                    }
+                return {
+                    "ok": bool(response.success),
+                    "applied_map_path": response.applied_map_path,
+                    "reason": response.reason,
+                    "message": response.reason,
+                }
+            time.sleep(0.02)
+
+        return {
+            "ok": False,
+            "code": "TIMEOUT",
+            "message": "/map/apply timed out",
         }
 
     def _on_mode_state(self, msg: Any) -> None:

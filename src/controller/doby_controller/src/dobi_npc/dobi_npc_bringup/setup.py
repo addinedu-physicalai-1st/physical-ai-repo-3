@@ -32,6 +32,7 @@ setup(
             'patrol_scheduler = dobi_npc_bringup.patrol_scheduler_node:main',
             'table_occupancy_detector = dobi_npc_bringup.table_occupancy_detector_node:main',
             'guiding_controller = dobi_npc_bringup.guiding_controller_node:main',
+            'map_apply = dobi_npc_bringup.map_apply_node:main',
         ],
     },
 )
