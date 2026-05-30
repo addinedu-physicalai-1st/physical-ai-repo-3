@@ -27,6 +27,7 @@ from app.service.map_service import MapService
 from app.scheduler.workflow_scheduler import OrderWorkflowScheduler
 from app.service.menu_service import MenuService
 from app.service.order_service import OrderService
+from app.service.table_service import TableService
 
 
 def main() -> None:
@@ -53,6 +54,7 @@ def main() -> None:
     order_item_repository = OrderItemRepository()
     store_table_repository = TableRepository()
     map_repository = MapRepository()
+    table_service = TableService(database, store_table_repository)
     table_inmemory_state = TableInmemoryState(database, store_table_repository)
     active_map_runtime_state = ActiveMapRuntimeState()
     order_service = OrderService(
@@ -120,6 +122,7 @@ def main() -> None:
         admin_gui_runtime,
         menu_service,
         order_service,
+        table_service,
         logger,
         admin_gui_doby_runtime,
         map_service,
