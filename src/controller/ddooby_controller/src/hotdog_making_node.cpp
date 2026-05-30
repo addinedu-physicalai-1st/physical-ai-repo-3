@@ -102,7 +102,7 @@ std::string normalizeStageName(const std::string & value)
   return normalized;
 }
 
-std::optional<ManufacturingStage> parseStopAfterStage(const std::string & value)
+std::optional<ManufacturingStage> parsePlayToStage(const std::string & value)
 {
   const std::string normalized = normalizeStageName(value);
   if (normalized.empty() || normalized == "complete" || normalized == "all" ||
@@ -128,10 +128,10 @@ std::optional<ManufacturingStage> parseStopAfterStage(const std::string & value)
   if (normalized == "pregrasp" || normalized == "pullout") {
     return ManufacturingStage::Pick;
   }
-  throw std::invalid_argument("unsupported stop_after_stage '" + value + "'");
+  throw std::invalid_argument("unsupported play_to_stage '" + value + "'");
 }
 
-ManufacturingTarget parseManufacturingTarget(const std::string & value)
+ManufacturingTarget parseManufacturingTask(const std::string & value)
 {
   const std::string normalized = normalizeStageName(value);
   if (normalized == "bread") {
@@ -149,7 +149,7 @@ ManufacturingTarget parseManufacturingTarget(const std::string & value)
   if (normalized == "sausage") {
     return ManufacturingTarget::Sausage;
   }
-  throw std::invalid_argument("unsupported target '" + value + "'");
+  throw std::invalid_argument("unsupported task '" + value + "'");
 }
 
 std::optional<ArmSide> parseArmSide(const std::string & value)
@@ -175,9 +175,14 @@ ArmSide defaultArmForTarget(ManufacturingTarget target)
   return ArmSide::Left;
 }
 
-ManufacturingStage parseStartFromStage(const std::string & value)
+std::optional<ManufacturingStage> stageEndpointFromWaypointName(const std::string & value)
 {
   const std::string normalized = normalizeStageName(value);
+  if (normalized.empty() || normalized == "complete" || normalized == "all" ||
+    normalized == "none")
+  {
+    return std::nullopt;
+  }
   if (normalized == "home") {
     return ManufacturingStage::Home;
   }
@@ -193,10 +198,33 @@ ManufacturingStage parseStartFromStage(const std::string & value)
   if (normalized == "returnhome") {
     return ManufacturingStage::ReturnHome;
   }
-  if (normalized == "pregrasp" || normalized == "pullout") {
+  return std::nullopt;
+}
+
+std::optional<ManufacturingStage> stageHintFromWaypointName(const std::string & value)
+{
+  if (const auto stage_endpoint = stageEndpointFromWaypointName(value)) {
+    return stage_endpoint;
+  }
+
+  const std::string normalized = normalizeStageName(value);
+  if (normalized == "pregrasp" || normalized == "targetalign" || normalized == "clearance" ||
+    normalized == "grasp" || normalized == "close" || normalized == "pullout" ||
+    normalized == "lift")
+  {
     return ManufacturingStage::Pick;
   }
-  throw std::invalid_argument("unsupported start_from_stage '" + value + "'");
+  if (normalized == "casepresent" || normalized == "aim" || normalized == "squeezestart" ||
+    normalized == "squeeze")
+  {
+    return ManufacturingStage::Work;
+  }
+  if (normalized == "move1" || normalized == "move2" || normalized == "approach" ||
+    normalized == "returnpose" || normalized == "releasepose" || normalized == "release")
+  {
+    return ManufacturingStage::Place;
+  }
+  return std::nullopt;
 }
 
 int stageOrder(ManufacturingStage stage)
@@ -1240,16 +1268,16 @@ public:
     item_name_ = declare_parameter<std::string>("item_name", "new_york_hotdog");
     scenario_only_ = declare_parameter<bool>("scenario_only", true);
     step_delay_ms_ = declare_parameter<int>("step_delay_ms", 150);
-    target_name_ = declare_parameter<std::string>("target", "bread");
+    task_name_ = declare_parameter<std::string>("task", "bread");
     arm_name_ = declare_parameter<std::string>("arm", "auto");
     target_model_ = declare_parameter<std::string>("target_model", "auto");
     case_target_model_ = declare_parameter<std::string>("case_target_model", "case");
     bread_target_model_ = declare_parameter<std::string>("bread_target_model", "bread");
     sausage_target_model_ = declare_parameter<std::string>("sausage_target_model", "sausage");
     ketchup_target_model_ = declare_parameter<std::string>("ketchup_target_model", "kachup");
-    start_from_stage_name_ = declare_parameter<std::string>("start_from_stage", "home");
-    stop_after_stage_name_ = declare_parameter<std::string>("stop_after_stage", "complete");
-    stop_after_waypoint_name_ = declare_parameter<std::string>("stop_after_waypoint", "");
+    play_to_stage_name_ = declare_parameter<std::string>("play_to_stage", "complete");
+    start_from_waypoint_name_ = declare_parameter<std::string>("start_from_waypoint", "");
+    play_to_waypoint_name_ = declare_parameter<std::string>("play_to_waypoint", "");
     layout_path_ = declare_parameter<std::string>("layout_path", "");
     left_arm_group_ = declare_parameter<std::string>("left_arm_group", "left_arm");
     left_gripper_group_ = declare_parameter<std::string>("left_gripper_group", "left_gripper");
@@ -1360,31 +1388,55 @@ public:
     dry_run_ = declare_parameter<bool>("dry_run", false);
 
     try {
-      start_from_stage_ = parseStartFromStage(start_from_stage_name_);
-      stop_after_stage_ = parseStopAfterStage(stop_after_stage_name_);
-      stop_after_waypoint_ = normalizeStageName(stop_after_waypoint_name_);
-      if (stop_after_waypoint_ == "complete" || stop_after_waypoint_ == "all" ||
-        stop_after_waypoint_ == "none")
-      {
-        stop_after_waypoint_.clear();
+      start_stage_ = ManufacturingStage::Home;
+      if (!normalizeStageName(start_from_waypoint_name_).empty()) {
+        if (const auto start_stage = stageHintFromWaypointName(start_from_waypoint_name_)) {
+          start_stage_ = start_stage.value();
+          if (!stageEndpointFromWaypointName(start_from_waypoint_name_)) {
+            RCLCPP_WARN(
+              get_logger(),
+              "start_from_waypoint='%s' starts from containing stage '%s'; "
+              "intra-stage waypoint resume is not exact yet",
+              start_from_waypoint_name_.c_str(),
+              task_presets::stageName(start_stage_));
+          }
+        } else {
+          throw std::invalid_argument(
+                  "unsupported start_from_waypoint '" + start_from_waypoint_name_ + "'");
+        }
       }
-      target_ = parseManufacturingTarget(target_name_);
+
+      play_to_stage_ = parsePlayToStage(play_to_stage_name_);
+
+      play_to_waypoint_ = normalizeStageName(play_to_waypoint_name_);
+      if (const auto waypoint_stage_endpoint =
+          stageEndpointFromWaypointName(play_to_waypoint_name_))
+      {
+        play_to_stage_ = waypoint_stage_endpoint;
+        play_to_waypoint_.clear();
+      }
+      if (play_to_waypoint_ == "complete" || play_to_waypoint_ == "all" ||
+        play_to_waypoint_ == "none")
+      {
+        play_to_waypoint_.clear();
+      }
+      target_ = parseManufacturingTask(task_name_);
       arm_ = parseArmSide(arm_name_).value_or(defaultArmForTarget(target_));
-      if (stop_after_stage_.has_value() &&
-        stageOrder(stop_after_stage_.value()) < stageOrder(start_from_stage_))
+      if (play_to_stage_.has_value() &&
+        stageOrder(play_to_stage_.value()) < stageOrder(start_stage_))
       {
         throw std::invalid_argument(
-                "stop_after_stage must be the same as or later than start_from_stage");
+                "play_to_stage must be the same as or later than start_from_waypoint");
       }
     } catch (const std::exception & error) {
-      stop_after_stage_valid_ = false;
+      play_range_valid_ = false;
       RCLCPP_ERROR(get_logger(), "%s", error.what());
     }
   }
 
   bool run()
   {
-    if (!stop_after_stage_valid_) {
+    if (!play_range_valid_) {
       return false;
     }
 
@@ -1394,11 +1446,11 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "Manufacturing request: target=%s, arm=%s, start_stage=%s, stop_stage=%s",
+      "Manufacturing request: task=%s, arm=%s, start_stage=%s, play_to_stage=%s",
       task_presets::targetName(target_),
       task_presets::armName(arm_),
-      task_presets::stageName(start_from_stage_),
-      stop_after_stage_.has_value() ? task_presets::stageName(stop_after_stage_.value()) : "complete");
+      task_presets::stageName(start_stage_),
+      play_to_stage_.has_value() ? task_presets::stageName(play_to_stage_.value()) : "complete");
 
     if (target_ == ManufacturingTarget::Case && arm_ == ArmSide::Right) {
       return runCasePick();
@@ -1407,24 +1459,24 @@ public:
       return runHotdogAssembly();
     }
     if (target_ == ManufacturingTarget::Bread && arm_ == ArmSide::Left) {
-      if (stop_after_stage_.has_value() &&
-        stageOrder(stop_after_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
+      if (play_to_stage_.has_value() &&
+        stageOrder(play_to_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
       {
         return runBreadPick();
       }
       return runBreadPlace();
     }
     if (target_ == ManufacturingTarget::Sausage && arm_ == ArmSide::Left) {
-      if (stop_after_stage_.has_value() &&
-        stageOrder(stop_after_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
+      if (play_to_stage_.has_value() &&
+        stageOrder(play_to_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
       {
         return runSausagePick();
       }
       return runSausagePlace();
     }
     if (target_ == ManufacturingTarget::Ketchup && arm_ == ArmSide::Left) {
-      if (stop_after_stage_.has_value() &&
-        stageOrder(stop_after_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
+      if (play_to_stage_.has_value() &&
+        stageOrder(play_to_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
       {
         return runKetchupPick();
       }
@@ -1433,7 +1485,7 @@ public:
 
     RCLCPP_ERROR(
       get_logger(),
-      "Unsupported target/arm combination: target=%s, arm=%s",
+      "Unsupported task/arm combination: task=%s, arm=%s",
       task_presets::targetName(target_),
       task_presets::armName(arm_));
     return false;
@@ -1481,36 +1533,36 @@ private:
 
   bool runHotdogAssembly()
   {
-    if (start_from_stage_ == ManufacturingStage::Place) {
+    if (start_stage_ == ManufacturingStage::Place) {
       RCLCPP_INFO(
         get_logger(),
         "New York hotdog assembly starts at completed-hotdog pickup-zone place");
       return runCompletedHotdogPlace();
     }
 
-    if (start_from_stage_ != ManufacturingStage::Home ||
-      (stop_after_stage_.has_value() &&
-      stop_after_stage_.value() != ManufacturingStage::Place))
+    if (start_stage_ != ManufacturingStage::Home ||
+      (play_to_stage_.has_value() &&
+      play_to_stage_.value() != ManufacturingStage::Place))
     {
       RCLCPP_WARN(
         get_logger(),
-        "target:=hotdog currently runs the implemented full sequence and ignores start/stop stage slicing");
+        "task:=hotdog currently runs the implemented full sequence and ignores waypoint slicing");
     }
 
     RCLCPP_INFO(get_logger(), "New York hotdog assembly started");
 
     const std::string saved_target_model = target_model_;
-    const ManufacturingStage saved_start_from_stage = start_from_stage_;
-    const auto saved_stop_after_stage = stop_after_stage_;
+    const ManufacturingStage saved_start_stage = start_stage_;
+    const auto saved_play_to_stage = play_to_stage_;
 
     auto restore_state = [&]() {
       target_model_ = saved_target_model;
-      start_from_stage_ = saved_start_from_stage;
-      stop_after_stage_ = saved_stop_after_stage;
+      start_stage_ = saved_start_stage;
+      play_to_stage_ = saved_play_to_stage;
     };
 
-    start_from_stage_ = ManufacturingStage::Home;
-    stop_after_stage_.reset();
+    start_stage_ = ManufacturingStage::Home;
+    play_to_stage_.reset();
 
     target_model_ = case_target_model_;
     RCLCPP_INFO(get_logger(), "Hotdog assembly step 1/5: pick and present case (%s)", target_model_.c_str());
@@ -1540,7 +1592,7 @@ private:
       return false;
     }
 
-    stop_after_stage_ = saved_stop_after_stage;
+    play_to_stage_ = saved_play_to_stage;
     RCLCPP_INFO(get_logger(), "Hotdog assembly step 5/5: place completed hotdog at pickup zone");
     if (!runCompletedHotdogPlace()) {
       restore_state();
@@ -1554,7 +1606,7 @@ private:
 
   bool shouldStopAfter(ManufacturingStage stage) const
   {
-    if (!stop_after_stage_.has_value() || stop_after_stage_.value() != stage) {
+    if (!play_to_stage_.has_value() || play_to_stage_.value() != stage) {
       return false;
     }
 
@@ -1567,15 +1619,15 @@ private:
 
   bool shouldStopAfterWaypoint(ManufacturingStage stage, const std::string & waypoint) const
   {
-    if (stop_after_waypoint_.empty()) {
+    if (play_to_waypoint_.empty()) {
       return false;
     }
 
     const std::string normalized_waypoint = normalizeStageName(waypoint);
     const std::string normalized_stage_waypoint =
       normalizeStageName(std::string(task_presets::stageName(stage)) + waypoint);
-    if (stop_after_waypoint_ != normalized_waypoint &&
-      stop_after_waypoint_ != normalized_stage_waypoint)
+    if (play_to_waypoint_ != normalized_waypoint &&
+      play_to_waypoint_ != normalized_stage_waypoint)
     {
       return false;
     }
@@ -1590,13 +1642,13 @@ private:
 
   bool shouldRunStage(ManufacturingStage stage) const
   {
-    return stageOrder(stage) >= stageOrder(start_from_stage_);
+    return stageOrder(stage) >= stageOrder(start_stage_);
   }
 
   bool shouldStopAtOrBefore(ManufacturingStage stage) const
   {
-    return stop_after_stage_.has_value() &&
-           stageOrder(stop_after_stage_.value()) <= stageOrder(stage);
+    return play_to_stage_.has_value() &&
+           stageOrder(play_to_stage_.value()) <= stageOrder(stage);
   }
 
   bool prepareAndRunPickMotion(
@@ -1753,10 +1805,28 @@ private:
     }
 
     bool target_collision_removed = false;
+    bool gripper_opened_for_approach = false;
 
     PreGraspGoalMode pre_grasp_goal_mode = PreGraspGoalMode::ExactPose;
     geometry_msgs::msg::Pose reached_pre_grasp_pose;
     if (shouldRunStage(ManufacturingStage::Pick)) {
+      if (config.target == ManufacturingTarget::Case) {
+        RCLCPP_INFO(
+          get_logger(),
+          "%s: opening gripper at ready pose before case approach",
+          config.log_label.c_str());
+        if (!openGripperForPickApproach(
+            get_logger(),
+            gripper,
+            config.log_label,
+            tuning,
+            gripper_open_target_))
+        {
+          return false;
+        }
+        gripper_opened_for_approach = true;
+      }
+
       RCLCPP_INFO(get_logger(), "%s: planning to pre-grasp", config.log_label.c_str());
       const bool use_pre_grasp_clearance =
         pre_grasp_pose_configured &&
@@ -1920,15 +1990,17 @@ private:
         }
       }
 
-      RCLCPP_INFO(get_logger(), "%s: opening gripper after target alignment", config.log_label.c_str());
-      if (!openGripperForPickApproach(
-          get_logger(),
-          gripper,
-          config.log_label,
-          tuning,
-          gripper_open_target_))
-      {
-        return false;
+      if (!gripper_opened_for_approach) {
+        RCLCPP_INFO(get_logger(), "%s: opening gripper after target alignment", config.log_label.c_str());
+        if (!openGripperForPickApproach(
+            get_logger(),
+            gripper,
+            config.log_label,
+            tuning,
+            gripper_open_target_))
+        {
+          return false;
+        }
       }
 
       if (remove_target_collision_before_grasp_ && !target_collision_removed) {
@@ -2281,6 +2353,8 @@ private:
         case_pre_grasp_distance_,
         lift_height_,
         task_presets::kRightCasePickTuning.grasp_tcp_z_offset_m);
+    pick_plan.grasp_pose.position.z += task_presets::kRightCaseGraspWorldZOffsetM;
+    pick_plan.lift_pose.position.z += task_presets::kRightCaseGraspWorldZOffsetM;
 
     return prepareAndRunPickMotion(
       PickMotionConfig{
@@ -2417,15 +2491,15 @@ private:
   {
     RCLCPP_INFO(get_logger(), "Hotdog bread place started: item=%s", item_name_.c_str());
 
-    if (stageOrder(start_from_stage_) <= stageOrder(ManufacturingStage::Pick)) {
-      const auto requested_stop_after_stage = stop_after_stage_;
-      if (requested_stop_after_stage.has_value() &&
-        stageOrder(requested_stop_after_stage.value()) > stageOrder(ManufacturingStage::Pick))
+    if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
+      const auto requested_play_to_stage = play_to_stage_;
+      if (requested_play_to_stage.has_value() &&
+        stageOrder(requested_play_to_stage.value()) > stageOrder(ManufacturingStage::Pick))
       {
-        stop_after_stage_.reset();
+        play_to_stage_.reset();
       }
       const bool bread_pick_ok = runBreadPick();
-      stop_after_stage_ = requested_stop_after_stage;
+      play_to_stage_ = requested_play_to_stage;
       if (!bread_pick_ok) {
         return false;
       }
@@ -2539,15 +2613,15 @@ private:
   {
     RCLCPP_INFO(get_logger(), "Hotdog sausage place started: item=%s", item_name_.c_str());
 
-    if (stageOrder(start_from_stage_) <= stageOrder(ManufacturingStage::Pick)) {
-      const auto requested_stop_after_stage = stop_after_stage_;
-      if (requested_stop_after_stage.has_value() &&
-        stageOrder(requested_stop_after_stage.value()) > stageOrder(ManufacturingStage::Pick))
+    if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
+      const auto requested_play_to_stage = play_to_stage_;
+      if (requested_play_to_stage.has_value() &&
+        stageOrder(requested_play_to_stage.value()) > stageOrder(ManufacturingStage::Pick))
       {
-        stop_after_stage_.reset();
+        play_to_stage_.reset();
       }
       const bool sausage_pick_ok = runSausagePick();
-      stop_after_stage_ = requested_stop_after_stage;
+      play_to_stage_ = requested_play_to_stage;
       if (!sausage_pick_ok) {
         return false;
       }
@@ -2805,15 +2879,15 @@ private:
   {
     RCLCPP_INFO(get_logger(), "Hotdog ketchup squeeze started: item=%s", item_name_.c_str());
 
-    if (stageOrder(start_from_stage_) <= stageOrder(ManufacturingStage::Pick)) {
-      const auto requested_stop_after_stage = stop_after_stage_;
-      if (requested_stop_after_stage.has_value() &&
-        stageOrder(requested_stop_after_stage.value()) > stageOrder(ManufacturingStage::Pick))
+    if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
+      const auto requested_play_to_stage = play_to_stage_;
+      if (requested_play_to_stage.has_value() &&
+        stageOrder(requested_play_to_stage.value()) > stageOrder(ManufacturingStage::Pick))
       {
-        stop_after_stage_.reset();
+        play_to_stage_.reset();
       }
       const bool ketchup_pick_ok = runKetchupPick();
-      stop_after_stage_ = requested_stop_after_stage;
+      play_to_stage_ = requested_play_to_stage;
       if (!ketchup_pick_ok) {
         return false;
       }
@@ -3416,13 +3490,12 @@ private:
     }
 
     RCLCPP_INFO(get_logger(), "Completed hotdog place: opening right gripper");
-    right_gripper.setNamedTarget(gripper_open_target_);
-    if (!planAndExecute(
+    if (!openGripperForPickApproach(
         get_logger(),
         right_gripper,
-        "completed hotdog place gripper open",
-        task_presets::kDefaultPlanExecuteMaxAttempts,
-        task_presets::kDefaultGripperMinDurationSec))
+        "Completed hotdog place",
+        task_presets::kRightCasePickTuning,
+        gripper_open_target_))
     {
       return false;
     }
@@ -3469,6 +3542,17 @@ private:
       }
     }
 
+    RCLCPP_INFO(get_logger(), "Completed hotdog place: ensuring right gripper open at finish");
+    if (!openGripperForPickApproach(
+        get_logger(),
+        right_gripper,
+        "Completed hotdog final",
+        task_presets::kRightCasePickTuning,
+        gripper_open_target_))
+    {
+      return false;
+    }
+
     RCLCPP_INFO(get_logger(), "Completed hotdog pickup-zone place completed");
     return true;
   }
@@ -3483,7 +3567,7 @@ private:
   std::string item_name_;
   bool scenario_only_{true};
   int step_delay_ms_{150};
-  std::string target_name_;
+  std::string task_name_;
   std::string arm_name_;
   ManufacturingTarget target_{ManufacturingTarget::Bread};
   ArmSide arm_{ArmSide::Left};
@@ -3492,13 +3576,13 @@ private:
   std::string bread_target_model_;
   std::string sausage_target_model_;
   std::string ketchup_target_model_;
-  std::string start_from_stage_name_;
-  ManufacturingStage start_from_stage_{ManufacturingStage::Home};
-  std::string stop_after_stage_name_;
-  std::optional<ManufacturingStage> stop_after_stage_;
-  std::string stop_after_waypoint_name_;
-  std::string stop_after_waypoint_;
-  bool stop_after_stage_valid_{true};
+  ManufacturingStage start_stage_{ManufacturingStage::Home};
+  std::string play_to_stage_name_;
+  std::string start_from_waypoint_name_;
+  std::optional<ManufacturingStage> play_to_stage_;
+  std::string play_to_waypoint_name_;
+  std::string play_to_waypoint_;
+  bool play_range_valid_{true};
   std::string layout_path_;
   std::string left_arm_group_;
   std::string left_gripper_group_;

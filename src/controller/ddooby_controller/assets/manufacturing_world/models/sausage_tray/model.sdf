@@ -30,7 +30,7 @@
         <pose>0.124910742 0.000060976 0.006773353 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.009999998 0.159999996 0.004999999</size>
+            <size>0.009999998 0.180000007 0.004999999</size>
           </box>
         </geometry>
         <surface>
@@ -46,7 +46,7 @@
         <pose>0.000009209 0.000060976 -0.000502974 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.259999990 0.180000007 0.010000000</size>
+            <size>0.259999990 0.200000003 0.010000000</size>
           </box>
         </geometry>
         <surface>
@@ -62,7 +62,7 @@
         <pose>-0.124848291 0.000060976 0.006773353 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.009999998 0.159999996 0.004999999</size>
+            <size>0.009999998 0.180000007 0.004999999</size>
           </box>
         </geometry>
         <surface>
@@ -75,7 +75,7 @@
         </surface>
       </collision>
       <collision name="sausage_tray_tray_left_001_collision">
-        <pose>0.000009209 0.084731489 0.006573379 0 0 0</pose>
+        <pose>0.000009209 0.094440848 0.006573379 0 0 0</pose>
         <geometry>
           <box>
             <size>0.259999990 0.010000005 0.004999999</size>
@@ -91,7 +91,7 @@
         </surface>
       </collision>
       <collision name="sausage_tray_tray_right_001_collision">
-        <pose>0.000009209 -0.083769277 0.006573379 0 0 0</pose>
+        <pose>0.000009209 -0.094518930 0.006573379 0 0 0</pose>
         <geometry>
           <box>
             <size>0.259999990 0.010000005 0.004999999</size>

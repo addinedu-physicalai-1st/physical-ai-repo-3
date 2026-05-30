@@ -6,25 +6,25 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def generate_launch_description():
-    target = LaunchConfiguration("target")
+    task = LaunchConfiguration("task")
     arm = LaunchConfiguration("arm")
     target_model = LaunchConfiguration("target_model")
     case_target_model = LaunchConfiguration("case_target_model")
     bread_target_model = LaunchConfiguration("bread_target_model")
     sausage_target_model = LaunchConfiguration("sausage_target_model")
     ketchup_target_model = LaunchConfiguration("ketchup_target_model")
-    start_from_stage = LaunchConfiguration("start_from_stage")
-    stop_after_stage = LaunchConfiguration("stop_after_stage")
-    stop_after_waypoint = LaunchConfiguration("stop_after_waypoint")
+    play_to_stage = LaunchConfiguration("play_to_stage")
+    start_from_waypoint = LaunchConfiguration("start_from_waypoint")
+    play_to_waypoint = LaunchConfiguration("play_to_waypoint")
     gripper_grasp_target = LaunchConfiguration("gripper_grasp_target")
     dry_run = LaunchConfiguration("dry_run")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
-    target_arg = DeclareLaunchArgument(
-        "target",
+    task_arg = DeclareLaunchArgument(
+        "task",
         default_value="bread",
         choices=["bread", "case", "sausage", "ketchup", "hotdog"],
-        description="Manufacturing target object.",
+        description="Manufacturing task to run.",
     )
     arm_arg = DeclareLaunchArgument(
         "arm",
@@ -35,44 +35,43 @@ def generate_launch_description():
     target_model_arg = DeclareLaunchArgument(
         "target_model",
         default_value="auto",
-        description="Manufacturing world model name to pick. Use auto for the target default.",
+        description="Manufacturing world model name to pick. Use auto for the task default model.",
     )
     case_target_model_arg = DeclareLaunchArgument(
         "case_target_model",
         default_value="case",
-        description="World model name used for the case step in target:=hotdog.",
+        description="World model name used for the case step in task:=hotdog.",
     )
     bread_target_model_arg = DeclareLaunchArgument(
         "bread_target_model",
         default_value="bread",
-        description="World model name used for the bread step in target:=hotdog.",
+        description="World model name used for the bread step in task:=hotdog.",
     )
     sausage_target_model_arg = DeclareLaunchArgument(
         "sausage_target_model",
         default_value="sausage",
-        description="World model name used for the sausage step in target:=hotdog.",
+        description="World model name used for the sausage step in task:=hotdog.",
     )
     ketchup_target_model_arg = DeclareLaunchArgument(
         "ketchup_target_model",
         default_value="kachup",
-        description="World model name used for the ketchup step in target:=hotdog.",
+        description="World model name used for the ketchup step in task:=hotdog.",
     )
-    start_from_stage_arg = DeclareLaunchArgument(
-        "start_from_stage",
-        default_value="home",
-        choices=["home", "pick", "work", "place", "return_home"],
-        description="Start execution from this manufacturing stage.",
-    )
-    stop_after_stage_arg = DeclareLaunchArgument(
-        "stop_after_stage",
+    play_to_stage_arg = DeclareLaunchArgument(
+        "play_to_stage",
         default_value="complete",
         choices=["complete", "home", "pick", "work", "place", "return_home"],
-        description="Stop after this manufacturing stage. Use complete to run the full task.",
+        description="Run until this manufacturing stage. Use complete to run the full task.",
     )
-    stop_after_waypoint_arg = DeclareLaunchArgument(
-        "stop_after_waypoint",
+    start_from_waypoint_arg = DeclareLaunchArgument(
+        "start_from_waypoint",
         default_value="",
-        description="Optional task-specific waypoint to stop after, such as pre_grasp, pull_out, aim, or squeeze.",
+        description="Optional waypoint-style start hint. Stage endpoint names map to the matching stage.",
+    )
+    play_to_waypoint_arg = DeclareLaunchArgument(
+        "play_to_waypoint",
+        default_value="",
+        description="Optional task-specific waypoint to run until, such as pre_grasp, pull_out, aim, or squeeze.",
     )
     gripper_grasp_target_arg = DeclareLaunchArgument(
         "gripper_grasp_target",
@@ -106,16 +105,16 @@ def generate_launch_description():
             {
                 "use_sim_time": use_sim_time,
                 "scenario_only": False,
-                "target": target,
+                "task": task,
                 "arm": arm,
                 "target_model": target_model,
                 "case_target_model": case_target_model,
                 "bread_target_model": bread_target_model,
                 "sausage_target_model": sausage_target_model,
                 "ketchup_target_model": ketchup_target_model,
-                "start_from_stage": start_from_stage,
-                "stop_after_stage": stop_after_stage,
-                "stop_after_waypoint": stop_after_waypoint,
+                "play_to_stage": play_to_stage,
+                "start_from_waypoint": start_from_waypoint,
+                "play_to_waypoint": play_to_waypoint,
                 "gripper_grasp_target": gripper_grasp_target,
                 "dry_run": dry_run,
                 "enable_ketchup_squeeze_gripper": PythonExpression(
@@ -126,16 +125,16 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        target_arg,
+        task_arg,
         arm_arg,
         target_model_arg,
         case_target_model_arg,
         bread_target_model_arg,
         sausage_target_model_arg,
         ketchup_target_model_arg,
-        start_from_stage_arg,
-        stop_after_stage_arg,
-        stop_after_waypoint_arg,
+        play_to_stage_arg,
+        start_from_waypoint_arg,
+        play_to_waypoint_arg,
         gripper_grasp_target_arg,
         dry_run_arg,
         use_sim_time_arg,

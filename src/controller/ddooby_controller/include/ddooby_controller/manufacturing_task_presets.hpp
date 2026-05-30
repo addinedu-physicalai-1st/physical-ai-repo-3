@@ -473,7 +473,7 @@ inline constexpr std::array<StageWaypointPosePreset, 36> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Pick,
     "pre_grasp",
-    {true, 0.387, -0.201, 0.395, 0.721, -0.000, 0.693, -0.000}
+    {true, 0.324, -0.201, 0.398, 0.721, 0.000, 0.693, -0.000}
   },
   // 케이스 pick stage: 케이스 집기 pose. 비활성화 시 자동 계산.
   {
@@ -567,7 +567,7 @@ inline constexpr PickTuningPreset kLeftBreadPickTuning{
 // 케이스 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kRightCasePickTuning{
   -0.020,
-  {true, 0.040},
+  {true, 0.043},
   {true, 0.025}
 };
 
@@ -575,9 +575,13 @@ inline constexpr PickTuningPreset kRightCasePickTuning{
 // 오른팔 joint2 하한에 붙지 않도록 실제 grasp 진입 전만 살짝 띄운다.
 inline constexpr double kRightCaseTargetAlignZOffsetM = 0.015;
 
+// 케이스 grasp 시 면에 너무 붙어 MoveIt gripper close collision이 나는 것을 피하기 위한 world z 여유.
+// 깊이는 kRightCasePickTuning.grasp_tcp_z_offset_m으로 유지하고 높이만 올린다.
+inline constexpr double kRightCaseGraspWorldZOffsetM = 0.004;
+
 // 소시지 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kLeftSausagePickTuning{
-  0.005,
+  -0.015,
   {true, 0.024},
   {true, 0.005}
 };

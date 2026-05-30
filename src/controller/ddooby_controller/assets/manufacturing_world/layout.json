@@ -12,7 +12,7 @@
       "xyz": [
         0.505718,
         0.338765,
-        0.118745
+        0.132832
       ],
       "rpy": [
         0.0,
@@ -28,7 +28,7 @@
       "xyz": [
         0.250651,
         -0.548924,
-        0.117725
+        0.133193
       ],
       "rpy": [
         0.0,
@@ -44,7 +44,7 @@
       "xyz": [
         0.681166,
         0.01564,
-        0.361147
+        0.374232
       ],
       "rpy": [
         0.0,
@@ -60,7 +60,7 @@
       "xyz": [
         0.358618,
         0.150329,
-        0.267104
+        0.28028
       ],
       "rpy": [
         0.0,
@@ -76,7 +76,7 @@
       "xyz": [
         0.358618,
         0.007729,
-        0.267104
+        0.28028
       ],
       "rpy": [
         0.0,
@@ -91,8 +91,8 @@
       "model_dir": "manufacturing_world/models/sausage_tray_leg_left",
       "xyz": [
         0.358664,
-        0.333496,
-        0.267104
+        0.351962,
+        0.28028
       ],
       "rpy": [
         0.0,
@@ -107,8 +107,8 @@
       "model_dir": "manufacturing_world/models/sausage_tray_leg_right",
       "xyz": [
         0.358664,
-        0.190896,
-        0.267104
+        0.209362,
+        0.28028
       ],
       "rpy": [
         0.0,
@@ -122,9 +122,9 @@
       "collection": "Environment",
       "model_dir": "manufacturing_world/models/case_stand",
       "xyz": [
-        0.655983,
+        0.605289,
         -0.200808,
-        0.311593
+        0.325757
       ],
       "rpy": [
         0.0,
@@ -140,7 +140,7 @@
       "xyz": [
         0.735583,
         -0.12342,
-        0.439142
+        0.435876
       ],
       "rpy": [
         0.0,
@@ -156,7 +156,7 @@
       "xyz": [
         0.735583,
         -0.274215,
-        0.439142
+        0.435876
       ],
       "rpy": [
         0.0,
@@ -172,7 +172,7 @@
       "xyz": [
         0.358608,
         0.077268,
-        0.302179
+        0.300784
       ],
       "rpy": [
         0.0,
@@ -187,8 +187,8 @@
       "model_dir": "manufacturing_world/models/sausage_tray",
       "xyz": [
         0.358608,
-        0.261406,
-        0.302179
+        0.279872,
+        0.300784
       ],
       "rpy": [
         0.0,
@@ -202,9 +202,9 @@
       "collection": "Object",
       "model_dir": "manufacturing_world/models/case",
       "xyz": [
-        0.512354,
+        0.477748,
         -0.125537,
-        0.405176
+        0.403254
       ],
       "rpy": [
         0.0,
@@ -218,9 +218,9 @@
       "collection": "Object",
       "model_dir": "manufacturing_world/models/case2",
       "xyz": [
-        0.512354,
+        0.477748,
         -0.274622,
-        0.405176
+        0.403254
       ],
       "rpy": [
         0.0,
@@ -236,7 +236,7 @@
       "xyz": [
         0.382148,
         0.121476,
-        0.32286
+        0.321466
       ],
       "rpy": [
         0.0,
@@ -252,7 +252,7 @@
       "xyz": [
         0.382148,
         0.031834,
-        0.32286
+        0.321466
       ],
       "rpy": [
         0.0,
@@ -267,8 +267,8 @@
       "model_dir": "manufacturing_world/models/sausage",
       "xyz": [
         0.386061,
-        0.297042,
-        0.319885
+        0.315508,
+        0.318491
       ],
       "rpy": [
         -0.0,
@@ -283,8 +283,8 @@
       "model_dir": "manufacturing_world/models/sausage2",
       "xyz": [
         0.386061,
-        0.223472,
-        0.319885
+        0.241938,
+        0.318491
       ],
       "rpy": [
         -0.0,
@@ -300,7 +300,7 @@
       "xyz": [
         0.536092,
         0.20652,
-        0.612456
+        0.610383
       ],
       "rpy": [
         0.0,
@@ -315,8 +315,8 @@
       "model_dir": "manufacturing_world/models/can_coffee",
       "xyz": [
         0.541193,
-        0.036466,
-        0.443484
+        0.08567,
+        0.441449
       ],
       "rpy": [
         0.0,
@@ -326,13 +326,13 @@
       "spawn_delay_sec": 13.5
     },
     {
-      "name": "can_coffee2",
+      "name": "can_coke",
       "collection": "Object",
-      "model_dir": "manufacturing_world/models/can_coffee2",
+      "model_dir": "manufacturing_world/models/can_coke",
       "xyz": [
         0.541193,
-        0.121554,
-        0.443484
+        0.24138,
+        0.441449
       ],
       "rpy": [
         0.0,
@@ -340,38 +340,6 @@
         0.0
       ],
       "spawn_delay_sec": 14.0
-    },
-    {
-      "name": "can_coke",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/can_coke",
-      "xyz": [
-        0.541193,
-        0.206341,
-        0.443484
-      ],
-      "rpy": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "spawn_delay_sec": 14.5
-    },
-    {
-      "name": "can_coke2",
-      "collection": "Object",
-      "model_dir": "manufacturing_world/models/can_coke2",
-      "xyz": [
-        0.541193,
-        0.291428,
-        0.443484
-      ],
-      "rpy": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "spawn_delay_sec": 15.0
     }
   ]
 }
