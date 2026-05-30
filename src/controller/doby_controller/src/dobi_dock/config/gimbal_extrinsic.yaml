@@ -1,0 +1,20 @@
+# 고정 도킹포즈(팬 좌 129도 + 틸트 아래 115도, 카메라 ~1.5m/전방 5cm)의
+# optical -> base_link SE3 외부 파라미터.
+#   base_pt = R @ optical_pt + t     (optical: x=right,y=down,z=forward / base: x=fwd,y=left,z=up)
+#
+# !!! 미캘리브 상태 !!! 아래는 identity placeholder. calibrated:false 면 노드가 경고하고
+# optical 점을 그대로 base 로 취급(프레임 틀림). 하드웨어 1회 캘리브 후 R/t 채우고
+# calibrated:true 로 변경할 것.
+#
+# 1회 캘리브 절차(요약):
+#   1) 짐벌을 도킹포즈(desired pan 2.2515 / tilt 2.0071 rad)에 고정.
+#   2) base 에서 위치/자세 알려진 기준면(체커보드 또는 알려진 테이블) 1프레임 캡처.
+#   3) optical 점 <-> base 기준 대응으로 R(3x3), t(3) 추정(planar fit / PnP).
+#   4) 5회 반복 측정해 반복성(std) 확인 후 본 파일에 기록, calibrated:true.
+optical_to_base:
+  calibrated: false
+  R:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  t: [0.0, 0.0, 0.0]

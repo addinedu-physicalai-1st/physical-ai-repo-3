@@ -1,0 +1,15 @@
+dock_perception_node:
+  ros__parameters:
+    input_topic: /camera/depth/points
+    output_topic: /dock_perception/table_edge
+    enable_topic: /dock_perception/enable
+    docking_side: left          # left / right / front
+    extrinsic_path: ''          # launch 에서 share 경로 주입
+    enabled: true               # 도킹 단계에서만 true (enable 토픽으로 제어 가능)
+    stride: 4                   # 다운샘플 (1=원본, 4=1/4)
+    ema_alpha: 0.4              # 출력 스무딩 (1=스무딩 없음)
+    roi_x: [-1.0, 1.5]          # base 전방 범위 [m]
+    roi_y: [-1.2, 1.2]          # base 좌우 범위 [m]
+    roi_z: [0.5, 0.95]          # base 상판 높이 범위 [m] (블라인드존 0.563 + 마진 고려)
+    table_z: [0.0, 0.0]         # [0,0]=비활성. 예 [0.65,0.80] 이면 상판 높이검사
+    thresh: 0.018               # RANSAC 평면 inlier 임계 [m] (depth 노이즈 2σ+마진)
