@@ -1,4 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-  <include file="$(find-pkg-share single_arm_controller)/launch/single_arm_controller.launch.py"/>
-</launch>

@@ -71,8 +71,6 @@ physical-ai-repo-3/
 │   │   ├── order_vui/                        ── 키오스크용 주문 웹앱
 │   │   └── table_gui/                        ── 테이블 원격 주문 웹앱
 │   ├── controller/
-│   │   ├── controller_launch/                ── 컨트롤러 통합 launch
-│   │   ├── controller_status_msgs/           ── 컨트롤러 상태 메시지 정의
 │   │   ├── ddooby_controller/                ── 제조용 양팔 로봇 및 Gazebo 시뮬레이션
 │   │   │   ├── assets/                       ── 제조 world, object, runtime asset
 │   │   │   ├── launch/                       ── Gazebo, MoveIt, action server launch
