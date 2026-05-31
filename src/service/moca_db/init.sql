@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS store_table (
     table_number VARCHAR(32) NOT NULL,
     pos_x DECIMAL(10, 3) NOT NULL,
     pos_y DECIMAL(10, 3) NOT NULL,
+    occupancy ENUM('EMPTY', 'OCCUPIED') NOT NULL DEFAULT 'EMPTY',
     CONSTRAINT uq_store_table_map_table_number
         UNIQUE (map_id, table_number),
     CONSTRAINT fk_store_table_map
@@ -123,17 +124,19 @@ ON DUPLICATE KEY UPDATE
     image_format = VALUES(image_format),
     yaml_config = VALUES(yaml_config);
 
-INSERT INTO store_table (table_id, map_id, table_number, pos_x, pos_y) VALUES
-    (1, 1, '1', 0.000, 0.000),
-    (2, 1, '2', 0.000, 0.000),
-    (3, 1, '3', 0.000, 0.000),
-    (4, 1, '4', 0.000, 0.000)
+INSERT INTO store_table (table_id, map_id, table_number, pos_x, pos_y, occupancy) VALUES
+    (1, 1, '1', 0.000, 0.000, 'EMPTY'),
+    (2, 1, '2', 0.000, 0.000, 'OCCUPIED'),
+    (3, 1, '3', 0.000, 0.000, 'EMPTY'),
+    (4, 1, '4', 0.000, 0.000, 'OCCUPIED')
 ON DUPLICATE KEY UPDATE
     table_id = VALUES(table_id),
     map_id = VALUES(map_id),
     table_number = VALUES(table_number),
     pos_x = VALUES(pos_x),
     pos_y = VALUES(pos_y);
+-- occupancy 는 ON DUPLICATE KEY UPDATE 에서 의도적으로 제외:
+-- init.sql 재적용(방법 B) 시 런타임 점유 상태를 덮어쓰지 않고 보존한다.
 
 INSERT INTO workspace (workspace_id, map_id, name) VALUES
     (1, 1, 'main')
