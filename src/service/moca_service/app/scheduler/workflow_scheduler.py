@@ -140,6 +140,30 @@ class OrderWorkflowScheduler:
         self._mark_order_completed(item, completed_after="serving")
         return True
 
+    def on_serving_failed(
+        self,
+        order_id: int,
+        command_id: str | None = None,
+        reason: str = "serving action failed",
+    ) -> bool:
+        decision = self.state.retry_serving_current_or_exhaust(
+            order_id,
+            RuntimeError(reason),
+            self.max_retry_count,
+            self.backoff_sec,
+            self.time_fn(),
+        )
+        if decision is None:
+            return False
+        self.logger.warning(
+            "serving failed subscribed order_id=%s command_id=%s reason=%s",
+            order_id,
+            command_id,
+            reason,
+        )
+        self._handle_retry_decision(decision)
+        return True
+
     def list_work_items(self) -> list[WorkItem]:
         return self.state.list_work_items()
 

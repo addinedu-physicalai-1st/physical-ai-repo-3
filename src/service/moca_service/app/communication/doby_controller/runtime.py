@@ -3,7 +3,7 @@ import json
 import math
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 
 class DobyControllerRosRuntime:
@@ -16,11 +16,15 @@ class DobyControllerRosRuntime:
         logger: logging.Logger,
         enabled: bool = True,
         setmode_timeout_sec: float = 2.0,
+        serving_action_name: str = "/serving/execute",
+        serving_action_timeout_sec: float = 2.0,
     ) -> None:
         self.node_name = node_name
         self.logger = logger
         self.enabled = enabled
         self.setmode_timeout_sec = setmode_timeout_sec
+        self.serving_action_name = serving_action_name
+        self.serving_action_timeout_sec = serving_action_timeout_sec
         self._started = False
         self._context: Any | None = None
         self._node: Any | None = None
@@ -34,6 +38,8 @@ class DobyControllerRosRuntime:
         self._set_mode_request_type: Any | None = None
         self._apply_map_client: Any | None = None
         self._apply_map_request_type: Any | None = None
+        self._serving_action_client: Any | None = None
+        self._serving_goal_type: Any | None = None
 
     def start(self) -> None:
         if not self.enabled:
@@ -46,6 +52,8 @@ class DobyControllerRosRuntime:
         from rclpy.context import Context
         from rclpy.executors import SingleThreadedExecutor
         from rclpy.node import Node
+        from rclpy.action import ActionClient
+        from dobi_npc_msgs.action import Serving
         from dobi_npc_msgs.msg import ModeState
         from dobi_npc_msgs.srv import ApplyMap, SetMode
         from geometry_msgs.msg import PoseWithCovarianceStamped
@@ -77,6 +85,12 @@ class DobyControllerRosRuntime:
         self._set_mode_request_type = SetMode.Request
         self._apply_map_client = self._node.create_client(ApplyMap, "/map/apply")
         self._apply_map_request_type = ApplyMap.Request
+        self._serving_action_client = ActionClient(
+            self._node,
+            Serving,
+            self.serving_action_name,
+        )
+        self._serving_goal_type = Serving.Goal
         self._executor.add_node(self._node)
         self._spin_thread = threading.Thread(
             target=self._executor.spin,
@@ -85,7 +99,11 @@ class DobyControllerRosRuntime:
         )
         self._spin_thread.start()
         self._started = True
-        self.logger.info("doby_controller ROS runtime started node=%s", self.node_name)
+        self.logger.info(
+            "doby_controller ROS runtime started node=%s serving_action=%s",
+            self.node_name,
+            self.serving_action_name,
+        )
 
     def stop(self) -> None:
         if not self._started:
@@ -111,6 +129,8 @@ class DobyControllerRosRuntime:
         self._set_mode_request_type = None
         self._apply_map_client = None
         self._apply_map_request_type = None
+        self._serving_action_client = None
+        self._serving_goal_type = None
         self._started = False
         self.logger.info("doby_controller ROS runtime stopped node=%s", self.node_name)
 
@@ -149,6 +169,8 @@ class DobyControllerRosRuntime:
         request = self._set_mode_request_type()
         request.requested_mode = mode
         request.params = params_json
+        if hasattr(request, "override_priority"):
+            request.override_priority = False
 
         timeout = self.setmode_timeout_sec if timeout_sec is None else timeout_sec
         if not self._set_mode_client.wait_for_service(timeout_sec=timeout):
@@ -250,6 +272,165 @@ class DobyControllerRosRuntime:
             "code": "TIMEOUT",
             "message": "/map/apply timed out",
         }
+
+    def request_serving(
+        self,
+        *,
+        command_id: str,
+        order_id: int,
+        target_table: str,
+        drink_id: str,
+        via_pickup: bool,
+        has_drink: bool,
+        on_completed: Callable[[int, str], Any] | None = None,
+        on_failed: Callable[[int, str, str], Any] | None = None,
+        timeout_sec: float | None = None,
+    ) -> dict[str, Any]:
+        if not self.enabled:
+            return {
+                "ok": False,
+                "code": "ROS_DISABLED",
+                "message": "doby_controller ROS runtime disabled",
+            }
+        if (
+            not self._started
+            or self._serving_action_client is None
+            or self._serving_goal_type is None
+        ):
+            return {
+                "ok": False,
+                "code": "ROS_NOT_STARTED",
+                "message": "doby_controller ROS runtime not started",
+            }
+
+        timeout = self.serving_action_timeout_sec if timeout_sec is None else timeout_sec
+        if not self._serving_action_client.wait_for_server(timeout_sec=timeout):
+            return {
+                "ok": False,
+                "code": "ACTION_UNAVAILABLE",
+                "message": f"{self.serving_action_name} action server unavailable",
+            }
+
+        goal = self._serving_goal_type()
+        if str(command_id).startswith("serving:"):
+            goal.event_id = command_id
+        else:
+            goal.event_id = f"serving:{command_id}"
+        goal.drink_id = str(drink_id)
+        goal.order_id = str(order_id)
+        goal.target_table = str(target_table)
+        goal.via_pickup = bool(via_pickup)
+        goal.has_drink = bool(has_drink)
+
+        self.logger.info(
+            "doby serving request action=%s command_id=%s order_id=%s target_table=%s has_drink=%s",
+            self.serving_action_name,
+            command_id,
+            order_id,
+            target_table,
+            has_drink,
+        )
+        goal_future = self._serving_action_client.send_goal_async(
+            goal,
+            feedback_callback=self._on_serving_feedback,
+        )
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if goal_future.done():
+                goal_handle = goal_future.result()
+                if goal_handle is None:
+                    return {
+                        "ok": False,
+                        "code": "NULL_GOAL_HANDLE",
+                        "message": f"{self.serving_action_name} returned no goal handle",
+                    }
+                if not goal_handle.accepted:
+                    return {
+                        "ok": False,
+                        "code": "GOAL_REJECTED",
+                        "message": f"{self.serving_action_name} rejected serving goal",
+                    }
+                result_future = goal_handle.get_result_async()
+                result_future.add_done_callback(
+                    lambda future: self._on_serving_result(
+                        future,
+                        command_id=command_id,
+                        order_id=order_id,
+                        on_completed=on_completed,
+                        on_failed=on_failed,
+                    )
+                )
+                return {"ok": True, "accepted": True}
+            time.sleep(0.02)
+
+        return {
+            "ok": False,
+            "code": "TIMEOUT",
+            "message": f"{self.serving_action_name} goal request timed out",
+        }
+
+    def _on_serving_feedback(self, feedback_message: Any) -> None:
+        feedback = getattr(feedback_message, "feedback", None)
+        if feedback is None:
+            return
+        self.logger.info(
+            "doby serving feedback action=%s state=%s current_table=%s queue=%s home_registered=%s message=%s",
+            self.serving_action_name,
+            getattr(feedback, "state", ""),
+            getattr(feedback, "current_table", ""),
+            getattr(feedback, "queue_json", ""),
+            bool(getattr(feedback, "home_registered", False)),
+            getattr(feedback, "message", ""),
+        )
+
+    def _on_serving_result(
+        self,
+        future: Any,
+        *,
+        command_id: str,
+        order_id: int,
+        on_completed: Callable[[int, str], Any] | None,
+        on_failed: Callable[[int, str, str], Any] | None,
+    ) -> None:
+        try:
+            response = future.result()
+            result = response.result
+        except Exception as exc:
+            reason = str(exc)
+            self.logger.warning(
+                "doby serving result failed command_id=%s order_id=%s error=%s",
+                command_id,
+                order_id,
+                reason,
+            )
+            if on_failed is not None:
+                on_failed(order_id, command_id, reason)
+            return
+
+        if not bool(result.success):
+            reason = str(getattr(result, "message", "") or getattr(result, "code", ""))
+            self.logger.warning(
+                "doby serving result rejected command_id=%s order_id=%s code=%s message=%s final_state=%s",
+                command_id,
+                order_id,
+                getattr(result, "code", ""),
+                getattr(result, "message", ""),
+                getattr(result, "final_state", ""),
+            )
+            if on_failed is not None:
+                on_failed(order_id, command_id, reason or "serving action failed")
+            return
+
+        self.logger.info(
+            "doby serving result succeeded command_id=%s order_id=%s code=%s message=%s final_state=%s",
+            command_id,
+            order_id,
+            getattr(result, "code", ""),
+            getattr(result, "message", ""),
+            getattr(result, "final_state", ""),
+        )
+        if on_completed is not None:
+            on_completed(order_id, command_id)
 
     def _on_mode_state(self, msg: Any) -> None:
         params = self._shorten(msg.params)

@@ -7,7 +7,7 @@ from app.communication.admin_gui import (
     create_admin_gui_doby_runtime,
 )
 from app.communication.admin_gui.monitor import AdminGuiMonitorPublisher
-from app.communication.controller_ports import DDoobyActionManufacturePort, DobyModeServingPort
+from app.communication.controller_ports import DDoobyActionManufacturePort, DobyActionServingPort
 from app.communication.ddooby_controller import create_ddooby_controller_runtime
 from app.communication.doby_controller import create_doby_controller_runtime
 from app.communication.web_service import create_web_service_tcp_server
@@ -109,6 +109,8 @@ def main() -> None:
         node_name=config.doby_controller_node_name,
         enabled=config.doby_controller_ros_enabled,
         setmode_timeout_sec=config.doby_controller_setmode_timeout_sec,
+        serving_action_name=config.doby_controller_serving_action_name,
+        serving_action_timeout_sec=config.doby_controller_serving_action_timeout_sec,
     )
     map_service = MapService(
         database,
@@ -136,17 +138,22 @@ def main() -> None:
         action_timeout_sec=config.ddooby_controller_action_timeout_sec,
     )
     manufacture_port = DDoobyActionManufacturePort(ddooby_controller_runtime, logger)
+    serving_port = DobyActionServingPort(doby_controller_runtime, logger)
     order_orchestration_runtime = OrderWorkflowScheduler(
         order_service=order_service,
         manufacture_port=manufacture_port,
-        serving_port=DobyModeServingPort(
-            doby_controller_runtime, logger, opserver_url=config.opserver_url
-        ),
+        serving_port=serving_port,
         logger=logger,
         tick_interval_sec=config.order_orchestration_tick_sec,
     )
     manufacture_port.set_completion_callback(
         order_orchestration_runtime.on_manufacture_completed
+    )
+    serving_port.set_completion_callback(
+        order_orchestration_runtime.on_serving_completed
+    )
+    serving_port.set_failure_callback(
+        order_orchestration_runtime.on_serving_failed
     )
 
     stop_event = threading.Event()

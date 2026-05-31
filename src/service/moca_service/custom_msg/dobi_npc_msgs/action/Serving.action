@@ -1,0 +1,17 @@
+string event_id
+string drink_id
+string order_id
+string target_table
+bool via_pickup
+bool has_drink
+---
+bool success
+string code
+string message
+string final_state
+---
+string state
+string current_table
+string queue_json
+bool home_registered
+string message

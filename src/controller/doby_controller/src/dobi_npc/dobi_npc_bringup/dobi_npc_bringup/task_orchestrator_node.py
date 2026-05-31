@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -12,12 +13,14 @@ from datetime import datetime
 from typing import Any, Callable
 
 import rclpy
+from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
 
+from dobi_npc_msgs.action import Serving
 from dobi_npc_msgs.msg import GuidingState, ModeState, OpEvent, PatrolState, TableReport
 from dobi_npc_msgs.srv import (
     GetTableStatus,
@@ -73,6 +76,7 @@ class TaskOrchestratorNode(Node):
         self.declare_parameter('patrol_enabled', True)
         self.declare_parameter('business_hours', '09:00-22:00')
         self.declare_parameter('battery_min', 0.20)
+        self.declare_parameter('serving_action_timeout_sec', 600.0)
 
         self.config = OrchestratorConfig(
             patrol_interval_minutes=float(self.get_parameter('patrol_interval_minutes').value),
@@ -96,6 +100,11 @@ class TaskOrchestratorNode(Node):
             'engaging': None,
         }
         self._completion_running: set[str] = set()
+        self._last_serving_state_json: dict[str, Any] = {}
+        self._action_lock = threading.RLock()
+        self._active_serving_action = False
+        self._serving_action_timeout_sec = float(
+            self.get_parameter('serving_action_timeout_sec').value)
 
         self._seen_event_ids: dict[str, float] = {}
         self._serving_queue: deque[dict[str, Any]] = deque()
@@ -130,6 +139,15 @@ class TaskOrchestratorNode(Node):
         self.create_service(RequestGuiding, '/task/request_guiding', self._on_request_guiding)
         self.create_service(GetTableStatus, '/task/get_table_status', self._on_get_table_status)
         self.create_service(SetPatrolSchedule, '/task/set_patrol_schedule', self._on_set_patrol_schedule)
+        self._serving_action_server = ActionServer(
+            self,
+            Serving,
+            '/serving/execute',
+            execute_callback=self._execute_serving_action,
+            goal_callback=self._on_serving_action_goal,
+            cancel_callback=self._on_serving_action_cancel,
+            callback_group=self._cb_group,
+        )
 
         self.create_timer(1.0, self._tick)
 
@@ -138,47 +156,184 @@ class TaskOrchestratorNode(Node):
     # ---------- service handlers ----------
 
     def _on_request_serving(self, request, response):
-        event_id = request.event_id.strip()
-        target = request.target_table.strip()
         payload = {
-            'event_id': event_id,
+            'event_id': request.event_id.strip(),
             'drink_id': request.drink_id,
             'order_id': request.order_id,
-            'target_table': target,
+            'target_table': request.target_table.strip(),
             'via_pickup': bool(request.via_pickup),
             'has_drink': bool(request.has_drink),
         }
+        result = self._handle_serving_payload(payload, trigger_source='openarm')
+        return self._serving_response(
+            response,
+            bool(result.get('success')),
+            str(result.get('code', 'ERROR')),
+            str(result.get('message', '')),
+            mode_requested=bool(result.get('mode_requested', False)),
+            queued=bool(result.get('queued', False)),
+            queue_position=int(result.get('queue_position', 0)),
+        )
 
+    def _handle_serving_payload(self, payload: dict[str, Any],
+                                trigger_source: str) -> dict[str, Any]:
+        event_id = str(payload.get('event_id', '')).strip()
+        target = str(payload.get('target_table', '')).strip()
         if event_id and self._event_seen(event_id):
-            return self._serving_response(response, False, 'DUPLICATE_EVENT', 'event_id already processed')
+            return {
+                'success': False,
+                'code': 'DUPLICATE_EVENT',
+                'message': 'event_id already processed',
+            }
         if target not in VALID_TABLES:
-            return self._serving_response(response, False, 'INVALID_TABLE', f'unknown table: {target}')
+            return {
+                'success': False,
+                'code': 'INVALID_TABLE',
+                'message': f'unknown table: {target}',
+            }
         if event_id:
             self._event_mark(event_id)
 
         current = self.current_mode or 'idle'
         if current == 'serving':
             self._publish_serving_goto(target)
-            self._publish_event('openarm', 'pickup_ready', payload, 'accepted:forwarded_to_serving')
-            return self._serving_response(response, True, 'OK', 'forwarded to active serving dispatcher',
-                                          mode_requested=False, queued=False)
+            self._publish_event(trigger_source, 'pickup_ready', payload,
+                                'accepted:forwarded_to_serving')
+            return {
+                'success': True,
+                'code': 'OK',
+                'message': 'forwarded to active serving dispatcher',
+                'mode_requested': False,
+                'queued': False,
+            }
 
         if current == 'guiding':
             pos = self._queue_serving(payload)
-            self._publish_event('openarm', 'pickup_ready', payload, 'queued:guiding_in_progress')
-            return self._serving_response(response, True, 'QUEUED', 'queued until guiding returns idle',
-                                          queued=True, queue_position=pos)
+            self._publish_event(trigger_source, 'pickup_ready', payload,
+                                'queued:guiding_in_progress')
+            return {
+                'success': True,
+                'code': 'QUEUED',
+                'message': 'queued until guiding returns idle',
+                'mode_requested': False,
+                'queued': True,
+                'queue_position': pos,
+            }
 
-        result = self._start_serving(payload, trigger_source='openarm')
+        result = self._start_serving(payload, trigger_source=trigger_source)
         if result.get('ok'):
-            self._publish_event('openarm', 'pickup_ready', payload, 'accepted')
-            return self._serving_response(response, True, 'OK', result.get('message', ''),
-                                          mode_requested=bool(result.get('mode_requested', True)))
+            self._publish_event(trigger_source, 'pickup_ready', payload, 'accepted')
+            return {
+                'success': True,
+                'code': 'OK',
+                'message': result.get('message', ''),
+                'mode_requested': bool(result.get('mode_requested', True)),
+                'queued': False,
+            }
 
         pos = self._queue_serving(payload)
-        self._publish_event('openarm', 'pickup_ready', payload, f'rejected:{result.get("code", "ERROR")}')
-        return self._serving_response(response, False, result.get('code', 'ERROR'),
-                                      result.get('message', ''), queued=True, queue_position=pos)
+        self._publish_event(trigger_source, 'pickup_ready', payload,
+                            f'rejected:{result.get("code", "ERROR")}')
+        return {
+            'success': False,
+            'code': result.get('code', 'ERROR'),
+            'message': result.get('message', ''),
+            'queued': True,
+            'queue_position': pos,
+        }
+
+    def _on_serving_action_goal(self, goal_request):
+        del goal_request
+        with self._action_lock:
+            if self._active_serving_action:
+                self.get_logger().warn(
+                    '/serving/execute rejected: another serving action is active')
+                return GoalResponse.REJECT
+            self._active_serving_action = True
+        return GoalResponse.ACCEPT
+
+    def _on_serving_action_cancel(self, goal_handle):
+        del goal_handle
+        return CancelResponse.ACCEPT
+
+    def _execute_serving_action(self, goal_handle):
+        goal = goal_handle.request
+        payload = {
+            'event_id': goal.event_id.strip(),
+            'drink_id': goal.drink_id,
+            'order_id': goal.order_id,
+            'target_table': goal.target_table.strip(),
+            'via_pickup': bool(goal.via_pickup),
+            'has_drink': bool(goal.has_drink),
+        }
+        result = Serving.Result()
+        progress_seen = False
+        final_state = ''
+        try:
+            start = self._handle_serving_payload(payload, trigger_source='action')
+            if not bool(start.get('success')):
+                result.success = False
+                result.code = str(start.get('code', 'REJECTED'))
+                result.message = str(start.get('message', 'serving request rejected'))
+                result.final_state = ''
+                goal_handle.abort()
+                return result
+
+            deadline = time.time() + self._serving_action_timeout_sec
+            last_feedback_key = None
+            while time.time() < deadline:
+                if goal_handle.is_cancel_requested:
+                    result.success = False
+                    result.code = 'CANCELED'
+                    result.message = 'serving action canceled'
+                    result.final_state = final_state
+                    goal_handle.canceled()
+                    return result
+
+                state_json = dict(self._last_serving_state_json)
+                final_state = str(state_json.get('state', final_state or ''))
+                if self.current_mode == 'serving' and final_state in (
+                    'navigating', 'dwell', 'returning',
+                ):
+                    progress_seen = True
+
+                feedback = Serving.Feedback()
+                feedback.state = final_state
+                feedback.current_table = str(state_json.get('current_table') or '')
+                feedback.queue_json = json.dumps(
+                    state_json.get('queue', []), ensure_ascii=False)
+                feedback.home_registered = bool(state_json.get('home_registered', False))
+                feedback.message = str(start.get('message', ''))
+                feedback_key = (
+                    feedback.state,
+                    feedback.current_table,
+                    feedback.queue_json,
+                    feedback.home_registered,
+                    feedback.message,
+                )
+                if feedback_key != last_feedback_key:
+                    goal_handle.publish_feedback(feedback)
+                    last_feedback_key = feedback_key
+
+                if progress_seen and self.current_mode == 'idle':
+                    result.success = True
+                    result.code = 'OK'
+                    result.message = 'serving completed'
+                    result.final_state = final_state or 'idle'
+                    goal_handle.succeed()
+                    return result
+
+                time.sleep(0.2)
+
+            result.success = False
+            result.code = 'TIMEOUT'
+            result.message = 'serving action timed out'
+            result.final_state = final_state
+            goal_handle.abort()
+            return result
+        finally:
+            with self._action_lock:
+                self._active_serving_action = False
 
     def _on_request_guiding(self, request, response):
         event_id = request.event_id.strip()
@@ -378,6 +533,9 @@ class TaskOrchestratorNode(Node):
             data = json.loads(msg.data) if msg.data else {}
         except Exception:
             data = {}
+        if not isinstance(data, dict):
+            data = {'value': data}
+        self._last_serving_state_json = dict(data)
         state = str(data.get('state', ''))
         if self.current_mode != 'serving':
             self._serving_done_started_at = None

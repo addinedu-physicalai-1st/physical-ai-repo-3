@@ -234,6 +234,8 @@ class AdminGuiDobyRosRuntime:
         request = self._set_mode_request_type()
         request.requested_mode = mode
         request.params = params_json
+        if hasattr(request, "override_priority"):
+            request.override_priority = False
 
         timeout = self.setmode_timeout_sec if timeout_sec is None else timeout_sec
         if not self._set_mode_client.wait_for_service(timeout_sec=timeout):

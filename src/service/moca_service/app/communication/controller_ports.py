@@ -1,7 +1,4 @@
-import json
 import logging
-import urllib.request
-import urllib.error
 from typing import Any, Callable
 
 from app.in_memory.workflow_inmemory_state import ManufactureOrderItem
@@ -101,16 +98,26 @@ class DDoobyActionManufacturePort:
         return lowered
 
 
-class DobyModeServingPort:
+class DobyActionServingPort:
+    """Serving start-command adapter backed by the Doby ROS2 action server."""
+
     def __init__(
         self,
         doby_runtime: Any,
         logger: logging.Logger,
-        opserver_url: str = "http://localhost:8800",
+        on_completed: Callable[[int, str], Any] | None = None,
+        on_failed: Callable[[int, str, str], Any] | None = None,
     ) -> None:
         self.doby_runtime = doby_runtime
         self.logger = logger
-        self.opserver_url = opserver_url.rstrip("/")
+        self._on_completed = on_completed
+        self._on_failed = on_failed
+
+    def set_completion_callback(self, callback: Callable[[int, str], Any]) -> None:
+        self._on_completed = callback
+
+    def set_failure_callback(self, callback: Callable[[int, str, str], Any]) -> None:
+        self._on_failed = callback
 
     def start_serving(
         self,
@@ -132,52 +139,39 @@ class DobyModeServingPort:
         has_drink = any(
             item.product_type == 'DRINK' for item in (order_items or [])
         )
-        payload = {
-            "event_id": f"serving:{command_id}",
-            "drink_id": command_id,
-            "order_id": str(order_id),
-            "target_table": waypoint,
-            "via_pickup": True,
-            "has_drink": has_drink,
-        }
-        body = json.dumps(payload).encode()
-        req = urllib.request.Request(
-            f"{self.opserver_url}/api/v1/pickup",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        self.logger.info(
+            "doby serving action send action=%s command_id=%s order_id=%s "
+            "waypoint=%s has_drink=%s",
+            getattr(self.doby_runtime, "serving_action_name", "/serving/execute"),
+            command_id,
+            order_id,
+            waypoint,
+            has_drink,
         )
-        try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
-                data = json.loads(resp.read())
-            ok = data.get("status") == "ok"
-        except urllib.error.HTTPError as e:
-            self.logger.warning(
-                "doby serving start request http error command_id=%s order_id=%s status=%s",
-                command_id,
-                order_id,
-                e.code,
-            )
-            ok = False
-        except Exception as e:
-            self.logger.warning(
-                "doby serving start request failed command_id=%s order_id=%s error=%s",
-                command_id,
-                order_id,
-                e,
-            )
-            ok = False
+        result = self.doby_runtime.request_serving(
+            command_id=command_id,
+            order_id=order_id,
+            target_table=waypoint,
+            drink_id=command_id,
+            via_pickup=True,
+            has_drink=has_drink,
+            on_completed=self._on_completed,
+            on_failed=self._on_failed,
+        )
+        ok = bool(result.get("ok"))
 
         if not ok:
             self.logger.warning(
-                "doby serving start request failed command_id=%s order_id=%s has_drink=%s",
+                "doby serving action request failed command_id=%s order_id=%s "
+                "has_drink=%s result=%s",
                 command_id,
                 order_id,
                 has_drink,
+                result,
             )
         else:
             self.logger.info(
-                "doby serving start request accepted command_id=%s order_id=%s "
+                "doby serving action request accepted command_id=%s order_id=%s "
                 "waypoint=%s has_drink=%s",
                 command_id,
                 order_id,

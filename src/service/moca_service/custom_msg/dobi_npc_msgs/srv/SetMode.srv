@@ -1,5 +1,6 @@
 string requested_mode
 string params
+bool override_priority
 ---
 bool success
 string current_mode

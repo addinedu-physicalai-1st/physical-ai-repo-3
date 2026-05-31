@@ -24,13 +24,14 @@ class MocaServiceConfig:
     doby_controller_ros_enabled: bool
     doby_controller_node_name: str
     doby_controller_setmode_timeout_sec: float
+    doby_controller_serving_action_name: str
+    doby_controller_serving_action_timeout_sec: float
     ddooby_controller_ros_enabled: bool
     ddooby_controller_node_name: str
     ddooby_controller_action_name: str
     ddooby_controller_action_timeout_sec: float
     order_orchestration_enabled: bool
     order_orchestration_tick_sec: float
-    opserver_url: str
 
 
 def load_config() -> MocaServiceConfig:
@@ -58,6 +59,13 @@ def load_config() -> MocaServiceConfig:
         doby_controller_setmode_timeout_sec=float(
             os.getenv("MOCA_DOBY_CONTROLLER_SETMODE_TIMEOUT_SEC", "2.0")
         ),
+        doby_controller_serving_action_name=os.getenv(
+            "MOCA_DOBY_CONTROLLER_SERVING_ACTION_NAME",
+            "/serving/execute",
+        ),
+        doby_controller_serving_action_timeout_sec=float(
+            os.getenv("MOCA_DOBY_CONTROLLER_SERVING_ACTION_TIMEOUT_SEC", "2.0")
+        ),
         ddooby_controller_ros_enabled=_env_bool("MOCA_DDOOBY_CONTROLLER_ROS_ENABLED", True),
         ddooby_controller_node_name=os.getenv(
             "MOCA_DDOOBY_CONTROLLER_NODE_NAME",
@@ -74,7 +82,6 @@ def load_config() -> MocaServiceConfig:
         order_orchestration_tick_sec=float(
             os.getenv("MOCA_ORDER_ORCHESTRATION_TICK_SEC", "1.0")
         ),
-        opserver_url=os.getenv("MOCA_OPSERVER_URL", "http://localhost:8800"),
     )
 
 
