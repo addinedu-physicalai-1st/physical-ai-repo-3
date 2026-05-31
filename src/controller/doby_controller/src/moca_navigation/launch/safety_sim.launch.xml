@@ -1,0 +1,33 @@
+<?xml version='1.0'?>
+<!--
+  Gazebo 시뮬 전용 cmd_vel 안전 체인.
+
+  실물 vicpinky_bringup 의 Phase B 구조를 DOMAIN=99 Gazebo 경로에 적용한다.
+  이 환경에는 twist_mux 패키지가 없으므로 시뮬 주행 주 입력인 /bt/cmd_vel 을 직접 받는다.
+  topology:
+    /bt/cmd_vel
+      -> velocity_smoother -> /cmd_vel_smoothed
+      -> collision_monitor -> /cmd_vel
+
+  /cmd_vel 은 Gazebo ros_gz_bridge 가 구독하는 최종 토픽이다.
+-->
+<launch>
+    <arg name="velocity_smoother_config" default="$(find-pkg-share moca_navigation)/params/velocity_smoother_sim.yaml"/>
+    <arg name="collision_monitor_config" default="$(find-pkg-share moca_navigation)/params/collision_monitor_sim.yaml"/>
+
+    <node pkg="nav2_velocity_smoother" exec="velocity_smoother" name="velocity_smoother" output="screen">
+        <param from="$(var velocity_smoother_config)"/>
+        <remap from="cmd_vel" to="bt/cmd_vel"/>
+        <remap from="cmd_vel_smoothed" to="cmd_vel_smoothed"/>
+    </node>
+
+    <node pkg="nav2_collision_monitor" exec="collision_monitor" name="collision_monitor" output="screen">
+        <param from="$(var collision_monitor_config)"/>
+    </node>
+
+    <node pkg="nav2_lifecycle_manager" exec="lifecycle_manager" name="lifecycle_manager_safety" output="screen">
+        <param name="use_sim_time" value="true"/>
+        <param name="autostart" value="true"/>
+        <param name="node_names" value="['velocity_smoother', 'collision_monitor']"/>
+    </node>
+</launch>

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run_nav2_sim.sh — Nav2 시뮬 풀 스택 순차 기동 + 단계별 health check.
 #
-# 순서: (1) Gazebo → (2) Nav2 bringup → (3) AMCL initial pose 발행 → (4) RViz
+# 순서: (1) Gazebo → (2) safety chain → (3) Nav2 bringup → (4) AMCL self-init → (5) RViz
 # 격리: ROS_DOMAIN_ID=99 + ROS_LOCALHOST_ONLY=1 (시뮬 전용, RPi/팀 분리)
 #
 # 사용법:
@@ -25,6 +25,7 @@ GAZEBO_LOG="${LOGDIR}/gazebo.log"
 NAV2_LOG="${LOGDIR}/nav2.log"
 INITPOSE_LOG="${LOGDIR}/initpose.log"
 RVIZ_LOG="${LOGDIR}/rviz.log"
+SAFETY_LOG="${LOGDIR}/safety.log"
 
 export ROS_DOMAIN_ID=99
 export ROS_LOCALHOST_ONLY=1
@@ -207,9 +208,29 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────
-# 2. Nav2 bringup
+# 2. Safety chain (velocity_smoother + collision_monitor)
 # ─────────────────────────────────────────────────────────────
-step "[2/4] Nav2 bringup"
+step "[2/5] Safety chain"
+nohup ros2 launch moca_navigation safety_sim.launch.xml \
+  > "$SAFETY_LOG" 2>&1 &
+SAFETY_PID=$!
+dim "launcher PID = $SAFETY_PID, log = $SAFETY_LOG"
+
+SAFETY_OK=0
+for i in $(seq 1 20); do
+  NODES=$(ros2 node list 2>/dev/null)
+  if grep -q "^/velocity_smoother$" <<<"$NODES" && grep -q "^/collision_monitor$" <<<"$NODES"; then
+    SAFETY_OK=1; break
+  fi
+  sleep 1
+done
+[ $SAFETY_OK -eq 1 ] && ok "Safety nodes 기동 (/velocity_smoother /collision_monitor)" \
+  || warn "Safety nodes 일부 미감지 — cmd_vel 안전 체인 로그 확인: $SAFETY_LOG"
+
+# ─────────────────────────────────────────────────────────────
+# 3. Nav2 bringup
+# ─────────────────────────────────────────────────────────────
+step "[3/5] Nav2 bringup"
 NAV2_ARGS=(use_sim_time:=True)
 if [ -n "$NAV2_MAP" ]; then
   NAV2_ARGS=(map:="$NAV2_MAP" "${NAV2_ARGS[@]}")
@@ -238,7 +259,7 @@ done
   || { warn "Localization active 미감지 — 진행하나 AMCL initial pose 실패 가능"; }
 
 # ─────────────────────────────────────────────────────────────
-# 3. AMCL self-init 대기 (yaml set_initial_pose=true → AMCL 가 yaml 의
+# 4. AMCL self-init 대기 (yaml set_initial_pose=true → AMCL 가 yaml 의
 #    initial_pose 좌표로 자기 init. 외부 /initialpose pub 불필요).
 # ─────────────────────────────────────────────────────────────
 # 2026-05-17 — 외부 /initialpose pub 제거. yaml self-init 만 사용.
@@ -246,7 +267,7 @@ done
 # reset 으로 wrong-basin jump 트리거 의심. AMCL set_initial_pose=true 가
 # nav2_params.yaml line 52 에 명시되어 있어 외부 pub 불필요.
 # yaml → quaternion (z, w) 는 warmup 단계에서 재사용.
-step "[3/4] AMCL self-init 대기 (yaml set_initial_pose=true)"
+step "[4/5] AMCL self-init 대기 (yaml set_initial_pose=true)"
 dim "pose: yaml 의 amcl.initial_pose (set_initial_pose=true)"
 QZ=$(python3 -c "import math; print(math.sin(${SPAWN_YAW}/2))")
 QW=$(python3 -c "import math; print(math.cos(${SPAWN_YAW}/2))")
@@ -296,10 +317,10 @@ if [ $NAV_OK -eq 1 ]; then
 fi
 
 # ─────────────────────────────────────────────────────────────
-# 4. RViz
+# 5. RViz
 # ─────────────────────────────────────────────────────────────
 if [ $USE_RVIZ -eq 1 ]; then
-  step "[4/4] RViz (nav2_view)"
+  step "[5/5] RViz (nav2_view)"
   nohup ros2 launch moca_navigation nav2_view.launch.xml \
     use_sim_time:=True \
     > "$RVIZ_LOG" 2>&1 &
@@ -312,7 +333,7 @@ if [ $USE_RVIZ -eq 1 ]; then
     warn "RViz 미감지 (로그 확인: $RVIZ_LOG)"
   fi
 else
-  step "[4/4] RViz — --no-rviz 옵션으로 건너뜀"
+  step "[5/5] RViz — --no-rviz 옵션으로 건너뜀"
 fi
 
 # ─────────────────────────────────────────────────────────────
@@ -325,6 +346,12 @@ NODE_COUNT=$(wc -l < "$LOGDIR/nodes.txt")
 TOPIC_COUNT=$(wc -l < "$LOGDIR/topics.txt")
 dim "active node : $NODE_COUNT (목록: $LOGDIR/nodes.txt)"
 dim "active topic: $TOPIC_COUNT (목록: $LOGDIR/topics.txt)"
+
+if grep -q "^/collision_monitor$" "$LOGDIR/nodes.txt" && grep -q "^/collision_monitor_state$" "$LOGDIR/topics.txt"; then
+  ok "collision_monitor active topic 확인 (/collision_monitor_state)"
+else
+  warn "collision_monitor 상태 토픽 미확인 — 안전 체인 로그 확인: $SAFETY_LOG"
+fi
 
 # /tf 발행 확인 (map → odom → base_footprint 체인).
 # Nav2 params 의 AMCL/global_costmap/bt_navigator 기준 프레임은 base_footprint 이다.

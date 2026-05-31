@@ -1,0 +1,35 @@
+# collision_monitor_sim.yaml — Gazebo collision stop zone
+#
+# 실물 vicpinky_bringup/config/collision_monitor.yaml 을 시뮬 DOMAIN=99 에 맞춰 복제.
+# /scan_filtered 는 moca_gazebo launch_sim.launch.xml 의 laser_filter 가 발행한다.
+
+collision_monitor:
+  ros__parameters:
+    use_sim_time: true
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel_smoothed"
+    cmd_vel_out_topic: "cmd_vel"
+    state_topic: "collision_monitor_state"
+    transform_tolerance: 0.5
+    source_timeout: 2.0
+    base_shift_correction: true
+    enable_stamped_cmd_vel: false
+
+    polygons: ["PolygonStop"]
+    observation_sources: ["scan"]
+
+    PolygonStop:
+      type: "polygon"
+      # 정면 0.70m x 좌우 +/-0.45m x 후방 -0.20m.
+      points: "[[0.70, 0.45], [0.70, -0.45], [-0.20, -0.45], [-0.20, 0.45]]"
+      action_type: "stop"
+      min_points: 1
+      visualize: true
+      polygon_pub_topic: "polygon_stop"
+
+    scan:
+      type: "scan"
+      topic: "/scan_filtered"
+      min_height: 0.0
+      max_height: 1.0
