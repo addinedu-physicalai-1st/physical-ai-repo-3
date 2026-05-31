@@ -26,12 +26,47 @@
           <specular>0.120000 0.120000 0.120000 1.000000</specular>
         </material>
       </visual>
-      <collision name="kachup_kachup_collision">
+      <collision name="kachup_kachup_body_collision">
         <pose>0.000000000 0.000000000 0.000000000 0 0 0</pose>
         <geometry>
-          <box>
-            <size>0.050000001 0.050000001 0.150000006</size>
-          </box>
+          <cylinder>
+            <radius>0.025000000</radius>
+            <length>0.150000006</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <collision name="kachup_kachup_cap_collision">
+        <pose>0.000000000 0.000000000 0.081791997 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.017500000</radius>
+            <length>0.015000001</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <collision name="kachup_kachup_nozzle_collision">
+        <pose>0.000000000 0.000000000 0.106626034 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.002500000</radius>
+            <length>0.034999996</length>
+          </cylinder>
         </geometry>
         <surface>
           <friction>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Load exported Gazebo layout collision boxes into MoveIt planning scene."""
+"""Load exported Gazebo layout collision primitives into MoveIt planning scene."""
 
 from __future__ import annotations
 
@@ -136,7 +136,7 @@ class PlanningSceneLayoutSync(Node):
 
         primitive_count = sum(len(obj.primitives) for obj in objects)
         self.get_logger().info(
-            f"applied {len(objects)} collision objects / {primitive_count} boxes to MoveIt planning scene"
+            f"applied {len(objects)} collision objects / {primitive_count} primitives to MoveIt planning scene"
         )
         return 0
 
@@ -185,18 +185,27 @@ class PlanningSceneLayoutSync(Node):
 
         for collision in root.findall(".//collision"):
             box = collision.find("./geometry/box")
-            if box is None:
+            cylinder = collision.find("./geometry/cylinder")
+            if box is None and cylinder is None:
                 continue
 
             local_pose = parse_floats(collision.findtext("pose"), 6)
-            size = parse_floats(box.findtext("size"), 3)
 
             primitive = SolidPrimitive()
-            primitive.type = SolidPrimitive.BOX
-            primitive.dimensions = [0.0, 0.0, 0.0]
-            primitive.dimensions[SolidPrimitive.BOX_X] = size[0]
-            primitive.dimensions[SolidPrimitive.BOX_Y] = size[1]
-            primitive.dimensions[SolidPrimitive.BOX_Z] = size[2]
+            if box is not None:
+                size = parse_floats(box.findtext("size"), 3)
+                primitive.type = SolidPrimitive.BOX
+                primitive.dimensions = [0.0, 0.0, 0.0]
+                primitive.dimensions[SolidPrimitive.BOX_X] = size[0]
+                primitive.dimensions[SolidPrimitive.BOX_Y] = size[1]
+                primitive.dimensions[SolidPrimitive.BOX_Z] = size[2]
+            else:
+                radius = parse_floats(cylinder.findtext("radius"), 1)[0]
+                length = parse_floats(cylinder.findtext("length"), 1)[0]
+                primitive.type = SolidPrimitive.CYLINDER
+                primitive.dimensions = [0.0, 0.0]
+                primitive.dimensions[SolidPrimitive.CYLINDER_HEIGHT] = length
+                primitive.dimensions[SolidPrimitive.CYLINDER_RADIUS] = radius
 
             pose = composed_pose(
                 model_xyz,

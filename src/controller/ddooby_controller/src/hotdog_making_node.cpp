@@ -496,12 +496,25 @@ std::vector<CollisionBox> parseCollisionBoxes(const std::string & sdf_text)
       sdf_text.substr(collision_start, collision_end + std::string("</collision>").size() - collision_start);
     search_pos = collision_end + std::string("</collision>").size();
 
-    const auto size_text = extractTagText(block, "size");
-    if (!size_text.has_value()) {
-      continue;
+    std::optional<Eigen::Vector3d> collision_size;
+    if (const auto size_text = extractTagText(block, "size")) {
+      const auto size_values = parseDoubles(size_text.value());
+      if (size_values.size() == 3) {
+        collision_size = Eigen::Vector3d(size_values[0], size_values[1], size_values[2]);
+      }
+    } else {
+      const auto radius_text = extractTagText(block, "radius");
+      const auto length_text = extractTagText(block, "length");
+      if (radius_text.has_value() && length_text.has_value()) {
+        const auto radius_values = parseDoubles(radius_text.value());
+        const auto length_values = parseDoubles(length_text.value());
+        if (radius_values.size() == 1 && length_values.size() == 1) {
+          const double diameter = radius_values[0] * 2.0;
+          collision_size = Eigen::Vector3d(diameter, diameter, length_values[0]);
+        }
+      }
     }
-    const auto size_values = parseDoubles(size_text.value());
-    if (size_values.size() != 3) {
+    if (!collision_size.has_value()) {
       continue;
     }
 
@@ -516,7 +529,7 @@ std::vector<CollisionBox> parseCollisionBoxes(const std::string & sdf_text)
 
     boxes.push_back(CollisionBox{
       center,
-      Eigen::Vector3d(size_values[0], size_values[1], size_values[2])});
+      collision_size.value()});
   }
   return boxes;
 }
@@ -539,7 +552,7 @@ TargetObject loadTargetObject(
     joinPath(joinPath(package_share_directory, "assets"), joinPath(object.model_dir, "model.sdf"));
   const std::vector<CollisionBox> collision_boxes = parseCollisionBoxes(readTextFile(sdf_path));
   if (collision_boxes.empty()) {
-    throw std::runtime_error("target model '" + target_model + "' has no box collision geometry");
+    throw std::runtime_error("target model '" + target_model + "' has no supported collision geometry");
   }
 
   Eigen::Vector3d local_min(
@@ -558,6 +571,18 @@ TargetObject loadTargetObject(
   object.local_center = (local_min + local_max) * 0.5;
   object.size = local_max - local_min;
   return object;
+}
+
+TargetObject makeKetchupBodyGraspTarget(const TargetObject & target)
+{
+  TargetObject body_target = target;
+
+  // The ketchup model includes cap/nozzle collision geometry above the bottle.
+  // Grasp pose generation should stay centered on the body cylinder so the
+  // gripper does not chase the nozzle-biased overall bounds center.
+  body_target.local_center = Eigen::Vector3d(0.0, 0.0, 0.0);
+  body_target.size = Eigen::Vector3d(0.050, 0.050, 0.150);
+  return body_target;
 }
 
 double topDownPlaceThickness(const TargetObject & target)
@@ -2459,9 +2484,10 @@ private:
       return false;
     }
 
+    const TargetObject grasp_target = makeKetchupBodyGraspTarget(target);
     PickPlan pick_plan =
       makeHorizontalPickPlan(
-        target,
+        grasp_target,
         Eigen::Vector3d::UnitY(),
         Eigen::Vector3d::UnitX(),
         ketchup_pre_grasp_distance_,
@@ -2483,7 +2509,7 @@ private:
         false,
         false,
         false},
-      target,
+      grasp_target,
       pick_plan);
   }
 
@@ -3159,9 +3185,10 @@ private:
       return true;
     }
 
+    const TargetObject ketchup_grasp_target = makeKetchupBodyGraspTarget(ketchup_target);
     PickPlan return_plan =
       makeHorizontalPickPlan(
-        ketchup_target,
+        ketchup_grasp_target,
         Eigen::Vector3d::UnitY(),
         Eigen::Vector3d::UnitX(),
         ketchup_pre_grasp_distance_,
