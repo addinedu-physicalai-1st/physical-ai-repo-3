@@ -1,0 +1,581 @@
+#!/usr/bin/env python3
+# flake8: noqa
+"""ROS-only task orchestration for serving, guiding, completion, and patrol."""
+
+from __future__ import annotations
+
+import json
+import time
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Callable
+
+import rclpy
+from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+from rclpy.node import Node
+from sensor_msgs.msg import BatteryState
+from std_msgs.msg import String
+
+from dobi_npc_msgs.msg import GuidingState, ModeState, OpEvent, PatrolState, TableReport
+from dobi_npc_msgs.srv import (
+    GetTableStatus,
+    RequestGuiding,
+    RequestServing,
+    SetMode,
+    SetPatrolSchedule,
+)
+from single_arm_controller_interfaces.action import Pickup, Serve
+
+
+VALID_TABLES = ('T01', 'T02', 'T03', 'T04', 'T05')
+DONE_SIGNALS = {
+    'patrol': {'done', 'aborted'},
+    'guiding': {'done', 'aborted'},
+    'engaging': {'done', 'completed'},
+}
+
+
+@dataclass
+class OrchestratorConfig:
+    patrol_interval_minutes: float = 5.0
+    patrol_enabled: bool = True
+    business_hours: str = '09:00-22:00'
+    battery_min: float = 0.20
+    completion_dwell_serving: float = 3.0
+    completion_dwell_patrol: float = 1.0
+    completion_dwell_guiding: float = 5.0
+    completion_dwell_engaging: float = 2.0
+    setmode_timeout_sec: float = 2.0
+
+
+def _in_business_hours(spec: str) -> bool:
+    if not spec or spec.strip() in ('', '24h', '24/7', 'always'):
+        return True
+    try:
+        start_raw, end_raw = spec.split('-', 1)
+        start = tuple(int(v) for v in start_raw.strip().split(':', 1))
+        end = tuple(int(v) for v in end_raw.strip().split(':', 1))
+    except Exception:
+        return True
+    now = datetime.now()
+    current = (now.hour, now.minute)
+    return start <= current <= end
+
+
+class TaskOrchestratorNode(Node):
+    """Owns operational tasks but delegates final mode authority to mode_manager."""
+
+    def __init__(self):
+        super().__init__('task_orchestrator')
+
+        self.declare_parameter('patrol_interval_minutes', 5.0)
+        self.declare_parameter('patrol_enabled', True)
+        self.declare_parameter('business_hours', '09:00-22:00')
+        self.declare_parameter('battery_min', 0.20)
+
+        self.config = OrchestratorConfig(
+            patrol_interval_minutes=float(self.get_parameter('patrol_interval_minutes').value),
+            patrol_enabled=bool(self.get_parameter('patrol_enabled').value),
+            business_hours=str(self.get_parameter('business_hours').value),
+            battery_min=float(self.get_parameter('battery_min').value),
+        )
+
+        self.current_mode = 'idle'
+        self.mode_params: dict[str, Any] = {}
+        self.battery_pct: float | None = None
+        self.safety_ok = True
+        self._idle_entered_at: float | None = time.time()
+        self._pickup_in_progress = False
+        self._current_serving_has_drink = False
+        self._serving_progress_seen = False
+        self._serving_done_started_at: float | None = None
+        self._mode_done_started_at: dict[str, float | None] = {
+            'patrol': None,
+            'guiding': None,
+            'engaging': None,
+        }
+        self._completion_running: set[str] = set()
+
+        self._seen_event_ids: dict[str, float] = {}
+        self._serving_queue: deque[dict[str, Any]] = deque()
+        self._tables: dict[str, dict[str, Any]] = {
+            tid: {
+                'id': tid,
+                'occupancy': 'unknown',
+                'person_count': 0,
+                'dishes_detected': False,
+                'confidence': 0.0,
+                'last_update': '',
+            }
+            for tid in VALID_TABLES
+        }
+
+        self._cb_group = ReentrantCallbackGroup()
+        self._set_mode = self.create_client(SetMode, '/mode/request', callback_group=self._cb_group)
+        self._pickup_ac = ActionClient(self, Pickup, 'pickup', callback_group=self._cb_group)
+        self._serve_ac = ActionClient(self, Serve, 'serve', callback_group=self._cb_group)
+
+        self.create_subscription(ModeState, '/mode/state', self._on_mode_state, 10)
+        self.create_subscription(String, '/serving/state', self._on_serving_state, 10)
+        self.create_subscription(PatrolState, '/patrol/state', self._on_patrol_state, 10)
+        self.create_subscription(GuidingState, '/guiding/state', self._on_guiding_state, 10)
+        self.create_subscription(TableReport, '/patrol/table_report', self._on_table_report, 10)
+        self.create_subscription(BatteryState, '/battery_state', self._on_battery, 10)
+
+        self._event_pub = self.create_publisher(OpEvent, '/doby/event', 10)
+        self._serving_goto_pub = self.create_publisher(String, '/serving/goto_table', 10)
+
+        self.create_service(RequestServing, '/task/request_serving', self._on_request_serving)
+        self.create_service(RequestGuiding, '/task/request_guiding', self._on_request_guiding)
+        self.create_service(GetTableStatus, '/task/get_table_status', self._on_get_table_status)
+        self.create_service(SetPatrolSchedule, '/task/set_patrol_schedule', self._on_set_patrol_schedule)
+
+        self.create_timer(1.0, self._tick)
+
+        self.get_logger().info('task_orchestrator ready (ROS-only)')
+
+    # ---------- service handlers ----------
+
+    def _on_request_serving(self, request, response):
+        event_id = request.event_id.strip()
+        target = request.target_table.strip()
+        payload = {
+            'event_id': event_id,
+            'drink_id': request.drink_id,
+            'order_id': request.order_id,
+            'target_table': target,
+            'via_pickup': bool(request.via_pickup),
+            'has_drink': bool(request.has_drink),
+        }
+
+        if event_id and self._event_seen(event_id):
+            return self._serving_response(response, False, 'DUPLICATE_EVENT', 'event_id already processed')
+        if target not in VALID_TABLES:
+            return self._serving_response(response, False, 'INVALID_TABLE', f'unknown table: {target}')
+        if event_id:
+            self._event_mark(event_id)
+
+        current = self.current_mode or 'idle'
+        if current == 'serving':
+            self._publish_serving_goto(target)
+            self._publish_event('openarm', 'pickup_ready', payload, 'accepted:forwarded_to_serving')
+            return self._serving_response(response, True, 'OK', 'forwarded to active serving dispatcher',
+                                          mode_requested=False, queued=False)
+
+        if current == 'guiding':
+            pos = self._queue_serving(payload)
+            self._publish_event('openarm', 'pickup_ready', payload, 'queued:guiding_in_progress')
+            return self._serving_response(response, True, 'QUEUED', 'queued until guiding returns idle',
+                                          queued=True, queue_position=pos)
+
+        result = self._start_serving(payload, trigger_source='openarm')
+        if result.get('ok'):
+            self._publish_event('openarm', 'pickup_ready', payload, 'accepted')
+            return self._serving_response(response, True, 'OK', result.get('message', ''),
+                                          mode_requested=bool(result.get('mode_requested', True)))
+
+        pos = self._queue_serving(payload)
+        self._publish_event('openarm', 'pickup_ready', payload, f'rejected:{result.get("code", "ERROR")}')
+        return self._serving_response(response, False, result.get('code', 'ERROR'),
+                                      result.get('message', ''), queued=True, queue_position=pos)
+
+    def _on_request_guiding(self, request, response):
+        event_id = request.event_id.strip()
+        if event_id and self._event_seen(event_id):
+            response.success = False
+            response.code = 'DUPLICATE_EVENT'
+            response.message = 'event_id already processed'
+            response.assigned_table = ''
+            response.mode_requested = False
+            return response
+        if event_id:
+            self._event_mark(event_id)
+
+        assigned = self._assign_table(request.preferred_table.strip())
+        payload = {
+            'event_id': event_id,
+            'customer_id': request.customer_id,
+            'preferred_table': request.preferred_table,
+            'party_size': int(request.party_size),
+            'assigned_table': assigned,
+        }
+        if not assigned:
+            self._publish_event('pos', 'guide_request', payload, 'rejected:no_empty_table')
+            response.success = False
+            response.code = 'NO_EMPTY_TABLE'
+            response.message = 'all tables occupied'
+            response.assigned_table = ''
+            response.mode_requested = False
+            return response
+
+        result = self._request_mode(
+            'guiding',
+            {'target_table': assigned, 'customer_id': request.customer_id},
+            override_priority=False,
+        )
+        response.success = bool(result.get('ok'))
+        response.code = 'OK' if response.success else result.get('code', 'REJECTED')
+        response.message = result.get('message', result.get('reason', ''))
+        response.assigned_table = assigned
+        response.mode_requested = response.success
+        self._publish_event(
+            'pos',
+            'guide_request',
+            payload,
+            'accepted' if response.success else f'rejected:{response.code}',
+        )
+        return response
+
+    def _on_get_table_status(self, request, response):
+        table_id = request.table_id.strip()
+        if table_id and table_id not in self._tables:
+            response.success = False
+            response.status_json = json.dumps({'error': f'unknown table: {table_id}'})
+            return response
+        response.success = True
+        value: Any = self._tables[table_id] if table_id else list(self._tables.values())
+        response.status_json = json.dumps(value, ensure_ascii=False)
+        return response
+
+    def _on_set_patrol_schedule(self, request, response):
+        self.config.patrol_interval_minutes = float(request.interval_minutes)
+        self.config.patrol_enabled = bool(request.enabled)
+        self.config.business_hours = request.active_hours or ''
+        response.success = True
+        response.reason = ''
+        self._publish_event('operator', 'patrol_schedule', {
+            'interval_minutes': self.config.patrol_interval_minutes,
+            'enabled': self.config.patrol_enabled,
+            'active_hours': self.config.business_hours,
+        }, 'accepted')
+        return response
+
+    # ---------- task flow ----------
+
+    def _start_serving(self, payload: dict[str, Any], trigger_source: str) -> dict[str, Any]:
+        self._current_serving_has_drink = bool(payload.get('has_drink', True))
+        if bool(payload.get('via_pickup', True)):
+            if self._pickup_in_progress:
+                return {'ok': False, 'code': 'PICKUP_IN_PROGRESS', 'message': 'pickup action already running'}
+            if not self._pickup_ac.wait_for_server(timeout_sec=1.0):
+                return {'ok': False, 'code': 'PICKUP_UNAVAILABLE', 'message': 'pickup action server unavailable'}
+            self._pickup_in_progress = True
+            self._send_pickup_goal(
+                has_drink=self._current_serving_has_drink,
+                done_cb=lambda ok, msg: self._after_pickup(ok, msg, payload, trigger_source),
+            )
+            return {'ok': True, 'message': 'pickup requested', 'mode_requested': False}
+
+        return self._request_serving_mode(payload, trigger_source)
+
+    def _after_pickup(self, success: bool, message: str, payload: dict[str, Any], trigger_source: str) -> None:
+        self._pickup_in_progress = False
+        if not success:
+            self.get_logger().warn(f'pickup failed: {message}')
+            self._publish_event(trigger_source, 'pickup_ready', payload, f'rejected:pickup:{message}')
+            return
+        result = self._request_serving_mode(payload, trigger_source)
+        self._publish_event(
+            trigger_source,
+            'pickup_ready',
+            payload,
+            'accepted' if result.get('ok') else f'rejected:{result.get("code", "MODE_REJECTED")}',
+        )
+
+    def _request_serving_mode(self, payload: dict[str, Any], trigger_source: str) -> dict[str, Any]:
+        del trigger_source
+        return self._request_mode(
+            'serving',
+            {
+                'waypoint': payload['target_table'],
+                'via_pickup': bool(payload.get('via_pickup', True)),
+                'has_drink': bool(payload.get('has_drink', True)),
+                'drink_id': payload.get('drink_id', ''),
+                'order_id': payload.get('order_id', ''),
+            },
+            override_priority=False,
+        )
+
+    def _drain_serving_queue(self) -> None:
+        if self.current_mode != 'idle' or self._pickup_in_progress or not self._serving_queue:
+            return
+        entry = self._serving_queue[0]
+        result = self._start_serving(entry, trigger_source='queue_drain')
+        if result.get('ok'):
+            self._serving_queue.popleft()
+            self._publish_event('timer', 'serving_queue_drain', {
+                'target_table': entry.get('target_table', ''),
+                'remaining': len(self._serving_queue),
+            }, 'accepted')
+
+    # ---------- completion / patrol timers ----------
+
+    def _tick(self) -> None:
+        self._tick_completion()
+        self._drain_serving_queue()
+        self._tick_idle_patrol()
+
+    def _tick_completion(self) -> None:
+        now = time.time()
+        if self.current_mode == 'serving' and self._serving_done_started_at is not None:
+            if now - self._serving_done_started_at >= self.config.completion_dwell_serving:
+                self._serving_done_started_at = None
+                if 'serving' not in self._completion_running:
+                    self._completion_running.add('serving')
+                    self._send_serve_then_idle()
+
+        for mode in ('patrol', 'guiding', 'engaging'):
+            started = self._mode_done_started_at[mode]
+            if self.current_mode != mode:
+                self._mode_done_started_at[mode] = None
+                continue
+            dwell = getattr(self.config, f'completion_dwell_{mode}')
+            if started is not None and now - started >= dwell:
+                self._mode_done_started_at[mode] = None
+                self._request_idle_after_completion(mode, override_priority=False)
+
+    def _tick_idle_patrol(self) -> None:
+        if self.current_mode != 'idle' or self._idle_entered_at is None:
+            return
+        if not self.config.patrol_enabled or not _in_business_hours(self.config.business_hours):
+            return
+        if self.battery_pct is not None and self.battery_pct >= 0.0 and self.battery_pct < self.config.battery_min:
+            return
+        elapsed = time.time() - self._idle_entered_at
+        if elapsed < self.config.patrol_interval_minutes * 60.0:
+            return
+        self._idle_entered_at = None
+        result = self._request_mode('patrol', {'sweep_mode': 'all'}, override_priority=False)
+        self._publish_event(
+            'timer',
+            'patrol_timer',
+            {'idle_elapsed_sec': round(elapsed, 1), 'result': result},
+            'accepted' if result.get('ok') else f'rejected:{result.get("code", "MODE_REJECTED")}',
+        )
+
+    # ---------- ROS callbacks ----------
+
+    def _on_mode_state(self, msg: ModeState) -> None:
+        previous = self.current_mode
+        self.current_mode = msg.current_mode
+        self.safety_ok = bool(msg.safety_ok)
+        try:
+            self.mode_params = json.loads(msg.params) if msg.params else {}
+        except Exception:
+            self.mode_params = {}
+        if self.current_mode == 'idle':
+            if previous != 'idle' or self._idle_entered_at is None:
+                self._idle_entered_at = time.time()
+            self._serving_progress_seen = False
+            self._serving_done_started_at = None
+            self._current_serving_has_drink = False
+        else:
+            self._idle_entered_at = None
+        if self.current_mode == 'serving':
+            self._current_serving_has_drink = bool(self.mode_params.get('has_drink', True))
+
+    def _on_serving_state(self, msg: String) -> None:
+        try:
+            data = json.loads(msg.data) if msg.data else {}
+        except Exception:
+            data = {}
+        state = str(data.get('state', ''))
+        if self.current_mode != 'serving':
+            self._serving_done_started_at = None
+            return
+        if state in ('navigating', 'dwell', 'returning'):
+            self._serving_progress_seen = True
+            self._serving_done_started_at = None
+        elif state == 'idle' and self._serving_progress_seen:
+            if self._serving_done_started_at is None:
+                self._serving_done_started_at = time.time()
+
+    def _on_patrol_state(self, msg: PatrolState) -> None:
+        self._observe_mode_done('patrol', msg.current_state)
+
+    def _on_guiding_state(self, msg: GuidingState) -> None:
+        self._observe_mode_done('guiding', msg.current_state)
+
+    def _observe_mode_done(self, mode: str, state: str) -> None:
+        if self.current_mode != mode:
+            self._mode_done_started_at[mode] = None
+            return
+        if state in DONE_SIGNALS[mode]:
+            if self._mode_done_started_at[mode] is None:
+                self._mode_done_started_at[mode] = time.time()
+        else:
+            self._mode_done_started_at[mode] = None
+
+    def _on_table_report(self, msg: TableReport) -> None:
+        if msg.table_id not in self._tables:
+            return
+        self._tables[msg.table_id].update({
+            'occupancy': msg.occupancy,
+            'person_count': int(msg.person_count),
+            'dishes_detected': bool(msg.dishes_detected),
+            'confidence': float(msg.confidence),
+            'last_update': datetime.now().isoformat(timespec='seconds'),
+        })
+
+    def _on_battery(self, msg: BatteryState) -> None:
+        self.battery_pct = float(msg.percentage)
+
+    # ---------- action helpers ----------
+
+    def _send_pickup_goal(self, has_drink: bool, done_cb: Callable[[bool, str], None]) -> None:
+        goal = Pickup.Goal()
+        goal.has_drink = has_drink
+        future = self._pickup_ac.send_goal_async(goal)
+        future.add_done_callback(lambda fut: self._on_action_goal(fut, done_cb, 'pickup'))
+
+    def _send_serve_then_idle(self) -> None:
+        if not self._serve_ac.wait_for_server(timeout_sec=1.0):
+            self.get_logger().warn('serve action server unavailable; returning idle anyway')
+            self._completion_running.discard('serving')
+            self._request_idle_after_completion('serving', override_priority=True)
+            return
+        goal = Serve.Goal()
+        goal.has_drink = self._current_serving_has_drink
+        future = self._serve_ac.send_goal_async(goal)
+        future.add_done_callback(
+            lambda fut: self._on_action_goal(
+                fut,
+                lambda ok, msg: self._after_serve(ok, msg),
+                'serve',
+            )
+        )
+
+    def _on_action_goal(self, future, done_cb: Callable[[bool, str], None], name: str) -> None:
+        try:
+            goal_handle = future.result()
+        except Exception as exc:
+            done_cb(False, f'{name}_send_failed:{exc}')
+            return
+        if not goal_handle.accepted:
+            done_cb(False, 'goal_rejected')
+            return
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(lambda fut: self._on_action_result(fut, done_cb, name))
+
+    def _on_action_result(self, future, done_cb: Callable[[bool, str], None], name: str) -> None:
+        try:
+            result = future.result().result
+            done_cb(bool(result.success), str(result.message))
+        except Exception as exc:
+            done_cb(False, f'{name}_result_failed:{exc}')
+
+    def _after_serve(self, success: bool, message: str) -> None:
+        self.get_logger().info(f'serve action done success={success} message={message}')
+        self._completion_running.discard('serving')
+        self._request_idle_after_completion('serving', override_priority=True)
+
+    # ---------- mode / event helpers ----------
+
+    def _request_mode(self, mode: str, params: dict[str, Any] | None = None, *, override_priority: bool) -> dict[str, Any]:
+        if not self._set_mode.wait_for_service(timeout_sec=1.0):
+            return {'ok': False, 'code': 'MODE_SERVICE_UNAVAILABLE', 'message': '/mode/request unavailable'}
+        req = SetMode.Request()
+        req.requested_mode = mode
+        req.params = json.dumps(params or {}, ensure_ascii=False) if params else ''
+        req.override_priority = bool(override_priority)
+        future = self._set_mode.call_async(req)
+        deadline = time.time() + self.config.setmode_timeout_sec
+        while time.time() < deadline:
+            if future.done():
+                resp = future.result()
+                return {
+                    'ok': bool(resp.success),
+                    'reason': resp.reason,
+                    'current_mode_after': resp.current_mode,
+                    'code': 'OK' if resp.success else resp.reason,
+                    'message': resp.reason,
+                }
+            time.sleep(0.02)
+        return {'ok': False, 'code': 'MODE_REQUEST_TIMEOUT', 'message': 'set mode request timed out'}
+
+    def _request_idle_after_completion(self, completed_mode: str, *, override_priority: bool) -> None:
+        result = self._request_mode('idle', {}, override_priority=override_priority)
+        self._publish_event(
+            'timer',
+            'completion_idle',
+            {'completed_mode': completed_mode, 'result': result},
+            'accepted' if result.get('ok') else f'rejected:{result.get("code", "MODE_REJECTED")}',
+        )
+
+    def _publish_serving_goto(self, table_id: str) -> None:
+        msg = String()
+        msg.data = table_id
+        self._serving_goto_pub.publish(msg)
+
+    def _publish_event(self, source: str, event_type: str, payload: dict[str, Any], outcome: str) -> None:
+        msg = OpEvent()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.event_id = str(payload.get('event_id', '') or '')
+        msg.source = source
+        msg.event_type = event_type
+        try:
+            msg.payload = json.dumps(payload, ensure_ascii=False)
+        except Exception:
+            msg.payload = str(payload)
+        msg.outcome = outcome
+        self._event_pub.publish(msg)
+
+    def _event_seen(self, event_id: str) -> bool:
+        return event_id in self._seen_event_ids
+
+    def _event_mark(self, event_id: str) -> None:
+        self._seen_event_ids[event_id] = time.time()
+
+    def _queue_serving(self, payload: dict[str, Any]) -> int:
+        self._serving_queue.append(dict(payload))
+        return len(self._serving_queue)
+
+    def _assign_table(self, preferred: str) -> str:
+        if preferred in self._tables and self._tables[preferred]['occupancy'] in ('empty', 'unknown'):
+            return preferred
+        for status in ('empty', 'unknown'):
+            for table_id, table in self._tables.items():
+                if table['occupancy'] == status:
+                    return table_id
+        return ''
+
+    @staticmethod
+    def _serving_response(
+        response,
+        success: bool,
+        code: str,
+        message: str,
+        *,
+        mode_requested: bool = False,
+        queued: bool = False,
+        queue_position: int = 0,
+    ):
+        response.success = success
+        response.code = code
+        response.message = message
+        response.mode_requested = mode_requested
+        response.queued = queued
+        response.queue_position = int(queue_position)
+        return response
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = TaskOrchestratorNode()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
+    try:
+        executor.spin()
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

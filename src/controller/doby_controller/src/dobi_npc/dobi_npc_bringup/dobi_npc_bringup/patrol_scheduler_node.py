@@ -8,7 +8,7 @@
   - 도착 후 dwell N초 → table_occupancy_detector 에 ScanTable.srv 호출
   - TableReport 발행 + /patrol/state (1Hz) 발행
   - 사이클 종료 시 home_pose 복귀 후 DONE 상태 유지 (self-terminate X,
-    OpServer 가 /patrol/state="done" 관찰 후 SetMode('idle') 호출 → mode_manager SIGTERM)
+    task_orchestrator 가 /patrol/state="done" 관찰 후 SetMode('idle') 호출 → mode_manager SIGTERM)
   - /rapport/event abort_trigger 시 ABORTED 전이 + active Nav2 cancel
 
 9-state FSM:
@@ -65,7 +65,7 @@ class PatrolScheduler(Node):
         self.declare_parameter('arrival_timeout_sec', 30.0)
         self.declare_parameter('inter_table_timeout_sec', 60.0)
         self.declare_parameter('return_home_after_cycle', True)
-        self.declare_parameter('report_to_opserver', True)
+        self.declare_parameter('report_to_orchestrator', True)
         self.declare_parameter('scan_service_name', '/table_occupancy/scan')
         self.declare_parameter('nav_action_name', '/navigate_to_pose')
 
@@ -148,7 +148,7 @@ class PatrolScheduler(Node):
                 'description': entry.get('description', ''),
             }
 
-        # sweep_order — params_json 우선 (OpServer 가 priority_only 시 override)
+        # sweep_order — params_json 우선 (task_orchestrator 가 priority_only 시 override)
         params_raw = self.get_parameter('params_json').value
         sweep_from_params: Optional[list[str]] = None
         sweep_mode = 'all'
@@ -326,15 +326,15 @@ class PatrolScheduler(Node):
     def _on_enter_done(self) -> None:
         self.get_logger().info(
             f'patrol cycle DONE — visited={self._tables_visited}/{self._tables_total}. '
-            f'OpServer SetMode("idle") 대기.')
+            f'task_orchestrator SetMode("idle") 대기.')
         # self-terminate X — /patrol/state="done" 계속 publish 하면서
-        # OpServer 의 CompletionWatcher 가 SetMode('idle') 호출 → mode_manager SIGTERM
+        # task_orchestrator 가 SetMode('idle') 호출 → mode_manager SIGTERM
 
     def _on_enter_aborted(self) -> None:
         self.get_logger().warn(
             f'patrol ABORTED at table_index={self._current_table_index}/{self._tables_total}')
         self._cancel_nav()
-        # DONE 과 동일하게 OpServer 가 /patrol/state="aborted" 관찰 후 idle 전이
+        # DONE 과 동일하게 task_orchestrator 가 /patrol/state="aborted" 관찰 후 idle 전이
 
     # ─────────── Nav2 ───────────
 

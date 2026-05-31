@@ -1,7 +1,7 @@
 """dev_common.launch.py — 공통 always-on 층 (B 단계).
 
 mode_manager 가 모드별 stack 을 spawn/kill 할 때 살아있어야 하는 노드들.
-모드와 무관하게 항상 켜져 있는 인지/표현/오케스트레이션 10 노드.
+모드와 무관하게 항상 켜져 있는 인지/표현/오케스트레이션 노드.
 
 구성:
   geva_node                 (웹캠 → /emotion/state)
@@ -11,6 +11,7 @@ mode_manager 가 모드별 stack 을 spawn/kill 할 때 살아있어야 하는 �
   face_avatar               (/face_avatar/expression → 풀스크린/윈도우 GIF 표시)
   tts_node                  (/dialog/utter → 음성 출력)
   mode_manager              (/mode/request, /mode/state, mode stack spawn/kill)
+  task_orchestrator         (/task/request_*, /doby/event, completion + patrol timer)
   map_apply                 (/map/apply → Nav2 map_server load_map)
   person_tracking_node      (/robot_cam/image_raw → /person_tracking/tracks)
   group_approach_node       (/person_tracking/tracks → /person_tracking/approach_target)
@@ -95,6 +96,10 @@ def generate_launch_description():
             package='dobi_npc_bringup', executable='mode_manager',
             name='mode_manager', output='screen',
             parameters=[{'initial_mode': LaunchConfiguration('initial_mode')}],
+        ),
+        Node(
+            package='dobi_npc_bringup', executable='task_orchestrator',
+            name='task_orchestrator', output='screen',
         ),
         Node(
             package='dobi_npc_bringup', executable='map_apply',

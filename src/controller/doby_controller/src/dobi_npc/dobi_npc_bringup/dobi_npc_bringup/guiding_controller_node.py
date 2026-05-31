@@ -11,7 +11,7 @@
   - customer lag > 1.5m → WAITING (Nav2 cancel + "천천히 따라오세요" 발화)
   - customer lag < 1.0m → MOVING 재개 (Nav2 재송신)
   - customer 시야 8s 무검출 → ABORTED ("어디 가셨어요" 발화)
-  - 도착 후 5s dwell → DONE (OpServer SetMode('idle') 대기, patrol 과 동일 패턴)
+  - 도착 후 5s dwell → DONE (task_orchestrator SetMode('idle') 대기, patrol 과 동일 패턴)
 
 follow_controller 와 알고리즘 정반대 (follow=주인 추적 reactive, guiding=로봇 앞장 supervised).
 코드 재사용 < 30% — 별도 신규 노드 (디자인 §1).
@@ -269,7 +269,7 @@ class GuidingController(Node):
 
     def _on_enter_done(self) -> None:
         self.get_logger().info(
-            'guiding DONE — OpServer SetMode("idle") 대기')
+            'guiding DONE — task_orchestrator SetMode("idle") 대기')
         # patrol 과 동일 — self-terminate X, /guiding/state="done" 유지 publish
 
     def _on_enter_aborted(self) -> None:
@@ -277,7 +277,7 @@ class GuidingController(Node):
             '어디 가셨어요? 카운터로 다시 와주세요',
             priority=GUIDING_UTTER_PRIORITY_URGENT)
         self._cancel_nav()
-        # patrol 과 동일 — OpServer 가 /guiding/state="aborted" 관찰 후 idle
+        # patrol 과 동일 — task_orchestrator 가 /guiding/state="aborted" 관찰 후 idle
 
     # ─────────── Nav2 ───────────
 

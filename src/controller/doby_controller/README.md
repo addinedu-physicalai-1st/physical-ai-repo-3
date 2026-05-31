@@ -2,7 +2,7 @@
 
 > **Doby Barista** 호객·서빙·팔로우 카페 로봇 통합 ROS2 워크스페이스
 >
-> Vic Pinky Pro 모바일 베이스 + 5-stage funnel BT + Russell V-A 감정 모델 + 노트북 풀스크린 얼굴 표현 + Web Dashboard
+> Vic Pinky Pro 모바일 베이스 + 5-stage funnel BT + Russell V-A 감정 모델 + 노트북 풀스크린 얼굴 표현 + ROS-only task orchestration
 
 ---
 
@@ -17,37 +17,31 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 
 ## 핵심 기능
 
-### 운영 모드 5종 (5-state FSM)
+### 운영 모드 6종 (6-state FSM)
 
-`VALID_MODES = ('idle', 'serving', 'patrol', 'guiding', 'engaging')` — 코드 SoT: `src/dobi_npc/dobi_npc_bringup/dobi_npc_bringup/mode_manager_node.py`. FSM SoT: `docs/moca_5state_fsm_spec.md`.
+`VALID_MODES = ('idle', 'serving', 'patrol', 'guiding', 'engaging', 'follow')` — 코드 SoT: `src/dobi_npc/dobi_npc_bringup/dobi_npc_bringup/mode_policy.py`. FSM SoT: `docs/moca_5state_fsm_spec.md`.
 
 | 모드 | priority | 기능 | launch |
 |---|---|---|---|
 | **serving** | 1 (최상) | 픽업 테이블 → 목표 테이블 배달 → home 복귀. Nav2 NavigateToPose 단발 반복 + dwell | `mode_serving.launch.py` |
 | **guiding** | 2 | 카운터 결제 완료 고객을 빈 테이블로 인솔 | `mode_guiding.launch.py` |
 | **patrol** | 3 | 5분 주기 전 테이블 순회 + 점유 감지 + 보고 | `mode_patrol.launch.py` |
+| **follow** | 4 | 1인 reactive 추종 | `mode_follow.launch.py` |
 | **engaging** | 5 | 한산 시 모객 (cafe_funnel_v1.xml 6단계 BT — IDLE→APPROACH→ICEBREAK→MINIGAME→OFFER→LEAD-IN) | `mode_engaging.launch.py` |
 | **idle** | 99 | 대기, 활성 mode stack 없음. 기본 상태 | (launch 없음 — no_stack) |
 
-**Legacy alias** (M3 종료 **2026-07-04 까지만** 지원, WARN 로그 후 자동 변환): `npc → engaging`, `follow → guiding`. 해당 deprecated launch (`mode_npc.launch.py`, `mode_follow.launch.py`) 도 7-04 후 제거 예정.
+**Legacy alias** (M3 종료 **2026-07-04 까지만** 지원, WARN 로그 후 자동 변환): `npc → engaging`.
 
-**Priority enforce**: `mode_manager` 는 priority 무관 모든 전이 허용 (운영자 수동 트리거 우선). priority enforce 책임은 `moca_opserver` 에 있음 (`docs/moca_5state_fsm_spec.md` §5).
+**Priority enforce**: `mode_manager` 가 `/mode/request` 에서 최종 판단한다. `override_priority=true` 는 priority 비교만 우회하며 battery/safety/busy guard 는 유지된다.
 
 **외부 명령** (mode 아님): `emergency_stop` (즉시 정지) / `resume` (idle 복귀). `/operator/command` 토픽.
 **가드**: safety alarm (`/rapport/event` weight ≥ 임계) 또는 operator stop → 어느 상태든 idle 강제.
 
 관련 메모리: [[project_mode_architecture]] [[project_mode_serving]] [[project_follow_live_tuning]].
 
-### Web Dashboard (M3 완성, 2026-05-16)
+### ROS-only Task Orchestration
 
-`http://localhost:8800/` 에서 운영자 7 페이지 — dashboard / modes / tables / events / analytics / settings / debug.
-
-- 실시간 평면도 (floorplan-view) — robot 마커 동적 + 테이블 점유 색상 + waypoint/gate 사각형 + yaw 회전
-- NTP 6 대 sync 모니터링 (192.168.0.133 5090 master + 노트북 3 / 로봇 2 = 5 client)
-- AMCL pose 우선 + /odom fallback
-- Doby (Vic Pinky) / DDooby (OpenARM) 상태 헤더 (Web Component, store-key 동적 갱신)
-
-상세: `docs/moca_web_dashboard_spec.md`.
+`task_orchestrator` 가 `/task/request_serving`, `/task/request_guiding`, `/task/get_table_status`, `/task/set_patrol_schedule` 를 제공한다. 완료 감시, idle patrol timer, pickup/serve arm action 호출, `/doby/event` 발행은 이 노드가 맡고, 실제 모드 전환 허용 여부는 항상 `mode_manager` 의 `/mode/request` 응답을 따른다.
 
 ### 비전 — 3 카메라 아키텍처
 
@@ -93,17 +87,15 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 │   │       └── vicpinky_emotion           ❌ COLCON_IGNORE (PinkyPro LCD 전용, 필요한 gif 자산은 dobi_npc_dialog share 리소스로 설치)
 │   │
 │   ├── dobi_npc/                          ← 모객 BT 시스템 (6 패키지)
-│   │   ├── dobi_npc_msgs                  (커스텀 메시지 4종 + SetMode srv)
+│   │   ├── dobi_npc_msgs                  (커스텀 메시지 + SetMode/RequestServing/RequestGuiding srv)
 │   │   ├── dobi_npc_bt                    (C++ BT 노드, cafe_funnel_v1.xml)
 │   │   ├── dobi_npc_emotion               (GEVA face V·A + rapport_tracker + decision_rule)
 │   │   ├── dobi_npc_dialog                (persona_manager + tts_node + face_avatar 풀스크린)
 │   │   ├── dobi_npc_minigame              (RPS evolution + speed_counter + cafe_ninja, minigame_runner subprocess)
-│   │   └── dobi_npc_bringup               (mode_manager + 5 mode launch + serving_dispatcher + follow_controller + patrol_scheduler + guiding_controller)
+│   │   └── dobi_npc_bringup               (mode_manager + task_orchestrator + 6 mode launch + serving_dispatcher + follow_controller + patrol_scheduler + guiding_controller)
 │   │
 │   ├── moca_gazebo/                       ← 시뮬 (mapv5_moca.world + 가구 SDF 모델)
 │   ├── moca_navigation/                   ← Nav2 wrapper (vicpinky_navigation patch)
-│   └── moca_opserver/                     ← Web Dashboard (FastAPI + static 7 페이지)
-│
 ├── docs/
 │   ├── daily/                             ← 일일 회고 (.md, 시간순)
 │   ├── cafe_npc_paper_master.md           ← 학술 척추 6-Layer
@@ -219,7 +211,7 @@ bash scripts/record_demo.sh
 
 **두 트랙 동시 진행:**
 - **학술 트랙 (Phase 0~5)** — `docs/cafe_npc_implementation_plan.md` SoT
-- **운영 트랙 (M0~M4)** — `docs/moca_mode_and_opserver_plan.md` SoT (2026-05-16 추가)
+- **운영 트랙 (M0~M4)** — legacy HTTP 관제 설계 이후 현재 ROS-only 구조로 정리
 
 ### 학술 트랙 (Phase 0~5)
 
@@ -237,12 +229,12 @@ bash scripts/record_demo.sh
 
 | 마일스톤 | 기간 | 상태 | 내용 |
 |---|---|---|---|
-| M0~M1 | 2026-05-16 | ✓ | 5-state opserver scaffold + mode_manager 5-state 확장 |
-| M2 | 2026-05-16 | ✓ | guiding_controller (lock-on/lag 감지) + patrol_scheduler + table_occupancy_detector (M2 YOLO person, M3 식기 후속) + completion_watcher |
-| M3 | 2026-05-16 | ✓ | Web Dashboard 7 페이지 (vanilla JS, 빌드 도구 없음) + NTP 6대 sync 토폴로지 + floorplan 동적 마커 |
+| M0~M1 | 2026-05-16 | ✓ | 5-state scaffold + mode_manager 확장 |
+| M2 | 2026-05-16 | ✓ | guiding_controller (lock-on/lag 감지) + patrol_scheduler + table_occupancy_detector (M2 YOLO person, M3 식기 후속) |
+| M3 | 2026-06-01 | ✓ | HTTP 관제 서버 제거 + task_orchestrator/debug_monitor ROS-only 분리 |
 | M4 | 2026-05-17~ | 진행 중 | DB schema v0.1 초안 (PG 5090 설치 보류, 팀 협의 대기) + Gazebo wall 정합 진단 (sim AMCL fundamental 한계 확정, 5 patches 적용, RPi 라이브 검증 대기) |
 
-상세: `docs/daily/` 회고 (시간 역순) + `docs/cafe_npc_implementation_plan.md` (학술) + `docs/moca_mode_and_opserver_plan.md` (운영).
+상세: `docs/daily/` 회고 (시간 역순) + `docs/cafe_npc_implementation_plan.md` (학술).
 
 ---
 
@@ -262,7 +254,7 @@ bash scripts/record_demo.sh
 
 ### 운영 트랙 (`docs/moca_*.md`, M0~M4)
 
-8. **상위 설계서** → `docs/moca_mode_and_opserver_plan.md` v1.0 (5 모드 + opserver + 대시보드 통합 설계, M0~M4 로드맵)
+8. **상위 설계서** → legacy HTTP 관제 설계 이후 현재 구현은 ROS-only
 9. **5-state FSM 사양** → `docs/moca_5state_fsm_spec.md` v1.0 (invariant + action + guard + 동시성)
 10. **모드별 설계** (5 모드 모두):
     - `docs/moca_idle_design.md` v1.0 (idle_no_stack + 공통 always-on 7 노드 invariant)
@@ -270,8 +262,7 @@ bash scripts/record_demo.sh
     - `docs/moca_patrol_design.md` v1.0 (patrol_scheduler + table_occupancy_detector 두 노드 IPC)
     - `docs/moca_guiding_design.md` v1.0 (guiding_controller_node FSM + 고객 lock-on/lag 감지)
     - `docs/moca_engagement_design.md` v1.0 (bt_executor + cafe_funnel_v1.xml ReactiveFallback Alarm + 8 BT 노드 + minigame_runner)
-11. **OpServer API** → `docs/moca_opserver_api_spec.md` v1.0 (REST + WebSocket + 모드 선점 알고리즘)
-12. **Web Dashboard** → `docs/moca_web_dashboard_spec.md` v1.0 (페이지 7종 UI/UX + vanilla JS + 반응형 + a11y)
+11. **ROS-only orchestration** → `dobi_npc_bringup/task_orchestrator_node.py` (`/task/request_*`, `/doby/event`, completion/idle patrol)
 13. **DB 설계** → `docs/moca_db_schema.md` v0.1 (PG 14 테이블, 5090 설치 보류, 팀 협의 대기)
 
 ### 일일 작업 흐름

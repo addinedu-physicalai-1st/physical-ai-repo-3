@@ -1,5 +1,5 @@
 # 운영자 수동 제어 명령 — 모드 외 미세 제어 (발화, 표정, 비상정지 등)
-# 발행: moca_opserver_node (POST /command, /emergency_stop, WebSocket utter/skip_table)
+# 발행: 별도 operator/teleop 도구 또는 CLI
 # 구독: mode_manager_node (stop_emergency/resume), 각 모드 dispatcher (utter/express/skip_table)
 #
 # command_type 종류:

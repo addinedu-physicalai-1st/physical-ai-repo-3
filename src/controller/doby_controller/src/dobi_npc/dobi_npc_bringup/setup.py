@@ -27,6 +27,7 @@ setup(
         'console_scripts': [
             'fake_customer_publisher = dobi_npc_bringup.fake_customer_publisher:main',
             'mode_manager = dobi_npc_bringup.mode_manager_node:main',
+            'task_orchestrator = dobi_npc_bringup.task_orchestrator_node:main',
             'mode_stack_stub = dobi_npc_bringup.mode_stack_stub:main',
             'follow_controller = dobi_npc_bringup.follow_controller_node:main',
             'serving_dispatcher = dobi_npc_bringup.serving_dispatcher_node:main',

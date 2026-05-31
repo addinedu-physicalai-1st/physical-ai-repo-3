@@ -38,7 +38,7 @@ tables:
 - id: T01
   pose:
     frame_id: map
-    x: -37.12
+    x: -38
     y: 0.543
     yaw: -1.57
   approach_dist: 0.0

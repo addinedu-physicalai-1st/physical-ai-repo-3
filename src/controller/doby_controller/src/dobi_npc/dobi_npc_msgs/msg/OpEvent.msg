@@ -1,12 +1,13 @@
-# moca_opserver 가 외부 이벤트를 ROS 도메인에 echo (디버깅/로깅용)
-# 발행: moca_opserver_node
-# 구독: (옵션) 로깅 노드, rosbag2 기록
+# 외부/운영 이벤트를 ROS 도메인에 echo (디버깅/로깅용)
+# 발행: task_orchestrator
+# 토픽: /doby/event
+# 구독: debug_monitor, 로깅 노드, rosbag2 기록
 #
 # source 종류:
 #   pos       : POS 단말 (POST /order, /guide)
 #   openarm   : 제조로봇 (POST /pickup)
 #   operator  : 운영자 웹 UI (POST /mode, /command, /emergency_stop)
-#   timer     : OpServer 내부 타이머 (5분 patrol 자동 트리거 등)
+#   timer     : task_orchestrator 내부 타이머 (5분 patrol 자동 트리거 등)
 #   guard     : 안전 가드 발동 echo (배터리/안전 알람)
 #
 # outcome:

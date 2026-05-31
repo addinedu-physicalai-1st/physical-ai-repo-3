@@ -26,6 +26,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PersonTrackArray.msg"
   "srv/SetPersona.srv"
   "srv/SetMode.srv"
+  "srv/RequestServing.srv"
+  "srv/RequestGuiding.srv"
   "srv/GetTableStatus.srv"
   "srv/SetPatrolSchedule.srv"
   "srv/ScanTable.srv"

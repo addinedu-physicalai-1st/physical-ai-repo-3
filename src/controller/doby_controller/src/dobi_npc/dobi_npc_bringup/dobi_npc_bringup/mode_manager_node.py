@@ -30,8 +30,8 @@ Legacy alias (M3 종료 2026-07-04 까지만 지원, WARN 로그 후 자동 변�
   - 알 수 없는 모드                            → reason="unknown_mode:<m>"
   - 잘못된 JSON params                        → reason="invalid_json_params:..."
 
-priority enforce 책임은 moca_opserver 에 있음 (docs/moca_5state_fsm_spec.md §5).
-mode_manager 는 priority 무관 모든 전이 허용 (운영자 수동 트리거 우선).
+priority enforce 책임은 mode_manager 에 있음. 자동/수동 트리거 모두
+/mode/request 로 들어오며 override_priority 는 priority 비교만 우회한다.
 가드 발동 시 어느 상태에서든 idle 강제 전이.
 
 B 단계 launch 제어:
@@ -49,7 +49,6 @@ B 단계 launch 제어:
   ros2 topic echo /mode/state
 """
 
-import json
 import os
 import shlex
 import signal
@@ -62,9 +61,8 @@ from rclpy.executors import ExternalShutdownException
 from sensor_msgs.msg import BatteryState
 from dobi_npc_msgs.msg import RapportEvent, ModeState, OperatorCommand
 from dobi_npc_msgs.srv import SetMode
+from .mode_policy import VALID_MODES, decide_transition, validate_params
 
-
-VALID_MODES = ('idle', 'serving', 'patrol', 'guiding', 'engaging', 'follow')
 
 # M3 종료(2026-07-04) 후 제거 예정. WARN 로그 후 자동 변환.
 # 2026-05-19 머지: follow 는 mode_guiding 과 분리 운용하므로 alias 에서 제거.
@@ -343,6 +341,7 @@ class ModeManagerNode(Node):
     def _on_request(self, request, response):
         req_mode = request.requested_mode
         req_params = request.params or ''
+        override_priority = bool(getattr(request, 'override_priority', False))
 
         # Legacy alias 자동 변환 (FSM spec §6.3, M3 종료 후 제거)
         if req_mode in LEGACY_MODE_ALIAS:
@@ -363,28 +362,31 @@ class ModeManagerNode(Node):
                     f'reject [{req_mode}] → {response.reason}')
                 return response
 
-            # 2. 모드명 검증
-            if req_mode not in VALID_MODES:
+            # 2. 모드명/priority/same-mode 정책 검증
+            decision = decide_transition(
+                self._current_mode,
+                req_mode,
+                override_priority=override_priority,
+            )
+            if not decision.allowed:
                 response.success = False
                 response.current_mode = self._current_mode
-                response.reason = f'unknown_mode:{req_mode}'
+                response.reason = decision.reason
                 self._last_reject_reason = response.reason
                 self.get_logger().warn(
                     f'reject [{req_mode}] → {response.reason}')
                 return response
 
             # 3. params JSON 검증 (빈 문자열 OK)
-            if req_params and req_params.strip():
-                try:
-                    json.loads(req_params)
-                except json.JSONDecodeError as e:
-                    response.success = False
-                    response.current_mode = self._current_mode
-                    response.reason = f'invalid_json_params:{e.msg}'
-                    self._last_reject_reason = response.reason
-                    self.get_logger().warn(
-                        f'reject [{req_mode}] → {response.reason}')
-                    return response
+            params_error = validate_params(req_params)
+            if params_error:
+                response.success = False
+                response.current_mode = self._current_mode
+                response.reason = params_error
+                self._last_reject_reason = response.reason
+                self.get_logger().warn(
+                    f'reject [{req_mode}] → {response.reason}')
+                return response
 
             # 4. 가드 — idle 외 전환은 가드 통과 필요
             if req_mode != 'idle':
@@ -407,7 +409,17 @@ class ModeManagerNode(Node):
                         f'reject [{req_mode}] → {response.reason}')
                     return response
 
-            # 5. 검증 통과 → 백그라운드 전이 시작
+            # 5. 같은 모드 재요청은 respawn 하지 않고 no-op 응답
+            if decision.noop:
+                response.success = True
+                response.current_mode = self._current_mode
+                response.reason = decision.reason
+                self._last_reject_reason = ''
+                self.get_logger().info(
+                    f'noop [{req_mode}] → {response.reason}')
+                return response
+
+            # 6. 검증 통과 → 백그라운드 전이 시작
             prev_mode = self._current_mode
             self._busy = True
 
@@ -417,13 +429,13 @@ class ModeManagerNode(Node):
             daemon=True,
         ).start()
 
-        # 6. 즉시 응답 — 실 spawn/kill 결과는 /mode/state 로 갱신
+        # 7. 즉시 응답 — 실 spawn/kill 결과는 /mode/state 로 갱신
         response.success = True
         response.current_mode = req_mode
         response.reason = 'transition_started'
         self.get_logger().info(
             f'transition_started: {prev_mode} → {req_mode} '
-            f'params=\'{req_params}\'')
+            f'override_priority={override_priority} params=\'{req_params}\'')
         return response
 
     # ---- 비동기 전이 (별 thread) ---------------------------------------

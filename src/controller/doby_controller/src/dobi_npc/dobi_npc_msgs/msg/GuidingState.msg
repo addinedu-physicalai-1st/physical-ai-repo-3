@@ -1,5 +1,5 @@
 # 동행 안내 모드 진행 상태 — guiding_controller_node 발행 (1Hz)
-# 구독: moca_opserver (CompletionWatcher, KPI), web dashboard
+# 구독: task_orchestrator(완료 감시), debug_monitor
 #
 # current_state 의미 (docs/moca_guiding_design.md §2.3 7-state FSM):
 #   init    : 진입 직후 (params 파싱 + table 검증)
@@ -7,7 +7,7 @@
 #   moving  : Nav2 NavigateToPose 진행 + 카메라로 customer 추적
 #   waiting : customer lag > 1.5m → Nav2 cancel + 발화 + 대기 (lag < 1.0m 시 재개)
 #   arrived : 목표 테이블 도착 — "여기서 즐기세요" 발화 + 5s dwell
-#   done    : OpServer SetMode('idle') 대기 (다른 모드와 일관)
+#   done    : task_orchestrator 의 SetMode('idle') 대기 (다른 모드와 일관)
 #   aborted : customer_lost > 8s 또는 rapport abort_trigger 또는 invalid target_table
 
 std_msgs/Header header

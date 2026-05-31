@@ -1,5 +1,5 @@
 # 순회 모드 진행 상태 — patrol_scheduler_node 발행 (1Hz)
-# 구독: moca_opserver (CompletionWatcher, KPI 집계), web dashboard, mode_manager(참고)
+# 구독: task_orchestrator(완료 감시), debug_monitor, mode_manager(참고)
 
 std_msgs/Header header
 

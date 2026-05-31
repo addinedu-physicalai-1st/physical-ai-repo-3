@@ -31,9 +31,8 @@ mediapipe==0.10.14
 edge-tts==7.2.7
 
 # ============================================================
-# M3 — Web Dashboard (FastAPI port 8800)
+# Operator/teleop web UI support
 # ============================================================
-# moca_opserver/rest_api.py + web/teleop_server.py
 fastapi
 uvicorn[standard]
 pydantic>=2,<3

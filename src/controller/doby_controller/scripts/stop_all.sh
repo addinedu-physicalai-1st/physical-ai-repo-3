@@ -12,7 +12,7 @@
 #   bash <repo>/scripts/stop_all.sh --dry-run  매칭만 표시
 #
 # 종료 대상:
-#   - PC moca/opserver/dev_common/teleop_ui (stop_moca.sh --with-ui)
+#   - PC moca/dev_common/teleop_ui (stop_moca.sh --with-ui)
 #   - PC robot_cam (있다면)
 #   - RPi vic_pinky_bringup (stop_vic_bringup.sh)
 #   - PC sim/gazebo 잔재 (--keep-sim 아닐 때)
@@ -31,9 +31,9 @@
 #   ROBOT_PASS 기본 1
 #
 # 종료 후 검증:
-#   - PC ros2 node list (moca/dobi_npc/opserver 잔재)
+#   - PC ros2 node list (moca/dobi_npc 잔재)
 #   - RPi pgrep (bringup/sllidar/twist_mux 잔재)
-#   - port 8765 (teleop_ui), 8800 (opserver) free 여부
+#   - port 8765 (teleop_ui) free 여부
 #
 # 관련:
 #   stop_moca.sh / stop_vic_bringup.sh / stop_robot_cam.sh / stop_sim.sh
@@ -76,9 +76,9 @@ DRY_OPT=""
 QUIET_OPT=""
 [ "$QUIET" = 1 ] && QUIET_OPT="--quiet"
 
-# ── 1) PC moca/opserver/dev_common/teleop_ui ────────────────────────────
+# ── 1) PC moca/dev_common/teleop_ui ─────────────────────────────────────
 log ""
-log "[1/5] PC moca + opserver + teleop_ui 종료..."
+log "[1/5] PC moca + teleop_ui 종료..."
 bash "$SCRIPT_DIR/stop_moca.sh" --with-ui $DRY_OPT $QUIET_OPT
 
 # ── 2) PC robot_cam (있으면) ─────────────────────────────────────────────
@@ -191,8 +191,8 @@ log "======================================================"
 log " 검증"
 log "======================================================"
 
-# PC port (teleop_ui 8765 + opserver 8800)
-for port in 8765 8800; do
+# PC port (teleop_ui 8765)
+for port in 8765; do
     if ss -tlnp 2>/dev/null | grep -q ":$port "; then
         log " ★ port $port  여전 listen 중 (외부 process — 수동 확인 필요)"
         [ "$QUIET" = 1 ] || ss -tlnp 2>/dev/null | grep ":$port " | sed 's/^/    /'
@@ -201,9 +201,9 @@ for port in 8765 8800; do
     fi
 done
 
-# PC ros2 node list — moca/dobi_npc/opserver 잔재
+# PC ros2 node list — moca/dobi_npc 잔재
 moca_nodes=$(timeout 3 ros2 node list 2>/dev/null \
-    | grep -iE 'moca|mode_manager|opserver|patrol|guiding|serving|dobi_npc|persona|dialog_router|face_avatar|geva|rapport_tracker|tts' \
+    | grep -iE 'moca|mode_manager|task_orchestrator|patrol|guiding|serving|dobi_npc|persona|dialog_router|face_avatar|geva|rapport_tracker|tts' \
     || true)
 if [ -z "$moca_nodes" ]; then
     log " PC ros2 node:  moca/dobi_npc 잔재 없음 ✓"

@@ -1,13 +1,13 @@
 #!/bin/bash
 # ============================================================
-# run_sim.sh — Gazebo 시뮬 풀 스택 + 운영 UI 한 줄 기동
+# run_sim.sh — Gazebo 시뮬 풀 스택 + ROS-only 운영층 한 줄 기동
 #
 # 사용:
 #   bash <repo>/scripts/run_sim.sh             # 전체 (Gazebo + Nav2 + RViz + UI)
 #   bash <repo>/scripts/run_sim.sh --no-rviz   # RViz 제외
 #   bash <repo>/scripts/run_sim.sh --no-nav2   # Gazebo 만 (UI 검증 위한 최소)
 #   bash <repo>/scripts/run_sim.sh --cleanup   # 좀비 정리 후 기동
-#   bash <repo>/scripts/run_sim.sh --test-mode # opserver MOCA_TEST_MODE=1 (시나리오 자동)
+#   bash <repo>/scripts/run_sim.sh --test-mode # legacy no-op
 #
 # 환경: ROS_DOMAIN_ID=99 + ROS_LOCALHOST_ONLY=1 (시뮬 전용, §0-A 정합)
 #
@@ -16,8 +16,8 @@
 #      ★ Step 1 보다 먼저 실행. stop_moca.sh 패턴이 'ros2 launch' 매칭이라
 #        Step 1 이후 호출하면 방금 띄운 Gazebo+Nav2 도 같이 죽음.
 #   1. Gazebo + Nav2 (+ RViz) — run_nav2_sim.sh 위임 (run_sim 전용 mapv5 override)
-#   2. 운영 UI (mode_manager + opserver_node) — run_dashboard.sh --domain=99
-#   3. 브라우저 자동 open (http://localhost:8800/)
+#   2. ROS-only 운영층 (mode_manager + task_orchestrator) — run_dashboard.sh --domain=99
+#   3. ROS service 확인
 #
 # 종료:
 #   bash <repo>/scripts/stop_sim.sh
@@ -71,7 +71,7 @@ else
 fi
 
 echo ""
-log "Step 2/3 — 운영 UI (DOMAIN=99 시뮬)"
+log "Step 2/3 — ROS-only 운영층 (DOMAIN=99 시뮬)"
 # ★ run_dashboard.sh 의 --cleanup 은 stop_moca.sh ('ros2 launch' 매칭) 호출 →
 #   방금 띄운 Gazebo+Nav2 launch 가 같이 죽음. run_sim 흐름에선 절대 forward X.
 if ! bash "$SCRIPT_DIR/run_dashboard.sh" --domain=99 --no-browser $DASH_TEST_OPT; then
@@ -80,18 +80,11 @@ if ! bash "$SCRIPT_DIR/run_dashboard.sh" --domain=99 --no-browser $DASH_TEST_OPT
 fi
 
 echo ""
-log "Step 3/3 — 브라우저 open"
-URL="http://localhost:8800/"
-for cmd in xdg-open sensible-browser google-chrome chromium firefox; do
-    if command -v "$cmd" >/dev/null 2>&1; then
-        ("$cmd" "$URL" >/dev/null 2>&1 &)
-        log "브라우저 자동 open ($cmd): $URL"
-        break
-    fi
-done
+log "Step 3/3 — ROS service 확인"
+ros2 service list | grep -E '^/(mode/request|task/request_serving|task/request_guiding)$' || true
 
 echo ""
-log "✓ 시뮬 풀 스택 + 운영 UI 기동 완료"
+log "✓ 시뮬 풀 스택 + ROS-only 운영층 기동 완료"
 log "  Gazebo: gz sim (DOMAIN=99)"
-log "  운영 UI: $URL"
+log "  운영 서비스: /mode/request, /task/request_serving, /task/request_guiding"
 log "  종료: bash $SCRIPT_DIR/stop_sim.sh"

@@ -1,9 +1,8 @@
-# 테이블 점유 현황 조회 — 다른 ROS 노드가 moca_opserver 의 table_registry 캐시 조회
-# 서버: moca_opserver_node
+# 테이블 점유 현황 조회 — task_orchestrator 의 table cache 조회
+# 서버: task_orchestrator
 # 클라이언트: (선택) CLI/스크립트, mode 외부 트리거 노드
 #
-# REST API 의 GET /api/v1/tables 와 동일한 데이터를 ROS 도메인에서도 노출.
-# 웹 대시보드는 WS 또는 REST 를 직접 사용하고, 본 srv 는 ROS 노드용.
+# /patrol/table_report 로 갱신된 최신 캐시를 ROS 도메인에서 조회한다.
 
 string table_id           # 비우면 전체 반환 ("T01"~"T05" 또는 "")
 ---

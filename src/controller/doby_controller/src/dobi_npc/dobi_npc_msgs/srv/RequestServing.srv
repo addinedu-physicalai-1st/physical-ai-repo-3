@@ -1,0 +1,16 @@
+# 서빙 작업 요청 — task_orchestrator 가 pickup/queue/mode request 를 조율한다.
+# 서버: task_orchestrator
+
+string event_id
+string drink_id
+string order_id
+string target_table
+bool via_pickup
+bool has_drink
+---
+bool success
+string code
+string message
+bool mode_requested
+bool queued
+uint32 queue_position

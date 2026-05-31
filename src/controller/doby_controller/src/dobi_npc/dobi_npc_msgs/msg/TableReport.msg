@@ -1,5 +1,5 @@
 # 테이블 점유 추정 결과 — table_occupancy_detector_node 발행 (테이블 방문 시 이벤트)
-# 구독: moca_opserver(table_registry), web dashboard
+# 구독: task_orchestrator(table cache), debug_monitor
 #
 # occupancy 분류 (M2: empty/occupied 만, M3: finished 추가)
 #   empty    : 의자에 사람 없음, 테이블 위 식기 없음

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# run_real.sh — 실물 로봇 환경 운영 UI 기동 (DOMAIN=22)
+# run_real.sh — 실물 로봇 환경 ROS-only 운영층 기동 (DOMAIN=22)
 #
 # 사용:
 #   bash <repo>/scripts/run_real.sh [--force]    # §0-A 정책 prompt 후 기동
@@ -61,5 +61,5 @@ if [ "$FORCE" = 0 ]; then
     esac
 fi
 
-log "DOMAIN=22 실물 모드 운영 UI 기동..."
+log "DOMAIN=22 실물 모드 ROS-only 운영층 기동..."
 exec bash "$SCRIPT_DIR/run_dashboard.sh" --domain=22 "$@"

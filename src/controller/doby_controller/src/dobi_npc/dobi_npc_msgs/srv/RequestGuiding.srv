@@ -1,0 +1,13 @@
+# 안내 작업 요청 — task_orchestrator 가 테이블 할당 후 mode_manager 에 guiding 을 요청한다.
+# 서버: task_orchestrator
+
+string event_id
+string customer_id
+string preferred_table
+uint32 party_size
+---
+bool success
+string code
+string message
+string assigned_table
+bool mode_requested

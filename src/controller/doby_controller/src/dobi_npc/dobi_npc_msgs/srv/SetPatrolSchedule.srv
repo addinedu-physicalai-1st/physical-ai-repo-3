@@ -1,9 +1,8 @@
-# 순회 스케줄 설정 — moca_opserver 의 patrol_scheduler 정책 갱신
-# 서버: moca_opserver_node
-# 클라이언트: 웹 UI(POST /api/v1/config 경유 또는 ROS 직접), CLI 스크립트
+# 순회 스케줄 설정 — task_orchestrator 의 idle patrol 정책 갱신
+# 서버: task_orchestrator
+# 클라이언트: ROS 운영 도구, CLI 스크립트
 #
-# REST API 의 POST /api/v1/config 와 동일 효과. opserver_config.yaml 디스크 저장 + 즉시 반영.
-# 본 srv 는 ROS 도메인에서 사용. 웹은 보통 REST 사용.
+# HTTP/REST 저장 없이 런타임 스케줄만 즉시 반영한다.
 
 float32 interval_minutes  # 자동 patrol 주기 (기본 5.0)
 bool enabled              # false 면 자동 patrol 차단 (수동 호출은 가능)

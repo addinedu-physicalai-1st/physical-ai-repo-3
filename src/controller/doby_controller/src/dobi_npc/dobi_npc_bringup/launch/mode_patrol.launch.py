@@ -86,7 +86,7 @@ def generate_launch_description():
                     value_type=float),
                 'inter_table_timeout_sec': 60.0,
                 'return_home_after_cycle': True,
-                'report_to_opserver': True,
+                'report_to_orchestrator': True,
                 'scan_service_name': '/table_occupancy/scan',
                 'nav_action_name': '/navigate_to_pose',
             }],

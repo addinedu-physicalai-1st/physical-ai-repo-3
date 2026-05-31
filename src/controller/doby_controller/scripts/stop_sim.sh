@@ -3,7 +3,7 @@
 # stop_sim.sh — run_sim.sh 가 띄운 풀 스택 종료
 #
 # 종료 대상:
-#   1. 운영 UI (mode_manager + opserver_node) — stop_moca.sh
+#   1. ROS-only 운영층 (mode_manager + task_orchestrator) — stop_moca.sh
 #   2. Gazebo + Nav2 + RViz — run_nav2_sim.sh --stop
 #
 # 사용:

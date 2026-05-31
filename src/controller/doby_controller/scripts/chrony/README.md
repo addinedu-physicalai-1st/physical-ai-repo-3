@@ -85,19 +85,14 @@ timedatectl status          # System clock synchronized: yes
 
 ---
 
-## Dashboard 통합 (현 상태)
+## ROS-only 운영 상태
 
-- 운영 노트북의 `moca_opserver` `/api/v1/ntp` endpoint:
-  - chrony 설치 시 `chronyc tracking` 우선, 미설치 시 `timedatectl` 파싱
-  - 5090 마스터 (192.168.0.133) ICMP reach + RTT 측정
-- 표시: `settings.html` → "시스템 상태" 카드 → NTP 5 행
-  (도구 / 동기화 / 서버 / offset / 5090 마스터)
+HTTP dashboard 는 제거되었다. NTP 상태는 운영 노트북에서 `chronyc tracking`
+또는 `timedatectl show-timesync --all` 로 직접 확인한다.
 
-**향후 (별 task)** — 6대 통합 sync 표시 :
-- 각 호스트에 reporter (systemd timer) → POST `/api/v1/ntp/report`
-- 또는 5090 측에 작은 web endpoint → `chronyc clients` 출력 → opserver 가 HTTP fetch
-- settings 카드 또는 별 페이지 (`/static/pages/time.html`) 에 6대 표 색 코딩
-  (초록 < 10ms / 노랑 < 100ms / 빨강 ≥ 100ms)
+**향후 (별 task)** — 6대 통합 sync 표시는 ROS topic/service reporter 로
+분리한다. 각 호스트가 동기화 상태를 발행하고 `debug_monitor` 또는 별도
+logging node 가 집계하는 형태를 권장한다.
 
 ---
 

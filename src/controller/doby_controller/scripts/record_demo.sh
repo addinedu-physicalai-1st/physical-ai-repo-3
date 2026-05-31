@@ -1,9 +1,9 @@
 #!/bin/bash
-# record_demo.sh — Gazebo + dashboard 분할 화면 풀스크린 녹화 + 5 모드 자동 시나리오.
+# record_demo.sh — Gazebo 화면 녹화 + 5 모드 자동 시나리오.
 #
 # 사용:
-#   1. run_sim.sh 가 떠 있고 (Gazebo + Nav2 + dashboard), mode=idle 상태.
-#   2. 사용자가 화면 layout 잡음 — Gazebo GUI + 브라우저 dashboard 분할.
+#   1. run_sim.sh 가 떠 있고 (Gazebo + Nav2 + ROS-only 운영 노드), mode=idle 상태.
+#   2. 사용자가 화면 layout 잡음 — Gazebo GUI / RViz 등.
 #   3. bash scripts/record_demo.sh
 #   4. 5초 카운트다운 → 녹화 시작 → 시나리오 자동 → 종료.
 #
@@ -35,10 +35,14 @@ for arg in "$@"; do
     esac
 done
 
-# 사전 검증 — dashboard alive + Gazebo + ffmpeg
+# 사전 검증 — ROS 서비스 + Gazebo + ffmpeg
 command -v ffmpeg >/dev/null || { echo "ffmpeg 미설치"; exit 1; }
-curl -sf http://localhost:8800/api/v1/health >/dev/null || {
-    echo "⚠ dashboard 미가동 — bash scripts/run_sim.sh --no-rviz 먼저 실행"; exit 1; }
+set +u
+source /opt/ros/jazzy/setup.bash
+source "$WS/install/setup.bash"
+set -u
+ros2 service list | grep -qx '/task/request_serving' || {
+    echo "⚠ task_orchestrator 미가동 — bash scripts/run_sim.sh --no-rviz 먼저 실행"; exit 1; }
 pgrep -f "gz sim -r -s" >/dev/null || {
     echo "⚠ Gazebo 미가동 — run_sim.sh 재기동 또는 단순 dashboard 녹화 시 --offset 조정"; }
 
@@ -57,7 +61,7 @@ echo "================================================="
 
 if [ "$COUNTDOWN" -gt 0 ]; then
     echo
-    echo "  ★ 화면 layout 준비 (Gazebo + dashboard 분할 권장)"
+    echo "  ★ 화면 layout 준비 (Gazebo/RViz 권장)"
     echo "    Ctrl+C 로 취소 가능"
     for i in $(seq "$COUNTDOWN" -1 1); do
         printf "  녹화 시작 %ds 전 ...\r" "$i"

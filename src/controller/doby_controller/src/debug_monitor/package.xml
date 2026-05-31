@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>debug_monitor</name>
+  <version>0.0.0</version>
+  <description>Read-only ROS topic monitor for Doby operational debugging.</description>
+  <maintainer email="skong097@gmail.com">gjkong</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>dobi_npc_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

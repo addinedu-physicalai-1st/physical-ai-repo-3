@@ -1,13 +1,12 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>dobi_npc_msgs</name>
   <version>0.0.1</version>
   <description>
     Custom messages and services for the Dobi Barista cafe NPC system.
     Includes EmotionState (Russell + Salichs), RapportEvent, MinigameResult, SetPersona, ModeState, SetMode,
-    and the 5-state FSM extension (PatrolState, TableReport, GuidingState, OpEvent, OperatorCommand,
-    GetTableStatus, SetPatrolSchedule).
+    and the 6-state FSM extension (PatrolState, TableReport, GuidingState, OpEvent, OperatorCommand,
+    RequestServing, RequestGuiding, GetTableStatus, SetPatrolSchedule).
   </description>
   <maintainer email="kong@pinklab.art">Stephen Kong (gjkong)</maintainer>
   <license>Apache-2.0</license>

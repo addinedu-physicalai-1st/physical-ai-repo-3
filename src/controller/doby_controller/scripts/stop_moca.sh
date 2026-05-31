@@ -14,9 +14,8 @@
 #         모드 전이 위험.
 #
 # 사용:
-#   bash <repo>/scripts/stop_moca.sh                # moca 노드 + opserver 정리
+#   bash <repo>/scripts/stop_moca.sh                # moca/dobi_npc 노드 정리
 #   bash <repo>/scripts/stop_moca.sh --with-ui      # teleop_server (운영 UI) 까지
-#   bash <repo>/scripts/stop_moca.sh --no-opserver  # opserver 는 살려두기
 #   bash <repo>/scripts/stop_moca.sh --no-daemon    # ros2 daemon 재기동 skip
 #   bash <repo>/scripts/stop_moca.sh --dry-run      # 매칭만 표시, kill 안 함
 #   bash <repo>/scripts/stop_moca.sh --quiet        # 출력 최소
@@ -29,23 +28,21 @@
 #   5. 카메라 점유 + audio sink mute 확인
 #
 # 종료 패턴:
-#   moca/install/  ros2 launch  ros2 run dobi_npc  ros2 run moca_opserver
-#   opserver_node  mode_manager  patrol_scheduler  guiding_controller
-#   table_occupancy_detector  completion_watcher  idle_patrol_timer
-#   moca_opserver  serving_dispatcher  person_detector  follow_controller
+#   moca/install/  ros2 launch  ros2 run dobi_npc
+#   mode_manager  task_orchestrator  doby_debug_monitor
+#   patrol_scheduler  guiding_controller
+#   table_occupancy_detector  serving_dispatcher  person_detector  follow_controller
 # ============================================================
 
 set -u
 
 WITH_UI=0
-WITH_OPSERVER=1
 DAEMON_RESET=1
 DRY_RUN=0
 QUIET=0
 for arg in "$@"; do
     case "$arg" in
         --with-ui)        WITH_UI=1 ;;
-        --no-opserver)    WITH_OPSERVER=0 ;;
         --no-daemon)      DAEMON_RESET=0 ;;
         --dry-run)        DRY_RUN=1 ;;
         --quiet)          QUIET=1 ;;
@@ -60,27 +57,23 @@ done
 log() { [ "$QUIET" = 1 ] || echo "$@"; }
 
 # 패턴 — 회고 §4.2 의 좀비 누적 패턴 망라.
-# ros2 run / ros2 launch 부모 + entry point 직접 (python3 .../mode_manager 등) + opserver.
+# ros2 run / ros2 launch 부모 + entry point 직접 (python3 .../mode_manager 등).
 PATTERNS=(
     'moca/install/'
     'ros2 launch'
     'ros2 run dobi_npc'
+    'ros2 run debug_monitor'
     'mode_manager'
+    'task_orchestrator'
+    'doby_debug_monitor'
     'patrol_scheduler'
     'guiding_controller'
     'table_occupancy_detector'
     'table_markers'
-    'completion_watcher'
-    'idle_patrol_timer'
     'serving_dispatcher'
     'person_detector'
     'follow_controller'
     'minigame_runner'
-)
-[ "$WITH_OPSERVER" = 1 ] && PATTERNS+=(
-    'ros2 run moca_opserver'
-    'opserver_node'
-    'moca_opserver'
 )
 [ "$WITH_UI" = 1 ] && PATTERNS+=('web/teleop_server.py')
 
@@ -149,7 +142,7 @@ if command -v ros2 >/dev/null 2>&1; then
 
     # moca 노드 잔재
     moca_nodes=$(timeout 3 ros2 node list 2>/dev/null \
-        | grep -iE 'moca|mode_manager|opserver|patrol|guiding|serving_dispatcher|completion_watcher|idle_patrol' \
+        | grep -iE 'moca|mode_manager|task_orchestrator|patrol|guiding|serving_dispatcher' \
         || true)
     if [ -z "$moca_nodes" ]; then
         log "  ros2 node list: moca 관련 노드 없음 ✓"

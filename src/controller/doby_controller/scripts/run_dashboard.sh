@@ -1,24 +1,21 @@
 #!/bin/bash
 # ============================================================
-# run_dashboard.sh — moca_opserver Web Dashboard 한 줄 기동
+# run_dashboard.sh — ROS-only 운영 공통 노드 기동 (legacy wrapper)
 #
 # 사용:
-#   bash <repo>/scripts/run_dashboard.sh             # 기본 (브라우저 자동 open)
+#   bash <repo>/scripts/run_dashboard.sh             # 기본
 #   bash <repo>/scripts/run_dashboard.sh --cleanup   # 시작 전 좀비 정리
-#   bash <repo>/scripts/run_dashboard.sh --no-browser
+#   bash <repo>/scripts/run_dashboard.sh --no-browser # 호환 옵션 (동작 없음)
 #   bash <repo>/scripts/run_dashboard.sh --verbose   # stdout 콘솔 직접
-#   bash <repo>/scripts/run_dashboard.sh --port=9000 # 포트 변경
 #   bash <repo>/scripts/run_dashboard.sh --domain=22 # 실물 (§0-A 해제 시점만)
 #   bash <repo>/scripts/run_dashboard.sh --domain=99 # 시뮬 (default, Gazebo + PC 단독)
-#   bash <repo>/scripts/run_dashboard.sh --test-mode # 시나리오 테스트용 — /api/v1/_test/* 활성
 #
 # 기동:
 #   1. CLAUDE.md §0-A 정합 — DOMAIN 기본 99 + LOCALHOST_ONLY=1 (시뮬)
 #      --domain=22 시 실물 모드 (LOCALHOST_ONLY=0 + §0-A 정책 검증 필요)
 #   2. ROS jazzy + install/setup.bash source
-#   3. mode_manager + opserver_node setsid 분리 spawn
-#   4. 5초 대기 + curl /api/v1/health 검증
-#   5. http://localhost:8800/ 브라우저 자동 open
+#   3. mode_manager + task_orchestrator + table_markers setsid 분리 spawn
+#   4. ROS node/service 확인
 #
 # 종료:
 #   bash <repo>/scripts/stop_moca.sh
@@ -33,17 +30,15 @@ WS="$(cd "$SCRIPT_DIR/.." && pwd)"
 CLEANUP=0
 NO_BROWSER=0
 VERBOSE=0
-PORT=8800
 DOMAIN=99
-TEST_MODE=0
 for arg in "$@"; do
     case "$arg" in
         --cleanup)    CLEANUP=1 ;;
         --no-browser) NO_BROWSER=1 ;;
         --verbose)    VERBOSE=1 ;;
-        --port=*)     PORT="${arg#*=}" ;;
+        --port=*)     : ;;  # removed with HTTP server; accepted for legacy scripts
         --domain=*)   DOMAIN="${arg#*=}" ;;
-        --test-mode)  TEST_MODE=1 ;;
+        --test-mode)  : ;;  # removed with HTTP server
         -h|--help)
             sed -n '2,/^# =====*$/p' "$0" | sed 's/^# \?//'
             exit 0
@@ -64,10 +59,6 @@ if [ "$DOMAIN" = "22" ]; then
 else
     export ROS_LOCALHOST_ONLY=1
     export MOCA_DOMAIN_HINT="시뮬"
-fi
-if [ "$TEST_MODE" = 1 ]; then
-    export MOCA_TEST_MODE=1
-    log "★ TEST_MODE 활성 — /api/v1/_test/inject_state endpoint 등록 (운영 금지)"
 fi
 
 # ROS jazzy + workspace setup
@@ -131,49 +122,29 @@ else
 fi
 sleep 1
 
-# opserver_node
-log "opserver_node 시작 (port $PORT)..."
+# task_orchestrator
+log "task_orchestrator 시작..."
 if [ "$VERBOSE" = 1 ]; then
-    setsid ros2 run moca_opserver opserver_node \
-        --ros-args -p "port:=$PORT" &
+    setsid ros2 run dobi_npc_bringup task_orchestrator &
 else
-    setsid ros2 run moca_opserver opserver_node \
-        --ros-args -p "port:=$PORT" \
-        >"$LOG_DIR/opserver_node.log" 2>&1 &
+    setsid ros2 run dobi_npc_bringup task_orchestrator \
+        >"$LOG_DIR/task_orchestrator.log" 2>&1 &
 fi
 
 # Health check
-log "5초 대기 후 health check..."
-sleep 5
-URL="http://localhost:${PORT}"
-if curl -fsS "${URL}/api/v1/health" >/dev/null 2>&1; then
-    log "✓ opserver 응답 OK"
+log "3초 대기 후 ROS service check..."
+sleep 3
+if ros2 service list | grep -qx '/task/request_serving' && \
+   ros2 service list | grep -qx '/mode/request'; then
+    log "✓ ROS-only 운영 서비스 확인 OK"
 else
-    log "★ opserver health check 실패 — 로그 확인:"
-    log "  $LOG_DIR/opserver_node.log"
-    [ -f "$LOG_DIR/opserver_node.log" ] && tail -20 "$LOG_DIR/opserver_node.log"
+    log "★ ROS service check 실패 — 로그 확인:"
+    log "  $LOG_DIR/mode_manager.log"
+    log "  $LOG_DIR/task_orchestrator.log"
+    [ -f "$LOG_DIR/task_orchestrator.log" ] && tail -20 "$LOG_DIR/task_orchestrator.log"
 fi
 
 echo ""
-log "Dashboard URL: ${URL}/"
+log "ROS service: /mode/request, /task/request_serving, /task/request_guiding"
 log "종료: bash $SCRIPT_DIR/stop_moca.sh"
 echo ""
-
-# 브라우저 자동 open — xdg-open 우선, fallback chain
-open_browser() {
-    local url=$1
-    for cmd in xdg-open sensible-browser google-chrome chromium firefox; do
-        if command -v "$cmd" >/dev/null 2>&1; then
-            ("$cmd" "$url" >/dev/null 2>&1 &)
-            log "브라우저 자동 open ($cmd): $url"
-            return 0
-        fi
-    done
-    log "★ 브라우저 자동 open 실패 — xdg-open/chrome/firefox 모두 없음"
-    log "  수동 진입: $url"
-    return 1
-}
-
-if [ "$NO_BROWSER" = 0 ]; then
-    open_browser "${URL}/"
-fi
