@@ -15,6 +15,28 @@ waypoints:
   W10: {x: 7.3457, y: -5.1433, yaw: -0.0055}
   W11: {x: 8.3791, y: -6.8038, yaw: -1.4581}
   W12: {x: 8.3273, y: -5.6053, yaw: -1.5629}
+  W13: {x: 4.9223, y: -8.0996, yaw: 1.5974}
+  W14: {x: 4.9371, y: -7.6664, yaw: 1.5672}
 
 home:
   HOME: {x: 8.3065, y: -5.6187, yaw: -1.5675}
+
+# 경로 (route) — 테이블별 outbound/return 웨이포인트 시퀀스 (순서대로 경유)
+# 값은 위 waypoints 의 ID 를 순서대로 나열. 마지막 ID 에서 정지 (이후 teleop 인계).
+#   outbound : 대기장소/픽업 -> 테이블 접근 방향. 빈 리스트 = 자율 경유 없음 (teleop 직접 주행).
+#   return   : 손님 테이블 적재 완료 -> 대기장소 방향. 마지막 WP 정차 후 teleop.
+# 명령 (std_msgs/String, /serving/goto_table):
+#   "T02"         -> T02 outbound 주행 (W01..W05)
+#   "T02:return"  -> T02 return 주행 (W06..W10)
+#   "T01:return"  -> T01 return 주행 (W10, W11)
+# T01 outbound 는 대기장소->T01 직접 = teleop 수동 (자율 경유점 없음).
+routes:
+  T01:
+    outbound: []
+    return:   [W10, W11]
+  T02:
+    outbound: [W01, W02, W03, W04, W05, W13]
+    return:   [W06, W07, W08, W09, W10, HOME]
+  T03:
+    outbound: [W01, W02, W03, W04, W05, W13, W14]
+    return:   [W06, W07, W08, W09, W10, HOME]

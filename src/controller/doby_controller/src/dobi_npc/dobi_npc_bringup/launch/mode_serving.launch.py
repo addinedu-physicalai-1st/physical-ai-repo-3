@@ -16,6 +16,8 @@ launch 인자:
 
 자세한 명세: docs/cafe_npc_serving_mode.md
 """
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -30,10 +32,19 @@ def generate_launch_description():
         description='SetMode 서비스로 받은 JSON params (waypoint 필드가 첫 명령)')
     dwell_arg = DeclareLaunchArgument(
         'dwell_sec', default_value='5.0',
-        description='도착 후 대기 시간 (sec)')
+        description='도착 후 대기 시간 (sec) — table 단일 주행 경로에만 적용')
     return_home_arg = DeclareLaunchArgument(
         'return_home_after_dwell', default_value='true',
-        description='dwell 후 home_pose 자동 복귀 여부')
+        description='dwell 후 home_pose 자동 복귀 여부 — table 단일 주행 경로에만 적용')
+    # mapv6 웨이포인트 + routes(테이블별 outbound/return) yaml 절대경로.
+    # 비우면 route 추종 비활성 (기존 tables.yaml 단일 주행만). 상대경로 규약상 env 우선.
+    waypoints_arg = DeclareLaunchArgument(
+        'waypoints_yaml',
+        default_value=os.environ.get('MOCA_WAYPOINTS_YAML', ''),
+        description='mapv6 웨이포인트+경로 yaml 절대경로 (NavigateThroughPoses 경로 추종)')
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time', default_value='false',
+        description='시뮬(Gazebo)에서 true — dispatcher 가 /clock 사용 (Nav2 와 시계 정합)')
 
     tables_yaml = PathJoinSubstitution([
         FindPackageShare('dobi_npc_bringup'), 'config', 'tables.yaml'])
@@ -42,11 +53,17 @@ def generate_launch_description():
         params_arg,
         dwell_arg,
         return_home_arg,
+        waypoints_arg,
+        use_sim_time_arg,
         Node(
             package='dobi_npc_bringup', executable='serving_dispatcher',
             name='serving_dispatcher', output='screen',
             parameters=[{
                 'tables_yaml': tables_yaml,
+                'waypoints_yaml': ParameterValue(
+                    LaunchConfiguration('waypoints_yaml'), value_type=str),
+                'use_sim_time': ParameterValue(
+                    LaunchConfiguration('use_sim_time'), value_type=bool),
                 # JSON 문자열을 그대로 받기 위해 value_type=str 강제 (ros2 launch 가
                 # `{...}` 보면 dict 자동 파싱 시도 → "Got dict for params_json" 에러).
                 'params_json': ParameterValue(

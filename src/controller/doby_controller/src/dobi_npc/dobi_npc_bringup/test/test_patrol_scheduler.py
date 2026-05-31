@@ -305,3 +305,112 @@ def test_state_enum_values_match_spec():
         'returning', 'done', 'aborted',
     }
     assert {s.value for s in State} == expected
+
+
+# ──────────────── 6. waypoint 순회 모드 (W## + scan_table_map) ────────────────
+
+SAMPLE_WAYPOINTS = {
+    'waypoints': {
+        'W01': {'x': 1.0, 'y': 0.0, 'yaw': 0.0},          # 경유점 (스캔 X)
+        'W05': {'x': 5.7, 'y': -9.8, 'yaw': 1.59},        # 스캔 → T02, T03
+        'W07': {'x': -0.5, 'y': -6.8, 'yaw': -1.46},      # 스캔 → T04, T05
+        'W08': {'x': -0.5, 'y': -10.6, 'yaw': 0.0},       # 경유점
+    },
+    'home': {'HOME': {'x': 8.3, 'y': -5.6, 'yaw': -1.57}},
+}
+
+
+@pytest.fixture
+def waypoints_yaml(tmp_path):
+    p = tmp_path / 'waypoints.yaml'
+    p.write_text(yaml.safe_dump(SAMPLE_WAYPOINTS, allow_unicode=True))
+    return str(p)
+
+
+def _make_wp_scheduler(waypoints_yaml_path: str) -> PatrolScheduler:
+    """waypoints_yaml 주입 + sweep W01,W05,W07,W08 + Nav2 mock 한 PatrolScheduler."""
+    from rclpy.parameter import Parameter
+    s = PatrolScheduler()
+    s.set_parameters([
+        Parameter('waypoints_yaml', Parameter.Type.STRING, waypoints_yaml_path),
+        Parameter('sweep_order', Parameter.Type.STRING_ARRAY,
+                  ['W01', 'W05', 'W07', 'W08']),
+        # scan_table_map_json 은 노드 default ('{"W05":["T02","T03"],"W07":["T04","T05"]}') 사용
+    ])
+    s._tables.clear()
+    s._home_pose = None
+    s._sweep_order = []
+    s._current_table_index = 0
+    s._tables_visited = 0
+    s._load_tables()
+    s.act_nav = MagicMock()
+    s.act_nav.wait_for_server.return_value = True
+    idle_send_future = MagicMock()
+    idle_send_future.add_done_callback = MagicMock()
+    s.act_nav.send_goal_async.return_value = idle_send_future
+    s._state = State.INIT
+    return s
+
+
+@pytest.fixture
+def wp_scheduler(rclpy_setup, waypoints_yaml):
+    s = _make_wp_scheduler(waypoints_yaml)
+    yield s
+    s.destroy_node()
+
+
+def test_waypoint_mode_loads_stops_and_scan_map(wp_scheduler):
+    s = wp_scheduler
+    assert set(s._tables.keys()) == {'W01', 'W05', 'W07', 'W08'}
+    assert s._tables['W05']['scan_tables'] == ['T02', 'T03']
+    assert s._tables['W07']['scan_tables'] == ['T04', 'T05']
+    assert s._tables['W01']['scan_tables'] == []          # 경유점
+    assert s._tables['W05']['approach_dist'] == 0.0       # W## = 정차 pose 자체
+    assert s._sweep_order == ['W01', 'W05', 'W07', 'W08']
+    assert s._tables_total == 4                            # T02,T03,T04,T05
+    assert s._home_pose is not None
+
+
+def test_waypoint_scan_point_moves_to_dwell(wp_scheduler):
+    """스캔 지점(W05) 도착 → DWELL."""
+    s = wp_scheduler
+    s._current_table_id = 'W05'
+    s._state = State.MOVING
+    s._on_nav_result(_make_nav_result(status=4))
+    assert s._state == State.DWELL
+
+
+def test_waypoint_transit_point_skips_scan(wp_scheduler):
+    """경유점(W01) 도착 → 스캔 없이 통과 (DWELL/SCAN 아님)."""
+    s = wp_scheduler
+    s._current_table_id = 'W01'
+    s._current_table_index = 0
+    s._state = State.MOVING
+    s._on_nav_result(_make_nav_result(status=4))
+    assert s._state not in (State.DWELL, State.SCAN)
+
+
+def test_waypoint_report_emits_per_mapped_table(wp_scheduler):
+    """W05 스캔 1회 → T02, T03 두 TableReport (동일 결과 적용)."""
+    s = wp_scheduler
+    s._current_table_id = 'W05'
+    s._state = State.SCAN
+
+    fut = MagicMock()
+    scan_result = MagicMock()
+    scan_result.success = True
+    scan_result.occupancy = 'occupied'
+    scan_result.person_count = 1
+    scan_result.dishes_detected = False
+    scan_result.confidence = 0.88
+    fut.result.return_value = scan_result
+
+    published = []
+    original = s.pub_report.publish
+    s.pub_report.publish = lambda msg: (published.append(msg) or original(msg))
+
+    visited0 = s._tables_visited
+    s._on_scan_done(fut)
+    assert [m.table_id for m in published] == ['T02', 'T03']
+    assert all(m.occupancy == 'occupied' for m in published)
+    assert s._tables_visited == visited0 + 2

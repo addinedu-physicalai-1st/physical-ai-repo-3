@@ -19,6 +19,8 @@ launch 인자:
                sweep_order override 도 지원 ('{"sweep_order":["T03","T01"]}')
   image_topic: detector 가 구독할 카메라 토픽 (기본 /camera/image_raw)
 """
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -38,8 +40,20 @@ def generate_launch_description():
         'dwell_per_table_sec', default_value='2.0',
         description='각 테이블 도착 후 분석 대기 시간 (sec)')
     arrival_timeout_arg = DeclareLaunchArgument(
-        'arrival_timeout_sec', default_value='30.0',
-        description='Nav2 단일 goal 타임아웃 (sec)')
+        'arrival_timeout_sec', default_value='90.0',
+        description='Nav2 단일 goal 타임아웃 (sec). mapv6 W## 구간이 길어(최대 ~7.5m) '
+                    '30s 는 빠듯 — 90s 여유. 초과 시 cancel→다음 지점이 연쇄 race 유발하므로 넉넉히.')
+    waypoints_arg = DeclareLaunchArgument(
+        'waypoints_yaml',
+        default_value=os.environ.get('MOCA_WAYPOINTS_YAML', ''),
+        description='mapv6 waypoints yaml (W## 순회 모드). 비우면 tables.yaml 테이블 순회.')
+    scan_map_arg = DeclareLaunchArgument(
+        'scan_table_map_json',
+        default_value='{"W05": ["T02", "T03"], "W07": ["T04", "T05"]}',
+        description='W## 정차점에서 스캔할 테이블 매핑 (waypoint 순회 모드)')
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time', default_value='false',
+        description='시뮬(Gazebo)에서 true — /clock 사용 (detector 프레임 staleness/시계 정합)')
 
     tables_yaml = PathJoinSubstitution([
         FindPackageShare('dobi_npc_bringup'), 'config', 'tables.yaml'])
@@ -49,6 +63,9 @@ def generate_launch_description():
         image_topic_arg,
         dwell_arg,
         arrival_timeout_arg,
+        waypoints_arg,
+        scan_map_arg,
+        use_sim_time_arg,
         # 1) detector 먼저 spawn — patrol_scheduler 가 서비스 wait_for_service 시점 보장
         Node(
             package='dobi_npc_bringup',
@@ -64,6 +81,8 @@ def generate_launch_description():
                 'dishes_enabled': False,
                 'frame_stale_sec': 2.0,
                 'scan_service_name': '/table_occupancy/scan',
+                'use_sim_time': ParameterValue(
+                    LaunchConfiguration('use_sim_time'), value_type=bool),
             }],
         ),
         # 2) scheduler
@@ -74,10 +93,16 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'tables_yaml': tables_yaml,
+                'waypoints_yaml': ParameterValue(
+                    LaunchConfiguration('waypoints_yaml'), value_type=str),
+                'scan_table_map_json': ParameterValue(
+                    LaunchConfiguration('scan_table_map_json'), value_type=str),
                 'params_json': ParameterValue(
                     LaunchConfiguration('params_json'), value_type=str),
-                # sweep_order: tables.yaml 의 T01~T05 (params_json 으로 override 가능)
-                'sweep_order': ['T01', 'T02', 'T03', 'T04', 'T05'],
+                # 순회 정차 시퀀스: waypoint 모드면 W01~W12 (params_json sweep_order override 가능).
+                # waypoints_yaml 비우면 노드가 tables.yaml T01~T05 로 fallback.
+                'sweep_order': ['W01', 'W02', 'W03', 'W04', 'W05', 'W06',
+                                'W07', 'W08', 'W09', 'W10', 'W11', 'W12'],
                 'dwell_per_table_sec': ParameterValue(
                     LaunchConfiguration('dwell_per_table_sec'),
                     value_type=float),
@@ -89,6 +114,8 @@ def generate_launch_description():
                 'report_to_opserver': True,
                 'scan_service_name': '/table_occupancy/scan',
                 'nav_action_name': '/navigate_to_pose',
+                'use_sim_time': ParameterValue(
+                    LaunchConfiguration('use_sim_time'), value_type=bool),
             }],
         ),
     ])

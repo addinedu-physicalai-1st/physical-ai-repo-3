@@ -79,6 +79,8 @@ class OpServerConfig:
     completion_dwell_patrol: float = 1.0
     completion_dwell_guiding: float = 5.0
     completion_dwell_engaging: float = 2.0
+    # 서빙 적재(Serve) 완료 후 자동 return 경로 복귀 후 idle (route 서빙)
+    auto_return_after_serve: bool = True
 
     def snapshot(self) -> dict:
         return asdict(self)
@@ -103,6 +105,7 @@ class OpServerNode(Node):
         self.declare_parameter('business_hours', '09:00-22:00')
         self.declare_parameter('battery_min', 0.20)
         self.declare_parameter('alarm_dwell_sec', 5.0)
+        self.declare_parameter('auto_return_after_serve', True)
 
         self.config = OpServerConfig(
             host=str(self.get_parameter('host').value),
@@ -113,6 +116,8 @@ class OpServerNode(Node):
             business_hours=str(self.get_parameter('business_hours').value),
             battery_min=float(self.get_parameter('battery_min').value),
             alarm_dwell_sec=float(self.get_parameter('alarm_dwell_sec').value),
+            auto_return_after_serve=bool(
+                self.get_parameter('auto_return_after_serve').value),
         )
 
         # ROS 상태 캐시 (FastAPI thread 가 read-only 접근, 락 불필요한 단순 dict)
@@ -143,6 +148,9 @@ class OpServerNode(Node):
         self._pickup_in_progress: bool = False
         # 현재 serving 세션의 음료 여부 — CompletionWatcher 가 Serve goal 에 사용
         self._current_serving_has_drink: bool = False
+        # 현재 serving 세션의 대상 route id (예 'T03') — 적재 후 자동 return 에 사용.
+        # _on_mode_state 가 권위적으로 set/clear (funnel/drain/operator 모든 진입 경로 커버).
+        self._active_serving_route: str | None = None
 
         # 캐시 / 큐 (M1 in-memory, M3 sqlite 영속화 검토)
         self._tables: dict[str, dict] = {
@@ -288,6 +296,7 @@ class OpServerNode(Node):
         """
         params = {'waypoint': waypoint, 'via_pickup': via_pickup, 'has_drink': has_drink}
         self._current_serving_has_drink = has_drink
+        self._active_serving_route = waypoint.split(':')[0] if waypoint else None
 
         if not via_pickup:
             return self.orchestrator.request_mode_change(
@@ -439,11 +448,14 @@ class OpServerNode(Node):
         if not self._test_safety_locked:
             self.safety_ok = bool(msg.safety_ok)
         self._last_mode_state_ts = time.time()
-        # has_drink 복구 — 재시작/외부 SetMode 경로에서도 일관성 유지
+        # has_drink / 대상 route 복구 — 재시작/외부 SetMode 경로에서도 일관성 유지
         if msg.current_mode == 'serving':
             self._current_serving_has_drink = bool(params_dict.get('has_drink', True))
+            self._active_serving_route = (
+                str(params_dict.get('waypoint', '')).split(':')[0] or None)
         elif msg.current_mode == 'idle':
             self._current_serving_has_drink = False
+            self._active_serving_route = None
         # IdlePatrolTimer 신호
         self.idle_patrol_timer.on_mode_state(msg.current_mode)
         self.ws_broadcast('mode_state', {
