@@ -15,7 +15,7 @@
 #   0. (옵션 --cleanup) 풀 스택 사전 정리 — stop_sim.sh 위임
 #      ★ Step 1 보다 먼저 실행. stop_moca.sh 패턴이 'ros2 launch' 매칭이라
 #        Step 1 이후 호출하면 방금 띄운 Gazebo+Nav2 도 같이 죽음.
-#   1. Gazebo + Nav2 (+ RViz) — run_nav2_sim.sh 위임
+#   1. Gazebo + Nav2 (+ RViz) — run_nav2_sim.sh 위임 (run_sim 전용 mapv5 override)
 #   2. 운영 UI (mode_manager + opserver_node) — run_dashboard.sh --domain=99
 #   3. 브라우저 자동 open (http://localhost:8800/)
 #
@@ -26,6 +26,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SIM_NAV2_MAP="$SCRIPT_DIR/../maps/mapv5_mocamap.yaml"
 
 NAV2_OPT=""
 DASH_TEST_OPT=""
@@ -57,9 +58,14 @@ log "Step 1/3 — Gazebo 시뮬 풀 스택"
 if [ "$NO_NAV2" = 1 ]; then
     log "  (--no-nav2) Gazebo + Nav2 skip — UI 단독 검증 모드"
 else
-    if ! bash "$SCRIPT_DIR/run_nav2_sim.sh" $NAV2_OPT; then
+    if [ ! -f "$SIM_NAV2_MAP" ]; then
+        log "Step 1 실패 — run_sim 전용 Nav2 mapv5 자산을 찾을 수 없습니다."
+        log "  확인 경로: $SIM_NAV2_MAP"
+        exit 1
+    fi
+    if ! bash "$SCRIPT_DIR/run_nav2_sim.sh" $NAV2_OPT --map="$SIM_NAV2_MAP"; then
         log "Step 1 실패 — Gazebo/Nav2가 기동되지 않아 중단합니다."
-        log "  로그와 맵 자산을 확인하세요: $SCRIPT_DIR/../maps/mapv5_mocamap.yaml"
+        log "  로그와 맵 자산을 확인하세요: $SIM_NAV2_MAP"
         exit 1
     fi
 fi

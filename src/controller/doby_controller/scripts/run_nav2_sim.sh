@@ -7,6 +7,7 @@
 # 사용법:
 #   scripts/run_nav2_sim.sh             # 전체 기동 (RViz 포함)
 #   scripts/run_nav2_sim.sh --no-rviz   # RViz 제외
+#   scripts/run_nav2_sim.sh --map=<yaml> # Nav2 map override
 #   scripts/run_nav2_sim.sh --stop      # 전체 종료 (gz sim + Nav2 + RViz)
 #
 # 로그: /tmp/moca_nav2_sim_<ts>/{gazebo,nav2,rviz,initpose}.log
@@ -58,29 +59,69 @@ dim()  { printf "%s%s%s\n" "$C_DIM" "$*" "$C_RST"; }
 # ─────────────────────────────────────────────────────────────
 # 정리 (모든 단계 공통)
 # ─────────────────────────────────────────────────────────────
+SIM_PROCESS_PATTERN="ros2 launch moca_navigation|ros2 launch moca_gazebo|nav2_view.launch.xml|rviz2.*nav2|component_container_isolated.*nav2_container|parameter_bridge|image_bridge|scan_to_scan_filter_chain|laser_filter|robot_state_publisher|ros_gz_sim.*create"
+
+list_sim_processes() {
+  pgrep -af "$SIM_PROCESS_PATTERN" 2>/dev/null \
+    | grep -v 'run_nav2_sim.sh' \
+    | grep -v 'pgrep -af' \
+    | grep -v ' grep ' \
+    | grep -v 'claude'
+}
+
+list_gz_processes() {
+  pgrep -af "gz sim" 2>/dev/null \
+    | grep -v 'run_nav2_sim.sh' \
+    | grep -v 'pgrep -af' \
+    | grep -v ' grep ' \
+    | grep -v 'claude'
+}
+
 stop_all() {
-  pkill -f "ros2 launch moca_navigation"  >/dev/null 2>&1
-  pkill -f "ros2 launch moca_gazebo"      >/dev/null 2>&1
-  pkill -f "nav2_view.launch.xml"          >/dev/null 2>&1
-  pkill -f "rviz2.*nav2"                   >/dev/null 2>&1
+  list_sim_processes | awk '{print $1}' | xargs -r kill -TERM 2>/dev/null
+  sleep 2
+
+  list_sim_processes | awk '{print $1}' | xargs -r kill -KILL 2>/dev/null
   sleep 1
-  # gz sim 잔존 강제
-  pgrep -af "gz sim" | grep -v claude | awk '{print $1}' | xargs -r kill -9 2>/dev/null
+
+  # gz sim server/gui 잔존 강제. Gazebo 가 clock/tf 를 계속 내면 Nav2 TF buffer 가 time jump 로 초기화된다.
+  list_gz_processes | awk '{print $1}' | xargs -r kill -KILL 2>/dev/null
   # ros2 daemon 정리는 안 함 (다른 사용자 토픽 영향)
   sleep 1
 }
 
-case "${1:-}" in
-  --stop|stop)
-    step "Nav2 시뮬 풀 스택 종료"
-    stop_all
-    pgrep -af "gz sim|ros2 launch moca_(gazebo|navigation)|rviz2" | grep -v claude || ok "모두 종료됨"
-    exit 0
-    ;;
-esac
-
 USE_RVIZ=1
-[[ "${1:-}" == "--no-rviz" ]] && USE_RVIZ=0
+NAV2_MAP=""
+for arg in "$@"; do
+  case "$arg" in
+    --stop|stop)
+      step "Nav2 시뮬 풀 스택 종료"
+      stop_all
+      remaining="$(list_sim_processes; list_gz_processes)"
+      if [ -n "$remaining" ]; then
+        warn "종료 후에도 잔존 프로세스 감지"
+        echo "$remaining"
+        exit 1
+      fi
+      ok "모두 종료됨"
+      exit 0
+      ;;
+    --no-rviz)
+      USE_RVIZ=0
+      ;;
+    --map=*)
+      NAV2_MAP="${arg#*=}"
+      ;;
+    -h|--help)
+      sed -n '2,/^# 본 스크립트/p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+    *)
+      bad "알 수 없는 옵션: $arg"
+      exit 1
+      ;;
+  esac
+done
 
 # ─────────────────────────────────────────────────────────────
 # 사전 검사
@@ -107,15 +148,25 @@ source /opt/ros/jazzy/setup.bash
 source "$REPO/install/setup.bash"
 ok "ROS 환경 source 완료 (DOMAIN=$ROS_DOMAIN_ID, LOCALHOST_ONLY=$ROS_LOCALHOST_ONLY)"
 
-if [ ! -f "$REPO/maps/mapv5_mocamap.yaml" ]; then
-  bad "맵 미발견: $REPO/maps/mapv5_mocamap.yaml"
-  exit 1
+if [ -n "$NAV2_MAP" ]; then
+  if [ ! -f "$NAV2_MAP" ]; then
+    bad "Nav2 map override 미발견: $NAV2_MAP"
+    exit 1
+  fi
+  ok "Nav2 map override: $NAV2_MAP"
+else
+  ok "Nav2 map override 없음 — moca_navigation launch 기본값 사용"
 fi
-ok "맵 발견: $REPO/maps/mapv5_mocamap.yaml"
 
 # 기존 프로세스 정리
 step "기존 잔존 프로세스 정리"
 stop_all
+remaining="$(list_sim_processes; list_gz_processes)"
+if [ -n "$remaining" ]; then
+  bad "이전 시뮬 인스턴스 잔존 — /clock, /tf 중복 방지를 위해 중단"
+  echo "$remaining"
+  exit 1
+fi
 ok "이전 인스턴스 종료 (있었다면)"
 
 # ─────────────────────────────────────────────────────────────
@@ -159,10 +210,15 @@ fi
 # 2. Nav2 bringup
 # ─────────────────────────────────────────────────────────────
 step "[2/4] Nav2 bringup"
-dim "map: $REPO/maps/mapv5_mocamap.yaml, use_sim_time: True"
+NAV2_ARGS=(use_sim_time:=True)
+if [ -n "$NAV2_MAP" ]; then
+  NAV2_ARGS=(map:="$NAV2_MAP" "${NAV2_ARGS[@]}")
+  dim "map override: $NAV2_MAP, use_sim_time: True"
+else
+  dim "map: moca_navigation launch default, use_sim_time: True"
+fi
 nohup ros2 launch moca_navigation bringup_launch.xml \
-  map:="$REPO/maps/mapv5_mocamap.yaml" \
-  use_sim_time:=True \
+  "${NAV2_ARGS[@]}" \
   > "$NAV2_LOG" 2>&1 &
 NAV2_PID=$!
 dim "launcher PID = $NAV2_PID, log = $NAV2_LOG"
@@ -197,14 +253,14 @@ QW=$(python3 -c "import math; print(math.cos(${SPAWN_YAW}/2))")
 > "$INITPOSE_LOG"
 AMCL_OK=0
 for i in $(seq 1 15); do
-  if timeout 1 ros2 topic echo --once /amcl_pose >/dev/null 2>&1; then
+  if grep -q "\[amcl\].*Setting pose" "$NAV2_LOG" 2>/dev/null; then
     AMCL_OK=1
-    dim "AMCL /amcl_pose 수신 (${i} s 대기 후)"
+    dim "AMCL initial pose 적용 로그 확인 (${i} s 대기 후)"
     break
   fi
   sleep 1
 done
-[ $AMCL_OK -eq 1 ] && ok "AMCL /amcl_pose 수신 확인 (self-init)" || warn "AMCL /amcl_pose 미수신 (yaml self-init 실패 — RViz 수동 셋업 필요)"
+[ $AMCL_OK -eq 1 ] && ok "AMCL self-init 확인 (yaml initial_pose 적용)" || warn "AMCL self-init 미확인 — nav2.log 확인 필요"
 
 # Navigation (controller/planner/bt/...) active 대기 (initial pose 후 TF 살아나서 활성)
 dim "navigation active 대기 (최대 60초) — 'lifecycle_manager_navigation: Managed nodes are active'"
@@ -222,6 +278,7 @@ done
 # 3.5 Nav2 warmup — 현 위치로 NavigateToPose 1회 (costmap + bt + AMCL 완전 활성).
 # 첫 실 nav 시 dispatcher 가 cold AMCL race 로 stuck 되는 사고 회피.
 # ─────────────────────────────────────────────────────────────
+WARMUP_OK=0
 if [ $NAV_OK -eq 1 ]; then
   dim "Nav2 warmup — 현 위치로 단발 NavigateToPose (cold start 회피)"
   WARMUP_LOG="${LOGDIR}/warmup.log"
@@ -231,6 +288,7 @@ if [ $NAV_OK -eq 1 ]; then
                     orientation: {x: 0.0, y: 0.0, z: ${QZ}, w: ${QW}}}}}" \
     >"$WARMUP_LOG" 2>&1
   if grep -q "SUCCEEDED" "$WARMUP_LOG"; then
+    WARMUP_OK=1
     ok "Nav2 warmup 성공 (SUCCEEDED)"
   else
     warn "Nav2 warmup 미완료 — 첫 실 nav 시 stuck 가능 (log: $WARMUP_LOG)"
@@ -268,9 +326,17 @@ TOPIC_COUNT=$(wc -l < "$LOGDIR/topics.txt")
 dim "active node : $NODE_COUNT (목록: $LOGDIR/nodes.txt)"
 dim "active topic: $TOPIC_COUNT (목록: $LOGDIR/topics.txt)"
 
-# /tf 발행 확인 (map → odom → base_link 체인)
-TF_OK=$(timeout 3 ros2 run tf2_ros tf2_echo map base_link 2>&1 | grep -c "Translation")
-[ "$TF_OK" -ge 1 ] && ok "/tf 체인 map→base_link OK" || warn "/tf map→base_link 미확립 (Gazebo 시뮬 클럭/AMCL 대기 중일 수 있음)"
+# /tf 발행 확인 (map → odom → base_footprint 체인).
+# Nav2 params 의 AMCL/global_costmap/bt_navigator 기준 프레임은 base_footprint 이다.
+TF_TARGET_FRAME="base_footprint"
+TF_OK=$(timeout 5 ros2 run tf2_ros tf2_echo map "$TF_TARGET_FRAME" 2>&1 | grep -c "Translation")
+if [ "$TF_OK" -ge 1 ]; then
+  ok "/tf 체인 map→${TF_TARGET_FRAME} OK"
+elif [ "$WARMUP_OK" -eq 1 ]; then
+  ok "/tf 체인 map→${TF_TARGET_FRAME} OK (warmup 성공으로 확인)"
+else
+  warn "/tf map→${TF_TARGET_FRAME} 미확립 (Gazebo 시뮬 클럭/AMCL 대기 중일 수 있음)"
+fi
 
 echo
 ok "Nav2 시뮬 스택 기동 완료"
