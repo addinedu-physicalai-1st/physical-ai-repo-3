@@ -17,7 +17,7 @@
 #        Step 1 이후 호출하면 방금 띄운 Gazebo+Nav2 도 같이 죽음.
 #   1. Gazebo + Nav2 (+ RViz) — run_nav2_sim.sh 위임 (run_sim 전용 mapv5 override)
 #   2. ROS-only 운영층 (mode_manager + task_orchestrator) — run_dashboard.sh --domain=99
-#   3. ROS service 확인
+#   3. ROS service/action 확인
 #
 # 종료:
 #   bash <repo>/scripts/stop_sim.sh
@@ -80,11 +80,12 @@ if ! bash "$SCRIPT_DIR/run_dashboard.sh" --domain=99 --no-browser $DASH_TEST_OPT
 fi
 
 echo ""
-log "Step 3/3 — ROS service 확인"
-ros2 service list | grep -E '^/(mode/request|task/request_serving|task/request_guiding)$' || true
+log "Step 3/3 — ROS service/action 확인"
+ros2 service list | grep -E '^/(mode/request|task/request_guiding)$' || true
+ros2 action list | grep -E '^/serving/execute$' || true
 
 echo ""
 log "✓ 시뮬 풀 스택 + ROS-only 운영층 기동 완료"
 log "  Gazebo: gz sim (DOMAIN=99)"
-log "  운영 서비스: /mode/request, /task/request_serving, /task/request_guiding"
+log "  운영 service/action: /mode/request, /serving/execute, /task/request_guiding"
 log "  종료: bash $SCRIPT_DIR/stop_sim.sh"

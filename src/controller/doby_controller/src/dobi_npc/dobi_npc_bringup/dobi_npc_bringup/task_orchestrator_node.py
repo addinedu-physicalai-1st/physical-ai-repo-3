@@ -25,7 +25,6 @@ from dobi_npc_msgs.msg import GuidingState, ModeState, OpEvent, PatrolState, Tab
 from dobi_npc_msgs.srv import (
     GetTableStatus,
     RequestGuiding,
-    RequestServing,
     SetMode,
     SetPatrolSchedule,
 )
@@ -135,7 +134,6 @@ class TaskOrchestratorNode(Node):
         self._event_pub = self.create_publisher(OpEvent, '/doby/event', 10)
         self._serving_goto_pub = self.create_publisher(String, '/serving/goto_table', 10)
 
-        self.create_service(RequestServing, '/task/request_serving', self._on_request_serving)
         self.create_service(RequestGuiding, '/task/request_guiding', self._on_request_guiding)
         self.create_service(GetTableStatus, '/task/get_table_status', self._on_get_table_status)
         self.create_service(SetPatrolSchedule, '/task/set_patrol_schedule', self._on_set_patrol_schedule)
@@ -154,26 +152,6 @@ class TaskOrchestratorNode(Node):
         self.get_logger().info('task_orchestrator ready (ROS-only)')
 
     # ---------- service handlers ----------
-
-    def _on_request_serving(self, request, response):
-        payload = {
-            'event_id': request.event_id.strip(),
-            'drink_id': request.drink_id,
-            'order_id': request.order_id,
-            'target_table': request.target_table.strip(),
-            'via_pickup': bool(request.via_pickup),
-            'has_drink': bool(request.has_drink),
-        }
-        result = self._handle_serving_payload(payload, trigger_source='openarm')
-        return self._serving_response(
-            response,
-            bool(result.get('success')),
-            str(result.get('code', 'ERROR')),
-            str(result.get('message', '')),
-            mode_requested=bool(result.get('mode_requested', False)),
-            queued=bool(result.get('queued', False)),
-            queue_position=int(result.get('queue_position', 0)),
-        )
 
     def _handle_serving_payload(self, payload: dict[str, Any],
                                 trigger_source: str) -> dict[str, Any]:
@@ -670,25 +648,6 @@ class TaskOrchestratorNode(Node):
                 if table['occupancy'] == status:
                     return table_id
         return ''
-
-    @staticmethod
-    def _serving_response(
-        response,
-        success: bool,
-        code: str,
-        message: str,
-        *,
-        mode_requested: bool = False,
-        queued: bool = False,
-        queue_position: int = 0,
-    ):
-        response.success = success
-        response.code = code
-        response.message = message
-        response.mode_requested = mode_requested
-        response.queued = queued
-        response.queue_position = int(queue_position)
-        return response
 
 
 def main(args=None):

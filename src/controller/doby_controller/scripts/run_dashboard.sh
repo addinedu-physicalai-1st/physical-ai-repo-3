@@ -15,7 +15,7 @@
 #      --domain=22 시 실물 모드 (LOCALHOST_ONLY=0 + §0-A 정책 검증 필요)
 #   2. ROS jazzy + install/setup.bash source
 #   3. mode_manager + task_orchestrator + table_markers setsid 분리 spawn
-#   4. ROS node/service 확인
+#   4. ROS node/service/action 확인
 #
 # 종료:
 #   bash <repo>/scripts/stop_moca.sh
@@ -132,19 +132,19 @@ else
 fi
 
 # Health check
-log "3초 대기 후 ROS service check..."
+log "3초 대기 후 ROS service/action check..."
 sleep 3
-if ros2 service list | grep -qx '/task/request_serving' && \
+if ros2 action list | grep -qx '/serving/execute' && \
    ros2 service list | grep -qx '/mode/request'; then
-    log "✓ ROS-only 운영 서비스 확인 OK"
+    log "✓ ROS-only 운영 인터페이스 확인 OK"
 else
-    log "★ ROS service check 실패 — 로그 확인:"
+    log "★ ROS service/action check 실패 — 로그 확인:"
     log "  $LOG_DIR/mode_manager.log"
     log "  $LOG_DIR/task_orchestrator.log"
     [ -f "$LOG_DIR/task_orchestrator.log" ] && tail -20 "$LOG_DIR/task_orchestrator.log"
 fi
 
 echo ""
-log "ROS service: /mode/request, /task/request_serving, /task/request_guiding"
+log "ROS service/action: /mode/request, /serving/execute, /task/request_guiding"
 log "종료: bash $SCRIPT_DIR/stop_moca.sh"
 echo ""

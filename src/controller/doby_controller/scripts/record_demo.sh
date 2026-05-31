@@ -35,13 +35,13 @@ for arg in "$@"; do
     esac
 done
 
-# 사전 검증 — ROS 서비스 + Gazebo + ffmpeg
+# 사전 검증 — ROS action + Gazebo + ffmpeg
 command -v ffmpeg >/dev/null || { echo "ffmpeg 미설치"; exit 1; }
 set +u
 source /opt/ros/jazzy/setup.bash
 source "$WS/install/setup.bash"
 set -u
-ros2 service list | grep -qx '/task/request_serving' || {
+ros2 action list | grep -qx '/serving/execute' || {
     echo "⚠ task_orchestrator 미가동 — bash scripts/run_sim.sh --no-rviz 먼저 실행"; exit 1; }
 pgrep -f "gz sim -r -s" >/dev/null || {
     echo "⚠ Gazebo 미가동 — run_sim.sh 재기동 또는 단순 dashboard 녹화 시 --offset 조정"; }

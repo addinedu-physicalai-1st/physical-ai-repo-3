@@ -6,7 +6,7 @@
     Custom messages and services for the Dobi Barista cafe NPC system.
     Includes EmotionState (Russell + Salichs), RapportEvent, MinigameResult, SetPersona, ModeState, SetMode,
     and the 6-state FSM extension (PatrolState, TableReport, GuidingState, OpEvent, OperatorCommand,
-    RequestServing, RequestGuiding, GetTableStatus, SetPatrolSchedule).
+    Serving action, RequestGuiding, GetTableStatus, SetPatrolSchedule).
   </description>
   <maintainer email="kong@pinklab.art">Stephen Kong (gjkong)</maintainer>
   <license>Apache-2.0</license>

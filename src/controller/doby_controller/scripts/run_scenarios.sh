@@ -22,13 +22,13 @@ source /opt/ros/jazzy/setup.bash
 source "$WS/install/setup.bash"
 set -u
 
-# 사전 검증 — ROS 서비스 확인
-if ! ros2 service list | grep -qx '/task/request_serving'; then
-    log "★ /task/request_serving 서비스 없음"
+# 사전 검증 — ROS action 확인
+if ! ros2 action list | grep -qx '/serving/execute'; then
+    log "★ /serving/execute action 없음"
     log "  사전 기동 필요: bash $SCRIPT_DIR/run_sim.sh"
     log "  또는 (ROS-only 공통층): bash $SCRIPT_DIR/run_dashboard.sh"
     exit 1
 fi
-log "✓ ROS-only task service 확인 OK"
+log "✓ ROS-only serving action 확인 OK"
 
 exec bash "$SCRIPT_DIR/run_demo_scenario.sh" "$@"

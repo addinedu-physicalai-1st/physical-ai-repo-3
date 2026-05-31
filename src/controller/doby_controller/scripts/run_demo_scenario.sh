@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_demo_scenario.sh — 5 모드 데모 시나리오 (ROS service 자동).
+# run_demo_scenario.sh — 5 모드 데모 시나리오 (ROS action/service 자동).
 #
 # 전제: run_sim.sh 가 떠 있음 (Gazebo + Nav2 + dashboard, DOMAIN=99).
 #       mode=idle 상태에서 시작.
@@ -66,7 +66,7 @@ sleep 2
 # 3. serving — pickup T03
 echo "$(elapsed) [3/6] pickup T03 → serving 모드"
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-ros2 service call /task/request_serving dobi_npc_msgs/srv/RequestServing \
+ros2 action send_goal /serving/execute dobi_npc_msgs/action/Serving \
   "{event_id: 'demo-$(date +%s)', drink_id: 'D-demo', order_id: '', target_table: 'T03', via_pickup: true, has_drink: true}" >/dev/null
 sleep 3
 wait_mode idle 90 || true

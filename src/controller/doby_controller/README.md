@@ -41,7 +41,7 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 
 ### ROS-only Task Orchestration
 
-`task_orchestrator` 가 `/task/request_serving`, `/task/request_guiding`, `/task/get_table_status`, `/task/set_patrol_schedule` 를 제공한다. 완료 감시, idle patrol timer, pickup/serve arm action 호출, `/doby/event` 발행은 이 노드가 맡고, 실제 모드 전환 허용 여부는 항상 `mode_manager` 의 `/mode/request` 응답을 따른다.
+`task_orchestrator` 가 `/serving/execute` action 과 `/task/request_guiding`, `/task/get_table_status`, `/task/set_patrol_schedule` service 를 제공한다. 완료 감시, idle patrol timer, pickup/serve arm action 호출, `/doby/event` 발행은 이 노드가 맡고, 실제 모드 전환 허용 여부는 항상 `mode_manager` 의 `/mode/request` 응답을 따른다.
 
 ### 주행 패키지 분리
 
@@ -52,7 +52,7 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 
 따라서 `src/controller/doby_controller` 작업 디렉터리에서 Gazebo 시뮬을 실행할 때도 빌드는 `src` 와 `../mobility_controller` 를 함께 포함해야 한다. `colcon build` 만 단독 실행하면 `mobility_controller` 패키지가 설치되지 않아 `ros2 run mobility_controller ...` 또는 mode launch wrapper 가 실패할 수 있다.
 
-서빙 요청 통신도 legacy HTTP `POST /api/v1/pickup` 이 아니라 ROS service `/task/request_serving` 을 사용한다.
+서빙 요청 통신은 ROS action `/serving/execute` 를 사용한다.
 
 ### 비전 — 3 카메라 아키텍처
 
@@ -90,7 +90,7 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 ├── .gitignore
 ├── src/
 │   ├── dobi_npc/                          ← 모객 BT 시스템 (6 패키지)
-│   │   ├── dobi_npc_msgs                  (커스텀 메시지 + SetMode/RequestServing/RequestGuiding srv)
+│   │   ├── dobi_npc_msgs                  (커스텀 메시지 + Serving action + SetMode/RequestGuiding srv)
 │   │   ├── dobi_npc_bt                    (C++ BT 노드, cafe_funnel_v1.xml)
 │   │   ├── dobi_npc_emotion               (GEVA face V·A + rapport_tracker + decision_rule)
 │   │   ├── dobi_npc_dialog                (persona_manager + tts_node + face_avatar 풀스크린)
@@ -217,14 +217,15 @@ source install/setup.bash
 export ROS_DOMAIN_ID=99
 export ROS_LOCALHOST_ONLY=1
 
-ros2 service call /task/request_serving dobi_npc_msgs/srv/RequestServing \
+ros2 action send_goal /serving/execute dobi_npc_msgs/action/Serving \
 "{event_id: 'test-serving-001', drink_id: 'D-test', order_id: '', target_table: 'T01', via_pickup: false, has_drink: true}"
 ```
 
 확인:
 
 ```bash
-ros2 service list | grep -E '^/(mode/request|task/request_serving)$'
+ros2 service list | grep -E '^/mode/request$'
+ros2 action list | grep -E '^/serving/execute$'
 ros2 topic echo /mode/state
 ros2 topic echo /serving/state
 ```
