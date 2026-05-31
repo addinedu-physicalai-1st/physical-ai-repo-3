@@ -313,7 +313,7 @@ inline constexpr std::array<StageWaypointPosePreset, 36> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Work,
     "work",
-    {true, 0.204, -0.007, 0.347, 0.504, 0.497, 0.503, -0.496}
+    {true, 0.204, -0.007, 0.367, 0.504, 0.497, 0.503, -0.496}
   },
   // 케이스 place stage: place pose, 현재는 비활성화.
   {
@@ -581,7 +581,7 @@ inline constexpr double kRightCaseGraspWorldZOffsetM = 0.004;
 
 // 소시지 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kLeftSausagePickTuning{
-  -0.015,
+  0.005,
   {true, 0.024},
   {true, 0.005}
 };

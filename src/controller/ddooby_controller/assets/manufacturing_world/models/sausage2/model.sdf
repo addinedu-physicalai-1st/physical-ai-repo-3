@@ -27,12 +27,11 @@
         </material>
       </visual>
       <collision name="sausage2_sausage2_collision">
-        <pose>-0.000000016 0.000000000 0.000000041 0 0 0</pose>
+        <pose>-0.000000016 0.000000000 0.000000045 0 0 0</pose>
         <geometry>
-          <cylinder>
-            <radius>0.010000004</radius>
-            <length>0.160000026</length>
-          </cylinder>
+          <box>
+            <size>0.020000008 0.020000008 0.160000011</size>
+          </box>
         </geometry>
         <surface>
           <friction>
