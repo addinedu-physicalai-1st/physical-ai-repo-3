@@ -21,8 +21,10 @@
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
 #include <moveit/robot_trajectory/robot_trajectory.hpp>
 #include <moveit/trajectory_processing/time_optimal_trajectory_generation.hpp>
+#include <moveit_msgs/msg/collision_object.hpp>
 #include <moveit_msgs/msg/robot_trajectory.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <shape_msgs/msg/solid_primitive.hpp>
 
 #include "ddooby_controller/manufacturing_task_presets.hpp"
 
@@ -44,6 +46,22 @@ struct CollisionBox
 {
   Eigen::Vector3d center{Eigen::Vector3d::Zero()};
   Eigen::Vector3d size{Eigen::Vector3d::Zero()};
+};
+
+struct CollisionPrimitiveSpec
+{
+  enum class Type
+  {
+    Box,
+    Cylinder,
+  };
+
+  Type type{Type::Box};
+  Eigen::Vector3d center{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d rpy{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d size{Eigen::Vector3d::Zero()};
+  double radius{0.0};
+  double length{0.0};
 };
 
 struct TargetObject
@@ -479,9 +497,9 @@ bool hasStageWaypointPosePreset(
   return task_presets::findStageWaypointPosePreset(target, arm, stage, waypoint) != nullptr;
 }
 
-std::vector<CollisionBox> parseCollisionBoxes(const std::string & sdf_text)
+std::vector<CollisionPrimitiveSpec> parseCollisionPrimitives(const std::string & sdf_text)
 {
-  std::vector<CollisionBox> boxes;
+  std::vector<CollisionPrimitiveSpec> primitives;
   size_t search_pos = 0;
   while (true) {
     const auto collision_start = sdf_text.find("<collision", search_pos);
@@ -496,11 +514,14 @@ std::vector<CollisionBox> parseCollisionBoxes(const std::string & sdf_text)
       sdf_text.substr(collision_start, collision_end + std::string("</collision>").size() - collision_start);
     search_pos = collision_end + std::string("</collision>").size();
 
-    std::optional<Eigen::Vector3d> collision_size;
+    CollisionPrimitiveSpec primitive;
+    bool has_geometry = false;
     if (const auto size_text = extractTagText(block, "size")) {
       const auto size_values = parseDoubles(size_text.value());
       if (size_values.size() == 3) {
-        collision_size = Eigen::Vector3d(size_values[0], size_values[1], size_values[2]);
+        primitive.type = CollisionPrimitiveSpec::Type::Box;
+        primitive.size = Eigen::Vector3d(size_values[0], size_values[1], size_values[2]);
+        has_geometry = true;
       }
     } else {
       const auto radius_text = extractTagText(block, "radius");
@@ -510,28 +531,98 @@ std::vector<CollisionBox> parseCollisionBoxes(const std::string & sdf_text)
         const auto length_values = parseDoubles(length_text.value());
         if (radius_values.size() == 1 && length_values.size() == 1) {
           const double diameter = radius_values[0] * 2.0;
-          collision_size = Eigen::Vector3d(diameter, diameter, length_values[0]);
+          primitive.type = CollisionPrimitiveSpec::Type::Cylinder;
+          primitive.radius = radius_values[0];
+          primitive.length = length_values[0];
+          primitive.size = Eigen::Vector3d(diameter, diameter, length_values[0]);
+          has_geometry = true;
         }
       }
     }
-    if (!collision_size.has_value()) {
+    if (!has_geometry) {
       continue;
     }
 
-    Eigen::Vector3d center = Eigen::Vector3d::Zero();
     const auto pose_text = extractTagText(block, "pose");
     if (pose_text.has_value()) {
       const auto pose_values = parseDoubles(pose_text.value());
       if (pose_values.size() >= 3) {
-        center = Eigen::Vector3d(pose_values[0], pose_values[1], pose_values[2]);
+        primitive.center = Eigen::Vector3d(pose_values[0], pose_values[1], pose_values[2]);
+      }
+      if (pose_values.size() >= 6) {
+        primitive.rpy = Eigen::Vector3d(pose_values[3], pose_values[4], pose_values[5]);
       }
     }
 
-    boxes.push_back(CollisionBox{
-      center,
-      collision_size.value()});
+    primitives.push_back(primitive);
+  }
+  return primitives;
+}
+
+std::vector<CollisionBox> parseCollisionBoxes(const std::string & sdf_text)
+{
+  std::vector<CollisionBox> boxes;
+  for (const CollisionPrimitiveSpec & primitive : parseCollisionPrimitives(sdf_text)) {
+    boxes.push_back(CollisionBox{primitive.center, primitive.size});
   }
   return boxes;
+}
+
+moveit_msgs::msg::CollisionObject makeCollisionObjectFromSdf(
+  const std::string & package_share_directory,
+  const std::string & layout_path,
+  const std::string & target_model,
+  const std::string & frame_id)
+{
+  const std::string layout_text = readTextFile(layout_path);
+  const std::string model_block = extractJsonObjectForModel(layout_text, target_model);
+
+  const std::string model_name = extractStringValue(model_block, "name");
+  const std::string model_dir = extractStringValue(model_block, "model_dir");
+  const Eigen::Vector3d model_xyz = extractVector3Value(model_block, "xyz");
+  const Eigen::Vector3d model_rpy = extractVector3Value(model_block, "rpy");
+  const Eigen::Matrix3d model_rotation = rotationFromRpy(model_rpy);
+
+  const std::string sdf_path =
+    joinPath(joinPath(package_share_directory, "assets"), joinPath(model_dir, "model.sdf"));
+  const std::vector<CollisionPrimitiveSpec> primitives =
+    parseCollisionPrimitives(readTextFile(sdf_path));
+  if (primitives.empty()) {
+    throw std::runtime_error("target model '" + target_model + "' has no supported collision geometry");
+  }
+
+  moveit_msgs::msg::CollisionObject object;
+  object.header.frame_id = frame_id;
+  object.id = model_name;
+  object.operation = moveit_msgs::msg::CollisionObject::ADD;
+
+  for (const CollisionPrimitiveSpec & primitive_spec : primitives) {
+    shape_msgs::msg::SolidPrimitive primitive;
+    if (primitive_spec.type == CollisionPrimitiveSpec::Type::Cylinder) {
+      primitive.type = shape_msgs::msg::SolidPrimitive::CYLINDER;
+      primitive.dimensions.resize(2);
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_HEIGHT] =
+        primitive_spec.length;
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_RADIUS] =
+        primitive_spec.radius;
+    } else {
+      primitive.type = shape_msgs::msg::SolidPrimitive::BOX;
+      primitive.dimensions.resize(3);
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_X] = primitive_spec.size.x();
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Y] = primitive_spec.size.y();
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z] = primitive_spec.size.z();
+    }
+
+    const Eigen::Vector3d global_center =
+      model_xyz + model_rotation * primitive_spec.center;
+    const Eigen::Matrix3d global_rotation =
+      model_rotation * rotationFromRpy(primitive_spec.rpy);
+
+    object.primitives.push_back(primitive);
+    object.primitive_poses.push_back(makePose(global_center, Eigen::Quaterniond(global_rotation)));
+  }
+
+  return object;
 }
 
 TargetObject loadTargetObject(
@@ -1623,6 +1714,19 @@ private:
       restore_state();
       return false;
     }
+    if (!shouldStopAtOrBefore(ManufacturingStage::Place)) {
+      RCLCPP_INFO(get_logger(), "Hotdog assembly final step: return left arm home");
+      if (!runSingleArmReturnHome(
+          ManufacturingTarget::Hotdog,
+          ArmSide::Left,
+          left_arm_group_,
+          left_tcp_link_,
+          "Final left arm"))
+      {
+        restore_state();
+        return false;
+      }
+    }
 
     restore_state();
     RCLCPP_INFO(get_logger(), "New York hotdog assembly completed");
@@ -1674,6 +1778,74 @@ private:
   {
     return play_to_stage_.has_value() &&
            stageOrder(play_to_stage_.value()) <= stageOrder(stage);
+  }
+
+  bool planAndExecuteReturnHome(
+    moveit::planning_interface::MoveGroupInterface & arm,
+    ManufacturingTarget target,
+    ArmSide arm_side,
+    const std::string & tcp_link,
+    const std::string & label)
+  {
+    bool return_home_pose_configured = false;
+    if (!planAndExecuteStageWaypointPoseIfConfigured(
+        get_logger(),
+        arm,
+        target,
+        arm_side,
+        task_presets::ManufacturingStage::ReturnHome,
+        "return_home",
+        tcp_link,
+        return_home_pose_configured,
+        pose_min_duration_sec_))
+    {
+      return false;
+    }
+
+    if (return_home_pose_configured) {
+      logCurrentTcpPose(get_logger(), arm, tcp_link, label + " return-home waypoint");
+      return true;
+    }
+
+    RCLCPP_INFO(get_logger(), "%s: moving arm to home pose", label.c_str());
+    arm.clearPoseTargets();
+    setBoundedStartState(arm);
+    arm.setNamedTarget("home");
+    if (!planAndExecute(
+        get_logger(),
+        arm,
+        label + " home",
+        task_presets::kDefaultPlanExecuteMaxAttempts,
+        pose_min_duration_sec_))
+    {
+      return false;
+    }
+
+    logCurrentTcpPose(get_logger(), arm, tcp_link, label + " home");
+    return true;
+  }
+
+  bool runSingleArmReturnHome(
+    ManufacturingTarget target,
+    ArmSide arm_side,
+    const std::string & arm_group,
+    const std::string & tcp_link,
+    const std::string & label)
+  {
+    if (!shouldRunStage(ManufacturingStage::ReturnHome)) {
+      return true;
+    }
+
+    auto self = shared_from_this();
+    moveit::planning_interface::MoveGroupInterface arm(self, arm_group);
+    arm.setPlanningTime(planning_time_sec_);
+    arm.setNumPlanningAttempts(planning_attempts_);
+    arm.setMaxVelocityScalingFactor(velocity_scaling_);
+    arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
+    arm.setPoseReferenceFrame(arm.getPlanningFrame());
+    arm.setEndEffectorLink(tcp_link);
+
+    return planAndExecuteReturnHome(arm, target, arm_side, tcp_link, label);
   }
 
   bool prepareAndRunPickMotion(
@@ -2337,6 +2509,49 @@ private:
       RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", target_model.c_str(), error.what());
       return false;
     }
+    return true;
+  }
+
+  bool restoreTargetCollisionObject(
+    moveit::planning_interface::PlanningSceneInterface & planning_scene_interface,
+    const std::string & target_model,
+    const std::string & log_label)
+  {
+    std::string package_share_directory;
+    try {
+      package_share_directory = ament_index_cpp::get_package_share_directory("ddooby_controller");
+    } catch (const std::exception & error) {
+      RCLCPP_ERROR(get_logger(), "Failed to resolve ddooby_controller share directory: %s", error.what());
+      return false;
+    }
+
+    const std::string layout_path = layout_path_.empty() ?
+      joinPath(package_share_directory, "assets/manufacturing_world/layout.json") :
+      layout_path_;
+
+    try {
+      auto collision_object =
+        makeCollisionObjectFromSdf(package_share_directory, layout_path, target_model, "world");
+      RCLCPP_INFO(
+        get_logger(),
+        "%s: restoring collision object '%s' with %zu primitive(s)",
+        log_label.c_str(),
+        collision_object.id.c_str(),
+        collision_object.primitives.size());
+      planning_scene_interface.applyCollisionObject(collision_object);
+      if (collision_scene_settle_ms_ > 0) {
+        rclcpp::sleep_for(std::chrono::milliseconds(collision_scene_settle_ms_));
+      }
+    } catch (const std::exception & error) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "%s: failed to restore collision object for '%s': %s",
+        log_label.c_str(),
+        target_model.c_str(),
+        error.what());
+      return false;
+    }
+
     return true;
   }
 
@@ -3287,6 +3502,16 @@ private:
     {
       return false;
     }
+
+    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+    if (!restoreTargetCollisionObject(
+        planning_scene_interface,
+        ketchup_target_model,
+        "Ketchup place"))
+    {
+      return false;
+    }
+
     if (shouldStopAfterWaypoint(ManufacturingStage::Place, "release")) {
       return true;
     }
@@ -3365,6 +3590,7 @@ private:
       release_pose_preset_configured = true;
       release_pose = makePoseFromPreset(release_pose_preset->pose);
       approach_pose = release_pose;
+      approach_pose.position.z += task_presets::kCompletedHotdogPickupApproachHeightM;
       RCLCPP_INFO(get_logger(), "Completed hotdog place release_pose waypoint pose preset applied");
     } else {
       release_pose.orientation = approach_pose.orientation;
@@ -3533,10 +3759,14 @@ private:
 
     if (shouldRunStage(ManufacturingStage::ReturnHome)) {
       RCLCPP_INFO(get_logger(), "Completed hotdog place: Cartesian retreat");
+      geometry_msgs::msg::Pose retreat_pose = approach_pose;
+      retreat_pose.position.z = std::max(
+        retreat_pose.position.z,
+        release_pose.position.z + task_presets::kCompletedHotdogPickupApproachHeightM);
       if (!executeCartesian(
           get_logger(),
           right_arm,
-          {approach_pose},
+          {retreat_pose},
           "completed hotdog pickup retreat",
           cartesian_eef_step_,
           min_cartesian_fraction_,
@@ -3549,35 +3779,15 @@ private:
       }
       logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Completed hotdog pickup retreat");
 
-      bool return_home_pose_configured = false;
-      if (!planAndExecuteStageWaypointPoseIfConfigured(
-          get_logger(),
+      if (!planAndExecuteReturnHome(
           right_arm,
           ManufacturingTarget::Hotdog,
           ArmSide::Right,
-          task_presets::ManufacturingStage::ReturnHome,
-          "return_home",
           right_tcp_link_,
-          return_home_pose_configured,
-          pose_min_duration_sec_))
+          "Completed hotdog"))
       {
         return false;
       }
-      if (return_home_pose_configured) {
-        logCurrentTcpPose(
-          get_logger(), right_arm, right_tcp_link_, "Completed hotdog return-home");
-      }
-    }
-
-    RCLCPP_INFO(get_logger(), "Completed hotdog place: ensuring right gripper open at finish");
-    if (!openGripperForPickApproach(
-        get_logger(),
-        right_gripper,
-        "Completed hotdog final",
-        task_presets::kRightCasePickTuning,
-        gripper_open_target_))
-    {
-      return false;
     }
 
     RCLCPP_INFO(get_logger(), "Completed hotdog pickup-zone place completed");

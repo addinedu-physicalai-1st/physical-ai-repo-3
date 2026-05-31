@@ -568,7 +568,7 @@ inline constexpr PickTuningPreset kLeftBreadPickTuning{
 inline constexpr PickTuningPreset kRightCasePickTuning{
   -0.020,
   {true, 0.043},
-  {true, 0.025}
+  {true, 0.030}
 };
 
 // 케이스 pre_grasp 이후 target 방향으로 정렬하는 중간 pose 높이 보정값.

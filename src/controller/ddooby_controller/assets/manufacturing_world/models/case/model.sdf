@@ -4,11 +4,11 @@
     <static>false</static>
     <link name="case_link">
       <inertial>
-        <mass>0.100000</mass>
+        <mass>0.150000</mass>
         <inertia>
-          <ixx>0.000100000</ixx>
-          <iyy>0.000100000</iyy>
-          <izz>0.000100000</izz>
+          <ixx>0.000150000</ixx>
+          <iyy>0.000150000</iyy>
+          <izz>0.000150000</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>
@@ -36,10 +36,18 @@
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>0.6</mu>
+              <mu2>0.6</mu2>
             </ode>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000100</soft_cfm>
+              <soft_erp>0.200000</soft_erp>
+              <max_vel>0.050000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
       <collision name="case_case_bottom_collision">
@@ -52,42 +60,66 @@
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>0.6</mu>
+              <mu2>0.6</mu2>
             </ode>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000100</soft_cfm>
+              <soft_erp>0.200000</soft_erp>
+              <max_vel>0.050000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
       <collision name="case_case_left_collision">
         <pose>0.008358419 0.032538384 0.002514750 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.150000006 0.005000001 0.030000001</size>
+            <size>0.150000006 0.009999998 0.030000001</size>
           </box>
         </geometry>
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>0.6</mu>
+              <mu2>0.6</mu2>
             </ode>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000100</soft_cfm>
+              <soft_erp>0.200000</soft_erp>
+              <max_vel>0.050000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
       <collision name="case_case_right_collision">
         <pose>0.008358419 -0.032260612 0.002514750 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.150000006 0.005000001 0.030000001</size>
+            <size>0.150000006 0.009999998 0.030000001</size>
           </box>
         </geometry>
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>0.6</mu>
+              <mu2>0.6</mu2>
             </ode>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000100</soft_cfm>
+              <soft_erp>0.200000</soft_erp>
+              <max_vel>0.050000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
     </link>
