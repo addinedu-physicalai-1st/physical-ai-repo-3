@@ -13,6 +13,8 @@ def generate_launch_description():
     bread_target_model = LaunchConfiguration("bread_target_model")
     sausage_target_model = LaunchConfiguration("sausage_target_model")
     ketchup_target_model = LaunchConfiguration("ketchup_target_model")
+    coke_target_model = LaunchConfiguration("coke_target_model")
+    coffee_target_model = LaunchConfiguration("coffee_target_model")
     play_to_stage = LaunchConfiguration("play_to_stage")
     start_from_waypoint = LaunchConfiguration("start_from_waypoint")
     play_to_waypoint = LaunchConfiguration("play_to_waypoint")
@@ -23,7 +25,7 @@ def generate_launch_description():
     task_arg = DeclareLaunchArgument(
         "task",
         default_value="bread",
-        choices=["bread", "case", "sausage", "ketchup", "hotdog"],
+        choices=["bread", "case", "sausage", "ketchup", "hotdog", "coke", "coffee"],
         description="Manufacturing task to run.",
     )
     arm_arg = DeclareLaunchArgument(
@@ -56,6 +58,16 @@ def generate_launch_description():
         "ketchup_target_model",
         default_value="kachup",
         description="World model name used for the ketchup step in task:=hotdog.",
+    )
+    coke_target_model_arg = DeclareLaunchArgument(
+        "coke_target_model",
+        default_value="can_coke",
+        description="World model name used for task:=coke.",
+    )
+    coffee_target_model_arg = DeclareLaunchArgument(
+        "coffee_target_model",
+        default_value="can_coffee",
+        description="World model name used for task:=coffee.",
     )
     play_to_stage_arg = DeclareLaunchArgument(
         "play_to_stage",
@@ -112,6 +124,8 @@ def generate_launch_description():
                 "bread_target_model": bread_target_model,
                 "sausage_target_model": sausage_target_model,
                 "ketchup_target_model": ketchup_target_model,
+                "coke_target_model": coke_target_model,
+                "coffee_target_model": coffee_target_model,
                 "play_to_stage": play_to_stage,
                 "start_from_waypoint": start_from_waypoint,
                 "play_to_waypoint": play_to_waypoint,
@@ -132,6 +146,8 @@ def generate_launch_description():
         bread_target_model_arg,
         sausage_target_model_arg,
         ketchup_target_model_arg,
+        coke_target_model_arg,
+        coffee_target_model_arg,
         play_to_stage_arg,
         start_from_waypoint_arg,
         play_to_waypoint_arg,

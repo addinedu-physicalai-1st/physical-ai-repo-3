@@ -91,10 +91,10 @@ std::optional<std::string> manufactureBackendForItem(const std::string & item_na
     return "hotdog_placeholder";
   }
   if (lowered == "coke" || lowered == "cola" || containsAny(lowered, {"콜라"})) {
-    return "ade_cup";
+    return "coke";
   }
   if (lowered == "coffee" || containsAny(lowered, {"커피"})) {
-    return "espresso_cup";
+    return "coffee";
   }
   return std::nullopt;
 }
@@ -552,7 +552,9 @@ private:
     const std::shared_ptr<GoalHandleManifacture> & goal_handle,
     const BeverageRun & run) const
   {
-    if (isHotdogPlaceholder(run)) {
+    if (isHotdogPlaceholder(run) || run.ingredient_model == "coke" ||
+      run.ingredient_model == "coffee")
+    {
       return runHotdogTaskLaunch(goal_handle, run);
     }
 
@@ -579,29 +581,39 @@ private:
       "--show-all-subprocesses-output",
       hotdog_launch_package_,
       hotdog_launch_file_,
-      "task:=hotdog",
+      "task:=" + (isHotdogPlaceholder(run) ? std::string("hotdog") : run.ingredient_model),
       std::string("use_sim_time:=") + (hotdog_use_sim_time_ ? "true" : "false"),
     };
 
-    RCLCPP_INFO(get_logger(), "Starting hotdog manufacture process: %s", joinCommandForLog(args).c_str());
+    const std::string task_name = isHotdogPlaceholder(run) ? std::string("hotdog") : run.ingredient_model;
+    const std::string success_marker = isHotdogPlaceholder(run) ?
+      "New York hotdog assembly completed" :
+      "Beverage " + task_name + " serving completed";
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Starting manufacture process for %s: %s",
+      task_name.c_str(),
+      joinCommandForLog(args).c_str());
     const auto command_result = runCommandAndCollectOutput(args, goal_handle, command_timeout_sec_);
     if (command_result.canceled) {
-      return ProcessResult{false, true, "manufacture canceled while running hotdog task"};
+      return ProcessResult{false, true, "manufacture canceled while running " + task_name + " task"};
     }
     if (!command_result.success) {
       return ProcessResult{
         false,
         false,
-        "hotdog manufacture failed for item '" + run.item_name + "': " + command_result.message};
+        task_name + " manufacture failed for item '" + run.item_name + "': " +
+          command_result.message};
     }
-    if (command_result.output.find("New York hotdog assembly completed") == std::string::npos) {
+    if (command_result.output.find(success_marker) == std::string::npos) {
       return ProcessResult{
         false,
         false,
-        "hotdog manufacture exited without completion marker for item '" + run.item_name + "'"};
+        task_name + " manufacture exited without completion marker for item '" + run.item_name + "'"};
     }
 
-    return ProcessResult{true, false, "hotdog manufacture completed"};
+    return ProcessResult{true, false, task_name + " manufacture completed"};
   }
 
   ProcessResult runScenarioTaskProcess(
