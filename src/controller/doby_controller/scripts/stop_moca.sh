@@ -30,6 +30,7 @@
 # 종료 패턴:
 #   moca/install/  ros2 launch  ros2 run dobi_npc
 #   mode_manager  task_orchestrator  doby_debug_monitor
+#   mobility_controller_node  nav_map_apply_adapter  approach_controller
 #   patrol_scheduler  guiding_controller
 #   table_occupancy_detector  serving_dispatcher  person_detector  follow_controller
 # ============================================================
@@ -66,6 +67,9 @@ PATTERNS=(
     'mode_manager'
     'task_orchestrator'
     'doby_debug_monitor'
+    'mobility_controller_node'
+    'nav_map_apply_adapter'
+    'approach_controller'
     'patrol_scheduler'
     'guiding_controller'
     'table_occupancy_detector'

@@ -231,7 +231,10 @@ done
 # 3. Nav2 bringup
 # ─────────────────────────────────────────────────────────────
 step "[3/5] Nav2 bringup"
-NAV2_ARGS=(use_sim_time:=True)
+# Sim runs use separate processes instead of a component container. The composed
+# container can intermittently stall on /nav2_container/_container/load_node and
+# never reach AMCL/lifecycle activation.
+NAV2_ARGS=(use_sim_time:=True use_composition:=False)
 if [ -n "$NAV2_MAP" ]; then
   NAV2_ARGS=(map:="$NAV2_MAP" "${NAV2_ARGS[@]}")
   dim "map override: $NAV2_MAP, use_sim_time: True"

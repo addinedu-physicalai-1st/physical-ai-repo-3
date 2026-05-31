@@ -3,7 +3,7 @@
 # stop_sim.sh — run_sim.sh 가 띄운 풀 스택 종료
 #
 # 종료 대상:
-#   1. ROS-only 운영층 (mode_manager + task_orchestrator) — stop_moca.sh
+#   1. ROS-only 운영층 + mobility always-on 층 — stop_moca.sh
 #   2. Gazebo + Nav2 + RViz — run_nav2_sim.sh --stop
 #
 # 사용:
@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 log() { echo "[stop_sim] $*"; }
 
-log "Step 1/2 — 운영 UI + dobi_npc 노드 정리"
+log "Step 1/2 — 운영 UI + dobi_npc + mobility 노드 정리"
 bash "$SCRIPT_DIR/stop_moca.sh" --quiet
 echo ""
 

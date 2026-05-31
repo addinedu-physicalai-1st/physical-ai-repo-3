@@ -1,4 +1,5 @@
-"""Apply Nav2 maps received from moca_service."""
+#!/usr/bin/env python3
+"""Apply maps from the upper controller to the local Nav2 map server."""
 
 from __future__ import annotations
 
@@ -18,9 +19,9 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 
-class MapApplyNode(Node):
+class NavMapApplyAdapterNode(Node):
     def __init__(self) -> None:
-        super().__init__("map_apply")
+        super().__init__("nav_map_apply_adapter")
         self.declare_parameter(
             "active_map_dir",
             os.path.expanduser("~/.moca/doby/maps/active"),
@@ -38,7 +39,7 @@ class MapApplyNode(Node):
             self._on_apply_map,
             callback_group=self._callback_group,
         )
-        self.get_logger().info("map_apply ready: service=/map/apply")
+        self.get_logger().info("nav_map_apply_adapter ready: service=/map/apply")
 
     def _on_apply_map(self, request: ApplyMap.Request, response: ApplyMap.Response):
         try:
@@ -93,7 +94,7 @@ class MapApplyNode(Node):
         _validate_yaml_config(yaml_config)
         parent = active_dir.parent
         parent.mkdir(parents=True, exist_ok=True)
-        tmp_dir = Path(tempfile.mkdtemp(prefix=".map_apply_", dir=str(parent)))
+        tmp_dir = Path(tempfile.mkdtemp(prefix=".nav_map_apply_", dir=str(parent)))
         try:
             image_name = f"map.{image_ext}"
             (tmp_dir / image_name).write_bytes(image_data)
@@ -205,7 +206,7 @@ def _render_map_yaml(image_name: str, config: dict[str, Any]) -> str:
 
 def main() -> None:
     rclpy.init()
-    node = MapApplyNode()
+    node = NavMapApplyAdapterNode()
     executor = MultiThreadedExecutor(num_threads=2)
     executor.add_node(node)
     try:

@@ -36,6 +36,12 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  scripts/nav_map_apply_adapter_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME nav_map_apply_adapter
+)
+
+install(PROGRAMS
   scripts/follow_controller_node.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME follow_controller

@@ -16,8 +16,9 @@
 #      ★ Step 1 보다 먼저 실행. stop_moca.sh 패턴이 'ros2 launch' 매칭이라
 #        Step 1 이후 호출하면 방금 띄운 Gazebo+Nav2 도 같이 죽음.
 #   1. Gazebo + Nav2 (+ RViz) — run_nav2_sim.sh 위임 (run_sim 전용 mapv5 override)
-#   2. ROS-only 운영층 (mode_manager + task_orchestrator) — run_dashboard.sh --domain=99
-#   3. ROS service/action 확인
+#   2. Mobility always-on 층 — mobility_controller.launch.py
+#   3. ROS-only 운영층 (mode_manager + task_orchestrator) — run_dashboard.sh --domain=99
+#   4. ROS service/action 확인
 #
 # 종료:
 #   bash <repo>/scripts/stop_sim.sh
@@ -26,6 +27,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WS="$(cd "$SCRIPT_DIR/.." && pwd)"
 SIM_NAV2_MAP="$SCRIPT_DIR/../maps/mapv5_mocamap.yaml"
 
 NAV2_OPT=""
@@ -48,13 +50,16 @@ done
 
 log() { echo "[run_sim] $*"; }
 
+export ROS_DOMAIN_ID=99
+export ROS_LOCALHOST_ONLY=1
+
 if [ "$CLEANUP" = 1 ]; then
-    log "Step 0/3 — 풀 스택 사전 정리 (stop_sim.sh)"
+    log "Step 0/4 — 풀 스택 사전 정리 (stop_sim.sh)"
     bash "$SCRIPT_DIR/stop_sim.sh" >/dev/null 2>&1 || true
     echo ""
 fi
 
-log "Step 1/3 — Gazebo 시뮬 풀 스택"
+log "Step 1/4 — Gazebo 시뮬 풀 스택"
 if [ "$NO_NAV2" = 1 ]; then
     log "  (--no-nav2) Gazebo + Nav2 skip — UI 단독 검증 모드"
 else
@@ -71,21 +76,66 @@ else
 fi
 
 echo ""
-log "Step 2/3 — ROS-only 운영층 (DOMAIN=99 시뮬)"
+log "Step 2/4 — Mobility always-on 층 (DOMAIN=99 시뮬)"
+if [ ! -f "/opt/ros/jazzy/setup.bash" ]; then
+    log "Step 2 실패 — /opt/ros/jazzy/setup.bash 없음"
+    exit 1
+fi
+if [ ! -f "$WS/install/setup.bash" ]; then
+    log "Step 2 실패 — $WS/install/setup.bash 없음. 먼저 colcon build 를 실행하세요."
+    exit 1
+fi
+set +u
+# shellcheck source=/dev/null
+source /opt/ros/jazzy/setup.bash
+# shellcheck source=/dev/null
+source "$WS/install/setup.bash"
+set -u
+
+if ! ros2 pkg executables mobility_controller \
+    | grep -qx 'mobility_controller nav_map_apply_adapter'; then
+    log "Step 2 실패 — mobility_controller install 에 nav_map_apply_adapter 가 없습니다."
+    log "  새 주행 adapter 가 설치되지 않은 stale install 상태입니다. 아래 명령으로 재빌드하세요:"
+    log "  cd $WS"
+    log "  source /opt/ros/jazzy/setup.bash"
+    log "  colcon build --base-paths src ../mobility_controller --symlink-install --packages-select mobility_controller dobi_npc_bringup"
+    exit 1
+fi
+
+SIM_LOG_DIR="$WS/log/sim_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$SIM_LOG_DIR"
+export ROS_LOG_DIR="$SIM_LOG_DIR/ros"
+mkdir -p "$ROS_LOG_DIR"
+setsid ros2 launch mobility_controller mobility_controller.launch.py \
+    >"$SIM_LOG_DIR/mobility_controller.log" 2>&1 &
+MOBILITY_PID=$!
+sleep 2
+if ! kill -0 "$MOBILITY_PID" 2>/dev/null; then
+    log "Step 2 실패 — mobility_controller launch 가 즉시 종료되었습니다."
+    log "  로그: $SIM_LOG_DIR/mobility_controller.log"
+    tail -40 "$SIM_LOG_DIR/mobility_controller.log" 2>/dev/null || true
+    exit 1
+fi
+log "  mobility_controller launch 시작 OK (pid=$MOBILITY_PID)"
+log "  로그: $SIM_LOG_DIR/mobility_controller.log"
+
+echo ""
+log "Step 3/4 — ROS-only 운영층 (DOMAIN=99 시뮬)"
 # ★ run_dashboard.sh 의 --cleanup 은 stop_moca.sh ('ros2 launch' 매칭) 호출 →
 #   방금 띄운 Gazebo+Nav2 launch 가 같이 죽음. run_sim 흐름에선 절대 forward X.
 if ! bash "$SCRIPT_DIR/run_dashboard.sh" --domain=99 --no-browser $DASH_TEST_OPT; then
-    log "Step 2 실패 — 운영 UI 기동 실패."
+    log "Step 3 실패 — 운영 UI 기동 실패."
     exit 1
 fi
 
 echo ""
-log "Step 3/3 — ROS service/action 확인"
-ros2 service list | grep -E '^/(mode/request|task/request_guiding)$' || true
+log "Step 4/4 — ROS service/action 확인"
+ros2 service list | grep -E '^/(mode/request|task/request_guiding|map/apply)$' || true
 ros2 action list | grep -E '^/serving/execute$' || true
 
 echo ""
 log "✓ 시뮬 풀 스택 + ROS-only 운영층 기동 완료"
 log "  Gazebo: gz sim (DOMAIN=99)"
+log "  Mobility service: /map/apply"
 log "  운영 service/action: /mode/request, /serving/execute, /task/request_guiding"
 log "  종료: bash $SCRIPT_DIR/stop_sim.sh"

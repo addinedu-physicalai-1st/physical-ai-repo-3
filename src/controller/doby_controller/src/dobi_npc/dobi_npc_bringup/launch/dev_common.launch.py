@@ -1,7 +1,7 @@
-"""dev_common.launch.py — 공통 always-on 층 (B 단계).
+"""dev_common.launch.py — doby 관제 always-on 층 (B 단계).
 
 mode_manager 가 모드별 stack 을 spawn/kill 할 때 살아있어야 하는 노드들.
-모드와 무관하게 항상 켜져 있는 인지/표현/오케스트레이션 노드.
+모드와 무관하게 항상 켜져 있는 관제/인지/표현/오케스트레이션 노드.
 
 구성:
   geva_node                 (웹캠 → /emotion/state)
@@ -12,12 +12,11 @@ mode_manager 가 모드별 stack 을 spawn/kill 할 때 살아있어야 하는 �
   tts_node                  (/dialog/utter → 음성 출력)
   mode_manager              (/mode/request, /mode/state, mode stack spawn/kill)
   task_orchestrator         (/task/request_*, /doby/event, completion + patrol timer)
-  map_apply                 (/map/apply → Nav2 map_server load_map)
   person_tracking_node      (/robot_cam/image_raw → /person_tracking/tracks)
   group_approach_node       (/person_tracking/tracks → /person_tracking/approach_target)
-  approach_controller_node  (/person_tracking/approach_target → /bt/cmd_vel, bbox 기반 PD 제어)
 
 person_tracking_node 전제: run_robot_cam.sh 로 /robot_cam/image_raw 가 발행 중이어야 함.
+Nav2 adapter 와 cmd_vel 계열 주행 노드는 mobility_controller launch 가 소유한다.
 
 mode_manager 가 spawn 하는 모드별 stack 은 별도 launch:
   mode_npc.launch.py       (bt_executor)
@@ -102,10 +101,6 @@ def generate_launch_description():
             name='task_orchestrator', output='screen',
         ),
         Node(
-            package='dobi_npc_bringup', executable='map_apply',
-            name='map_apply', output='screen',
-        ),
-        Node(
             package='person_tracking_pkg', executable='person_tracking_node',
             name='person_tracking_node', output='screen',
             parameters=[{
@@ -120,19 +115,6 @@ def generate_launch_description():
             name='group_approach_node', output='screen',
             parameters=[{
                 'min_group_size': 1,
-            }],
-        ),
-        Node(
-            package='mobility_controller', executable='approach_controller',
-            name='approach_controller_node', output='screen',
-            parameters=[{
-                'linear_speed':    0.15,
-                'angular_gain':    1.8,   # Kp
-                'derivative_gain': 0.3,   # Kd
-                'ema_alpha':       0.3,   # D항 노이즈 필터 (작을수록 강한 필터)
-                'dead_zone':       0.05,
-                'close_threshold': 0.999,  # bbox 높이 비율 기준 (0~1, 클수록 가까움)
-                'pose_timeout':    1.0,
             }],
         ),
     ])

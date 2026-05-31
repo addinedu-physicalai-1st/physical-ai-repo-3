@@ -45,10 +45,10 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 
 ### 주행 패키지 분리
 
-주행 관련 코드는 `src/controller/doby_controller` 내부가 아니라 repo root 기준 `src/controller/mobility_controller` 로 분리한다.
+주행 관련 코드는 `src/controller/doby_controller` 내부가 아니라 repo root 기준 `src/controller/mobility_controller` 로 분리한다. 두 패키지는 운영 환경에서 프로세스 책임과 ROS 인터페이스 ownership 은 분리한다. 이 경계를 유지해야 이후 칩/프로세스/컨테이너 단위로 다시 나눌 수 있다.
 
-- `doby_controller`: 운영 FSM, task orchestration, 감정/대화/BT, Gazebo 시뮬 자산
-- `mobility_controller`: serving/patrol/guiding/follow 주행 노드, Nav2 wrapper, Vic Pinky description/navigation
+- `doby_controller`: 운영 FSM, task orchestration, 감정/대화/BT, Gazebo 시뮬 자산. `/mode/request`, `/task/*`, `/serving/execute` 같은 상위 API 를 소유한다.
+- `mobility_controller`: serving/patrol/guiding/follow 주행 노드, Nav2 wrapper, Vic Pinky description/navigation. `/cmd_vel`, `/navigate_to_pose`, `/scan`, `/map_server/load_map` 에 직접 붙는 노드와 `/map/apply` Nav2 adapter 를 소유한다.
 
 따라서 `src/controller/doby_controller` 작업 디렉터리에서 Gazebo 시뮬을 실행할 때도 빌드는 `src` 와 `../mobility_controller` 를 함께 포함해야 한다. `colcon build` 만 단독 실행하면 `mobility_controller` 패키지가 설치되지 않아 `ros2 run mobility_controller ...` 또는 mode launch wrapper 가 실패할 수 있다.
 
@@ -182,6 +182,16 @@ source install/setup.bash
 moca_build       # 깨끗한 셸에서 검증 빌드 (격리)
 moca_activate    # 빌드 결과 활성화
 moca_clean       # build/install/log 삭제
+```
+
+### 기본 실행 계층
+
+```bash
+# 주행/NAV adapter 계층: /cmd_vel, /map/apply -> /map_server/load_map
+ros2 launch mobility_controller mobility_controller.launch.py
+
+# doby 관제 계층: /mode/request, /task/*, /serving/execute
+ros2 launch dobi_npc_bringup dev_common.launch.py
 ```
 
 ### 개발 PC vs 로봇 빌드 차이

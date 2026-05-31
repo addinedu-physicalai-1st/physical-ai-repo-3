@@ -29,7 +29,6 @@ setup(
             'mode_manager = dobi_npc_bringup.mode_manager_node:main',
             'task_orchestrator = dobi_npc_bringup.task_orchestrator_node:main',
             'mode_stack_stub = dobi_npc_bringup.mode_stack_stub:main',
-            'map_apply = dobi_npc_bringup.map_apply_node:main',
         ],
     },
 )
