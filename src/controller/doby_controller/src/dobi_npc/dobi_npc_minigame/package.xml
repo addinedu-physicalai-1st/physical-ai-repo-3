@@ -15,9 +15,6 @@
        자체 보유. ROS 노드는 wrapper 라 추가 의존 없음. -->
 
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
 
   <export>
