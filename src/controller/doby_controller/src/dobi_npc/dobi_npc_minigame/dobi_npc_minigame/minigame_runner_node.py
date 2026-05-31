@@ -27,7 +27,7 @@ JSON 형식 (game.py._save_result_json 공통):
    "rounds_played": int, "completed": bool, "duration_sec": float}
 
 각 게임이 mediapipe + opencv + pygame(사운드) 사용 — 시스템 의존
-(CLAUDE.md §7 mediapipe 0.10.14 user pip + python3-opencv apt + python3-pygame apt).
+(mediapipe 0.10.14 user pip + python3-opencv apt + python3-pygame apt).
 """
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -47,39 +48,22 @@ from std_msgs.msg import Empty, String
 from dobi_npc_msgs.msg import MinigameResult
 
 
-def _find_workspace_root() -> str:
-    """현재 파일 위치 기반 워크스페이스 루트 추정 (clone 위치 무관).
-
-    src/ 와 marker 파일(moca.repos 또는 CLAUDE.md) 을 가진 부모 디렉토리 검색.
-    symlink-install 시 __file__ 이 src/ 트리. 일반 install 시 install/ 트리.
-    """
-    here = os.path.abspath(os.path.dirname(__file__))
-    for _ in range(10):
-        if os.path.isdir(os.path.join(here, 'src')) and (
-            os.path.isfile(os.path.join(here, 'moca.repos')) or
-            os.path.isfile(os.path.join(here, 'CLAUDE.md'))
-        ):
-            return here
-        parent = os.path.dirname(here)
-        if parent == here:
-            break
-        here = parent
-    return ''
-
-
 def _games_root() -> str:
-    """게임 디렉토리 root — env > workspace 추정 > 빈 문자열.
+    """게임 디렉토리 root — env > package share > 빈 문자열.
 
     1. 환경변수 MOCA_GAMES_DIR 우선 (배포/테스트 시 명시)
-    2. 워크스페이스 추정 후 games/
+    2. dobi_npc_minigame share/games
     3. 빈 문자열 → registry 의 경로는 빈 경로가 되어 launch 가 명시 안 하면 즉시 에러
     """
     env = os.environ.get('MOCA_GAMES_DIR', '').strip()
     if env:
         return os.path.expanduser(env)
-    ws = _find_workspace_root()
-    if ws:
-        return os.path.join(ws, 'games')
+    try:
+        candidate = Path(get_package_share_directory('dobi_npc_minigame')) / 'games'
+        if candidate.is_dir():
+            return str(candidate)
+    except Exception:
+        pass
     return ''
 
 

@@ -10,6 +10,7 @@
   <depend>rclpy</depend>
   <depend>dobi_npc_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>ament_index_python</depend>
   <!-- 게임 자체 의존성 (mediapipe pip / pygame / cv2) 은 subprocess 가
        자체 보유. ROS 노드는 wrapper 라 추가 의존 없음. -->
 

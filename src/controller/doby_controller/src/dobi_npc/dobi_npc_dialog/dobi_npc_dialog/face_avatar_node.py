@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """face_avatar — 노트북 풀스크린 얼굴 표현 GUI (애니메이션 v2).
 
-Phase 2 W4-④. CLAUDE.md §3 정정 (vicpinky LCD 없음 → 노트북 풀스크린)
+Phase 2 W4-④. vicpinky LCD 없음 → 노트북 풀스크린.
 + §4 8 어휘 매핑 + §8 vicpinky_emotion 자산 재활용.
 
 구독:
@@ -9,7 +9,7 @@ Phase 2 W4-④. CLAUDE.md §3 정정 (vicpinky LCD 없음 → 노트북 풀스�
     basic | hello | happy | fun | interest | bored | sad | angry
   /rapport/event (RapportEvent) — abort_trigger 시 abort_expression으로 reset
 
-자산: vicpinky_emotion/emotion/*.gif 8개 (vic_pinky 자체 git에서 직접 참조).
+자산: dobi_npc_dialog share/assets/vicpinky_emotion/emotion/*.gif 8개.
 
 v2 변경 (이전 v1: 정적 1프레임 brightest 표시):
   PIL ImageSequence로 모든 프레임 추출 → max_frames_per_gif(기본 30)로 균등
@@ -30,8 +30,10 @@ v2.1 추가 — start_at_brightest (기본 True):
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import List, Tuple
 
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -45,48 +47,29 @@ import pygame  # noqa: E402
 from PIL import Image, ImageSequence, ImageStat  # noqa: E402
 
 
-# CLAUDE.md §4 face_expression 8 어휘 (표시 순서 = 키 1~8)
+# face_expression 8 어휘 (표시 순서 = 키 1~8)
 EXPRESSIONS = ["basic", "hello", "happy", "fun", "interest", "bored", "sad", "angry"]
 
 
-def _find_workspace_root() -> str:
-    """현재 파일 위치 기반 워크스페이스 루트 추정 (clone 위치 무관).
-
-    src/ 와 marker 파일(moca.repos 또는 CLAUDE.md) 을 가진 부모 디렉토리.
-    symlink-install 시 __file__ 이 src/ 트리 안. 일반 install 시 install/ 트리.
-    두 경우 모두 거슬러 올라가서 워크스페이스 루트 발견.
-    """
-    here = os.path.abspath(os.path.dirname(__file__))
-    for _ in range(10):
-        if os.path.isdir(os.path.join(here, 'src')) and (
-            os.path.isfile(os.path.join(here, 'moca.repos')) or
-            os.path.isfile(os.path.join(here, 'CLAUDE.md'))
-        ):
-            return here
-        parent = os.path.dirname(here)
-        if parent == here:
-            break
-        here = parent
-    return ''
-
-
 def _default_gif_dir() -> str:
-    """gif_dir 기본값 결정 — env > workspace 추정 > 빈 문자열.
+    """gif_dir 기본값 결정 — env > package share > 빈 문자열.
 
     1. 환경변수 MOCA_GIF_DIR 우선 (배포/테스트 시 명시)
-    2. 워크스페이스 추정 후 src/shared/vic_pinky/vicpinky_emotion/emotion
+    2. dobi_npc_dialog share/assets/vicpinky_emotion/emotion
     3. 빈 문자열 → __init__ 의 isdir 체크에서 명확한 에러 메시지
     """
     env = os.environ.get('MOCA_GIF_DIR', '').strip()
     if env:
         return os.path.expanduser(env)
-    ws = _find_workspace_root()
-    if ws:
-        candidate = os.path.join(
-            ws, 'src', 'shared', 'vic_pinky',
-            'vicpinky_emotion', 'emotion')
-        if os.path.isdir(candidate):
-            return candidate
+    try:
+        candidate = (
+            Path(get_package_share_directory('dobi_npc_dialog')) /
+            'assets' / 'vicpinky_emotion' / 'emotion'
+        )
+        if candidate.is_dir():
+            return str(candidate)
+    except Exception:
+        pass
     return ''
 
 

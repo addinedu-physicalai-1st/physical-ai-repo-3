@@ -14,6 +14,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'config', 'personas'),
             glob('config/personas/*.yaml')),
+        (os.path.join('share', package_name, 'assets', 'vicpinky_emotion', 'emotion'),
+            glob('assets/vicpinky_emotion/emotion/*.gif')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

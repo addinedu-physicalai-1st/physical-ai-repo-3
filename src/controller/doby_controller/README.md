@@ -83,7 +83,6 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 ├── README.md                              ← 본 문서
 ├── requirements.txt                       ← Python pip 의존성
 ├── .gitignore
-│
 ├── src/
 │   ├── shared/                            ← 팀 공유
 │   │   └── vic_pinky/                     ← PinkLAB 공식 (자체 git fork)
@@ -91,7 +90,7 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 │   │       ├── vicpinky_navigation        ✅
 │   │       ├── vicpinky_bringup           ❌ COLCON_IGNORE (RPi only — 모터/배터리/zlac)
 │   │       ├── vicpinky_gazebo            ❌ COLCON_IGNORE (moca_gazebo 로 대체)
-│   │       └── vicpinky_emotion           ❌ COLCON_IGNORE (PinkyPro LCD 전용, vicpinky LCD 없음 — gif 자산만 face_avatar 재활용)
+│   │       └── vicpinky_emotion           ❌ COLCON_IGNORE (PinkyPro LCD 전용, 필요한 gif 자산은 dobi_npc_dialog share 리소스로 설치)
 │   │
 │   ├── dobi_npc/                          ← 모객 BT 시스템 (6 패키지)
 │   │   ├── dobi_npc_msgs                  (커스텀 메시지 4종 + SetMode srv)

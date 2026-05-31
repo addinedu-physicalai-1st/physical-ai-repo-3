@@ -18,13 +18,15 @@
 의존:
   - sensor_msgs, cv_bridge (apt)
   - ultralytics (pip, optional — 미설치 시 unknown 응답)
-  - YOLO weights: models/yolo/yolov8n.pt (workspace_root 기준 상대)
+  - YOLO weights: dobi_npc_bringup share/models/yolo/yolov8n.pt
 """
 
 import os
 import threading
+from pathlib import Path
 from typing import Optional
 
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -44,35 +46,20 @@ except ImportError:
     YOLO_AVAILABLE = False
 
 
-def _find_workspace_root() -> str:
-    """현재 파일 위치 기반 워크스페이스 루트 추정 (clone 위치 무관).
-
-    feedback_relative_path_convention 패턴 — face_avatar / minigame_runner 와 동일.
-    """
-    here = os.path.abspath(os.path.dirname(__file__))
-    for _ in range(10):
-        if os.path.isdir(os.path.join(here, 'src')) and (
-            os.path.isfile(os.path.join(here, 'moca.repos')) or
-            os.path.isfile(os.path.join(here, 'CLAUDE.md'))
-        ):
-            return here
-        parent = os.path.dirname(here)
-        if parent == here:
-            break
-        here = parent
-    return ''
-
-
 def _default_yolo_weights() -> str:
-    """YOLO weights 기본 경로 — env > workspace 추정 > 빈 문자열."""
+    """YOLO weights 기본 경로 — env > package share > 빈 문자열."""
     env = os.environ.get('MOCA_YOLO_WEIGHTS', '').strip()
     if env:
         return os.path.expanduser(env)
-    ws = _find_workspace_root()
-    if ws:
-        candidate = os.path.join(ws, 'models', 'yolo', 'yolov8n.pt')
-        if os.path.isfile(candidate):
-            return candidate
+    try:
+        candidate = (
+            Path(get_package_share_directory('dobi_npc_bringup')) /
+            'models' / 'yolo' / 'yolov8n.pt'
+        )
+        if candidate.is_file():
+            return str(candidate)
+    except Exception:
+        pass
     return ''
 
 
