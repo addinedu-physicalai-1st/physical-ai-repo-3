@@ -12,7 +12,6 @@ from datetime import datetime
 from typing import Any, Callable
 
 import rclpy
-from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
@@ -27,7 +26,6 @@ from dobi_npc_msgs.srv import (
     SetMode,
     SetPatrolSchedule,
 )
-from single_arm_controller_interfaces.action import Pickup, Serve
 
 
 VALID_TABLES = ('T01', 'T02', 'T03', 'T04', 'T05')
@@ -115,8 +113,8 @@ class TaskOrchestratorNode(Node):
 
         self._cb_group = ReentrantCallbackGroup()
         self._set_mode = self.create_client(SetMode, '/mode/request', callback_group=self._cb_group)
-        self._pickup_ac = ActionClient(self, Pickup, 'pickup', callback_group=self._cb_group)
-        self._serve_ac = ActionClient(self, Serve, 'serve', callback_group=self._cb_group)
+        self._pickup_ac = None  # TODO(single_arm): ActionClient(self, Pickup, 'pickup', ...)
+        self._serve_ac = None  # TODO(single_arm): ActionClient(self, Serve, 'serve', ...)
 
         self.create_subscription(ModeState, '/mode/state', self._on_mode_state, 10)
         self.create_subscription(String, '/serving/state', self._on_serving_state, 10)
@@ -260,8 +258,6 @@ class TaskOrchestratorNode(Node):
         if bool(payload.get('via_pickup', True)):
             if self._pickup_in_progress:
                 return {'ok': False, 'code': 'PICKUP_IN_PROGRESS', 'message': 'pickup action already running'}
-            if not self._pickup_ac.wait_for_server(timeout_sec=1.0):
-                return {'ok': False, 'code': 'PICKUP_UNAVAILABLE', 'message': 'pickup action server unavailable'}
             self._pickup_in_progress = True
             self._send_pickup_goal(
                 has_drink=self._current_serving_has_drink,
@@ -423,49 +419,24 @@ class TaskOrchestratorNode(Node):
     def _on_battery(self, msg: BatteryState) -> None:
         self.battery_pct = float(msg.percentage)
 
-    # ---------- action helpers ----------
+    # ---------- temporarily disabled single_arm action helpers ----------
 
     def _send_pickup_goal(self, has_drink: bool, done_cb: Callable[[bool, str], None]) -> None:
-        goal = Pickup.Goal()
-        goal.has_drink = has_drink
-        future = self._pickup_ac.send_goal_async(goal)
-        future.add_done_callback(lambda fut: self._on_action_goal(fut, done_cb, 'pickup'))
+        del has_drink
+        self.get_logger().warn('pickup action is temporarily disabled; continuing without pickup')
+        done_cb(True, 'pickup action disabled')
 
     def _send_serve_then_idle(self) -> None:
-        if not self._serve_ac.wait_for_server(timeout_sec=1.0):
-            self.get_logger().warn('serve action server unavailable; returning idle anyway')
-            self._completion_running.discard('serving')
-            self._request_idle_after_completion('serving', override_priority=True)
-            return
-        goal = Serve.Goal()
-        goal.has_drink = self._current_serving_has_drink
-        future = self._serve_ac.send_goal_async(goal)
-        future.add_done_callback(
-            lambda fut: self._on_action_goal(
-                fut,
-                lambda ok, msg: self._after_serve(ok, msg),
-                'serve',
-            )
-        )
+        self.get_logger().warn('serve action is temporarily disabled; returning idle directly')
+        self._after_serve(True, 'serve action disabled')
 
     def _on_action_goal(self, future, done_cb: Callable[[bool, str], None], name: str) -> None:
-        try:
-            goal_handle = future.result()
-        except Exception as exc:
-            done_cb(False, f'{name}_send_failed:{exc}')
-            return
-        if not goal_handle.accepted:
-            done_cb(False, 'goal_rejected')
-            return
-        result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(lambda fut: self._on_action_result(fut, done_cb, name))
+        del future
+        done_cb(False, f'{name}_action_disabled')
 
     def _on_action_result(self, future, done_cb: Callable[[bool, str], None], name: str) -> None:
-        try:
-            result = future.result().result
-            done_cb(bool(result.success), str(result.message))
-        except Exception as exc:
-            done_cb(False, f'{name}_result_failed:{exc}')
+        del future
+        done_cb(False, f'{name}_action_disabled')
 
     def _after_serve(self, success: bool, message: str) -> None:
         self.get_logger().info(f'serve action done success={success} message={message}')
