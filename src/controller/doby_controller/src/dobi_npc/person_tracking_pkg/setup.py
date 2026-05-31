@@ -28,7 +28,6 @@ setup(
         'console_scripts': [
             'person_tracking_node = person_tracking_pkg.person_tracking_node:main',
             'group_approach_node = person_tracking_pkg.group_approach_node:main',
-            'approach_controller_node = person_tracking_pkg.approach_controller_node:main',
         ],
     },
 )

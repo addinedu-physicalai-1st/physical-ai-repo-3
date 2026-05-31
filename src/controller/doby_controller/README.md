@@ -43,6 +43,17 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 
 `task_orchestrator` 가 `/task/request_serving`, `/task/request_guiding`, `/task/get_table_status`, `/task/set_patrol_schedule` 를 제공한다. 완료 감시, idle patrol timer, pickup/serve arm action 호출, `/doby/event` 발행은 이 노드가 맡고, 실제 모드 전환 허용 여부는 항상 `mode_manager` 의 `/mode/request` 응답을 따른다.
 
+### 주행 패키지 분리
+
+주행 관련 코드는 `src/controller/doby_controller` 내부가 아니라 repo root 기준 `src/controller/mobility_controller` 로 분리한다.
+
+- `doby_controller`: 운영 FSM, task orchestration, 감정/대화/BT, Gazebo 시뮬 자산
+- `mobility_controller`: serving/patrol/guiding/follow 주행 노드, Nav2 wrapper, Vic Pinky description/navigation
+
+따라서 `src/controller/doby_controller` 작업 디렉터리에서 Gazebo 시뮬을 실행할 때도 빌드는 `src` 와 `../mobility_controller` 를 함께 포함해야 한다. `colcon build` 만 단독 실행하면 `mobility_controller` 패키지가 설치되지 않아 `ros2 run mobility_controller ...` 또는 mode launch wrapper 가 실패할 수 있다.
+
+서빙 요청 통신도 legacy HTTP `POST /api/v1/pickup` 이 아니라 ROS service `/task/request_serving` 을 사용한다.
+
 ### 비전 — 3 카메라 아키텍처
 
 | 카메라 | 위치 | 용도 |
@@ -78,24 +89,21 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 ├── requirements.txt                       ← Python pip 의존성
 ├── .gitignore
 ├── src/
-│   ├── shared/                            ← 팀 공유
-│   │   └── vic_pinky/                     ← PinkLAB 공식 (자체 git fork)
-│   │       ├── vicpinky_description       ✅
-│   │       ├── vicpinky_navigation        ✅
-│   │       ├── vicpinky_bringup           ❌ COLCON_IGNORE (RPi only — 모터/배터리/zlac)
-│   │       ├── vicpinky_gazebo            ❌ COLCON_IGNORE (moca_gazebo 로 대체)
-│   │       └── vicpinky_emotion           ❌ COLCON_IGNORE (PinkyPro LCD 전용, 필요한 gif 자산은 dobi_npc_dialog share 리소스로 설치)
-│   │
 │   ├── dobi_npc/                          ← 모객 BT 시스템 (6 패키지)
 │   │   ├── dobi_npc_msgs                  (커스텀 메시지 + SetMode/RequestServing/RequestGuiding srv)
 │   │   ├── dobi_npc_bt                    (C++ BT 노드, cafe_funnel_v1.xml)
 │   │   ├── dobi_npc_emotion               (GEVA face V·A + rapport_tracker + decision_rule)
 │   │   ├── dobi_npc_dialog                (persona_manager + tts_node + face_avatar 풀스크린)
 │   │   ├── dobi_npc_minigame              (RPS evolution + speed_counter + cafe_ninja, minigame_runner subprocess)
-│   │   └── dobi_npc_bringup               (mode_manager + task_orchestrator + 6 mode launch + serving_dispatcher + follow_controller + patrol_scheduler + guiding_controller)
+│   │   └── dobi_npc_bringup               (mode_manager + task_orchestrator + mobility mode launch wrappers)
 │   │
 │   ├── moca_gazebo/                       ← 시뮬 (mapv5_moca.world + 가구 SDF 모델)
-│   ├── moca_navigation/                   ← Nav2 wrapper (vicpinky_navigation patch)
+│   ├── mobility_controller/               ← 주행 패키지 묶음
+│   │   ├── mobility_controller            (serving/patrol/guiding/follow 주행 노드 + tables.yaml)
+│   │   ├── moca_navigation                (Nav2 wrapper)
+│   │   ├── vicpinky_description           (RPi URDF/description)
+│   │   ├── vicpinky_navigation            (PinkLAB Nav2 원본)
+│   │   └── vicpinky_bringup               ❌ COLCON_IGNORE (RPi only — 모터/배터리/zlac)
 ├── docs/
 │   ├── daily/                             ← 일일 회고 (.md, 시간순)
 │   ├── cafe_npc_paper_master.md           ← 학술 척추 6-Layer
@@ -157,9 +165,15 @@ pip uninstall --yes numpy opencv-contrib-python
 ### 빌드
 
 ```bash
-cd ~/moca
+cd /home/robo/projects/final_project/src/controller/doby_controller
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install
+
+# doby_controller 운영 패키지 + 분리된 mobility_controller 주행 패키지를
+# 같은 install/ 아래에 설치한다.
+colcon build --symlink-install \
+  --base-paths src ../mobility_controller \
+  --packages-skip vicpinky_bringup
+
 source install/setup.bash
 ```
 
@@ -172,17 +186,56 @@ moca_clean       # build/install/log 삭제
 
 ### 개발 PC vs 로봇 빌드 차이
 
-개발 PC: vicpinky_description + vicpinky_navigation + 8 본 패키지 = 8+ 패키지 빌드.
-로봇 (RPi 5): `vicpinky_bringup/COLCON_IGNORE` + `vicpinky_gazebo/COLCON_IGNORE` 삭제 후 빌드.
+개발 PC/Gazebo: `vicpinky_bringup` 은 RPi 모터/배터리/zlac 실물 bringup 이므로 `--packages-skip vicpinky_bringup` 으로 제외한다.
+로봇 (RPi 5): RPi 워크스페이스에서 `vicpinky_bringup` 을 포함해 별도 빌드한다.
 
 ### 실행 — Gazebo 시뮬 (DOMAIN=99 + LOCALHOST_ONLY=1)
 
 ```bash
-# 풀스택 (Gazebo + Nav2 + Dashboard + 자동 브라우저)
+cd /home/robo/projects/final_project/src/controller/doby_controller
+
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+# 풀스택 (Gazebo + Nav2 + ROS-only 운영층)
 bash scripts/run_sim.sh --no-rviz --cleanup
 
 # 종료
 bash scripts/stop_sim.sh
+```
+
+### Gazebo 시뮬 — 서빙 요청
+
+`run_sim.sh` 는 시뮬 전용으로 `ROS_DOMAIN_ID=99`, `ROS_LOCALHOST_ONLY=1` 을 사용한다. 별도 터미널에서 같은 domain 을 맞춘 뒤 ROS service 로 서빙을 요청한다.
+
+```bash
+cd /home/robo/projects/final_project/src/controller/doby_controller
+
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+export ROS_DOMAIN_ID=99
+export ROS_LOCALHOST_ONLY=1
+
+ros2 service call /task/request_serving dobi_npc_msgs/srv/RequestServing \
+"{event_id: 'test-serving-001', drink_id: 'D-test', order_id: '', target_table: 'T01', via_pickup: false, has_drink: true}"
+```
+
+확인:
+
+```bash
+ros2 service list | grep -E '^/(mode/request|task/request_serving)$'
+ros2 topic echo /mode/state
+ros2 topic echo /serving/state
+```
+
+`via_pickup: false` 는 팔 pickup 과정을 건너뛰고 바로 serving mode 로 전환한다. 실제 pickup action 까지 포함할 때는 `via_pickup: true` 로 요청한다.
+
+legacy HTTP:
+
+```bash
+# 사용하지 않음
+# curl -X POST http://localhost:8800/api/v1/pickup ...
 ```
 
 ### 실행 — RPi 라이브 (DOMAIN=22)

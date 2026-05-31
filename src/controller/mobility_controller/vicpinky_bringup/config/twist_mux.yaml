@@ -1,0 +1,46 @@
+# twist_mux.yaml — Vic Pinky 카페 호객 로봇 cmd_vel 우선순위 mux
+#
+# Phase A (2026-05-09) 도입. SoT: docs/cafe_npc_safety_zone.md §4-§6.
+#
+# 입력 3종 priority:
+#   joy=100   운영자 직접 조작 (teleop_server/run_teleop_ui) — 자율 stack override
+#   bt=80     호객 BT 의 Nav2 Approach (cafe_funnel) — joy 가 잡으면 양보
+#   follow=50 follow 모드 P 제어 — joy/bt 가 잡으면 양보
+#
+# lock 1종:
+#   e_stop=255 std_msgs/Bool, true 시 모든 cmd_vel 차단 (Cat 2 즉시 정지)
+#              timeout=5.0s — 발행자 죽으면 5초 후 자동 unlock (fail-safe).
+#
+# 출력 토픽: launch 의 remap 으로 결정. Phase A 임시 → /cmd_vel (zlac_driver 직결).
+#           Phase B → /cmd_vel_raw (smoother + monitor 가 그 사이에 끼어듦).
+#
+# 토픽 timeout 0.5s — 입력 발행 끊기면 즉시 다음 우선순위 토픽 양보.
+# 자율 stack 이 죽어도 운영자 joy 가 자동 takeover.
+
+twist_mux:
+  ros__parameters:
+    use_sim_time: false
+    # twist_mux 4.5.0 default 가 true (TwistStamped). 우리 발행자(teleop_server,
+    # follow_controller, Nav2 velocity_smoother)와 구독자(zlac_driver) 모두
+    # geometry_msgs/Twist (unstamped). 호환 위해 false 강제.
+    use_stamped: false
+
+    topics:
+      joy:
+        topic   : /joy/cmd_vel
+        timeout : 0.5
+        priority: 100
+      bt:
+        topic   : /bt/cmd_vel
+        timeout : 0.5
+        priority: 80
+      follow:
+        topic   : /follow/cmd_vel
+        timeout : 0.5
+        priority: 50
+
+    locks:
+      e_stop:
+        topic   : /e_stop
+        timeout : 5.0
+        priority: 255

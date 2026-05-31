@@ -115,9 +115,9 @@ sleep 1
 # table_markers — RViz 에서 /serving/table_markers 로 테이블/정차 위치 표시
 log "table_markers 시작..."
 if [ "$VERBOSE" = 1 ]; then
-    setsid ros2 run dobi_npc_bringup table_markers &
+    setsid ros2 run mobility_controller table_markers &
 else
-    setsid ros2 run dobi_npc_bringup table_markers \
+    setsid ros2 run mobility_controller table_markers \
         >"$LOG_DIR/table_markers.log" 2>&1 &
 fi
 sleep 1

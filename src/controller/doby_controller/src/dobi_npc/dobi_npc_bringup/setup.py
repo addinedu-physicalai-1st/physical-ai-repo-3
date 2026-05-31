@@ -29,13 +29,7 @@ setup(
             'mode_manager = dobi_npc_bringup.mode_manager_node:main',
             'task_orchestrator = dobi_npc_bringup.task_orchestrator_node:main',
             'mode_stack_stub = dobi_npc_bringup.mode_stack_stub:main',
-            'follow_controller = dobi_npc_bringup.follow_controller_node:main',
-            'serving_dispatcher = dobi_npc_bringup.serving_dispatcher_node:main',
-            'patrol_scheduler = dobi_npc_bringup.patrol_scheduler_node:main',
-            'table_occupancy_detector = dobi_npc_bringup.table_occupancy_detector_node:main',
-            'guiding_controller = dobi_npc_bringup.guiding_controller_node:main',
             'map_apply = dobi_npc_bringup.map_apply_node:main',
-            'table_markers = dobi_npc_bringup.table_markers_node:main',
         ],
     },
 )
