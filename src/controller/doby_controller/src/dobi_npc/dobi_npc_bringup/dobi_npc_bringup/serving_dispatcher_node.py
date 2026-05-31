@@ -43,6 +43,7 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose
+from visualization_msgs.msg import Marker
 
 
 class State(str, Enum):
@@ -63,7 +64,7 @@ class ServingDispatcher(Node):
         self.declare_parameter('params_json', '')
         self.declare_parameter('dwell_sec', 5.0)
         self.declare_parameter('return_home_after_dwell', True)
-        self.declare_parameter('nav_action_name', 'navigate_to_pose')
+        self.declare_parameter('nav_action_name', '/navigate_to_pose')
         self.declare_parameter('nav_timeout_sec', 60.0)
 
         self.tables_yaml = self.get_parameter('tables_yaml').value
@@ -92,6 +93,8 @@ class ServingDispatcher(Node):
         # 토픽
         self.create_subscription(String, '/serving/goto_table', self._on_goto_table, 10)
         self._state_pub = self.create_publisher(String, '/serving/state', 10)
+        self._active_goal_pub = self.create_publisher(
+            Marker, '/serving/active_goal_marker', 10)
 
         # 서비스 — tables.yaml 라이브 갱신 (운영 UI 좌표 등록 후 호출).
         # 큐 + 진행 중 nav 보존, home_pose + tables 만 다시 로드.
@@ -110,7 +113,8 @@ class ServingDispatcher(Node):
 
         self.get_logger().info(
             f'serving_dispatcher start — tables={list(self.tables.keys())} '
-            f'dwell={self.dwell_sec}s return_home={self.return_home}')
+            f'dwell={self.dwell_sec}s return_home={self.return_home} '
+            f'tables_yaml={self.tables_yaml}')
 
     # ───────── tables.yaml 로드 ─────────
 
@@ -142,24 +146,32 @@ class ServingDispatcher(Node):
             pose_d = entry.get('pose', {})
             if not tid or not pose_d:
                 continue
-            ps = self._dict_to_pose(pose_d)
-            if not ps:
+            approach_dist = float(entry.get('approach_dist', 0.0))
+            table_pose = self._dict_to_pose(pose_d)
+            stop_pose = self._dict_to_pose(pose_d, approach_dist=approach_dist)
+            if not table_pose or not stop_pose:
                 continue
             self.tables[tid] = {
-                'pose': ps,
+                'pose': stop_pose,
+                'table_pose': table_pose,
                 'placeholder': self._is_placeholder(pose_d),
                 'description': entry.get('description', ''),
-                'approach_dist': float(entry.get('approach_dist', 0.0)),
+                'approach_dist': approach_dist,
             }
 
-    def _dict_to_pose(self, d: dict) -> PoseStamped | None:
+    def _dict_to_pose(self, d: dict, approach_dist: float = 0.0) -> PoseStamped | None:
         try:
             ps = PoseStamped()
             ps.header.frame_id = d.get('frame_id', 'map')
-            ps.pose.position.x = float(d.get('x', 0.0))
-            ps.pose.position.y = float(d.get('y', 0.0))
+            x = float(d.get('x', 0.0))
+            y = float(d.get('y', 0.0))
             ps.pose.position.z = 0.0
             yaw = float(d.get('yaw', 0.0))
+            if approach_dist:
+                x -= math.cos(yaw) * approach_dist
+                y -= math.sin(yaw) * approach_dist
+            ps.pose.position.x = x
+            ps.pose.position.y = y
             ps.pose.orientation.z = math.sin(yaw / 2.0)
             ps.pose.orientation.w = math.cos(yaw / 2.0)
             return ps
@@ -267,24 +279,31 @@ class ServingDispatcher(Node):
                 'tables.yaml 에 RViz 등록 좌표 갱신 필요.')
             return
         self.current_table = tid
-        self._send_nav_goal(entry['pose'], context=f'table {tid}')
-        self.state = State.NAVIGATING
+        if self._send_nav_goal(entry['pose'], context=f'table {tid}'):
+            self.state = State.NAVIGATING
+        else:
+            self.get_logger().warn(
+                f'테이블 {tid} nav 시작 실패 — drop, 다음 액션')
+            self.current_table = None
+            self._after_dwell()
 
     def _start_home_return(self) -> None:
         self.current_table = HOME_TABLE_ID
-        self._send_nav_goal(self.home_pose, context='home')
-        self.state = State.RETURNING
+        if self._send_nav_goal(self.home_pose, context='home'):
+            self.state = State.RETURNING
+        else:
+            self.get_logger().warn('home 복귀 nav 시작 실패 — idle 강제')
+            self.state = State.IDLE
+            self.current_table = None
 
-    def _send_nav_goal(self, pose: PoseStamped, context: str) -> None:
+    def _send_nav_goal(self, pose: PoseStamped, context: str) -> bool:
         # 매 호출 시 stamp 갱신 (Nav2 가 fresh stamp 선호)
         pose.header.stamp = self.get_clock().now().to_msg()
 
-        if not self._ac.wait_for_server(timeout_sec=2.0):
+        if not self._ac.wait_for_server(timeout_sec=10.0):
             self.get_logger().error(
                 f'Nav2 action server 미응답 ({self.nav_action!r}) — {context} skip')
-            self.state = State.IDLE
-            self.current_table = None
-            return
+            return False
 
         goal = NavigateToPose.Goal()
         goal.pose = pose
@@ -295,6 +314,28 @@ class ServingDispatcher(Node):
         self.get_logger().info(
             f'nav goal 전송: {context} → ({pose.pose.position.x:.2f}, '
             f'{pose.pose.position.y:.2f})')
+        self._publish_active_goal_marker(pose, context)
+        return True
+
+    def _publish_active_goal_marker(self, pose: PoseStamped, context: str) -> None:
+        marker = Marker()
+        marker.header.frame_id = pose.header.frame_id or 'map'
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = 'serving_active_goal'
+        marker.id = 1
+        marker.type = Marker.ARROW
+        marker.action = Marker.ADD
+        marker.pose = pose.pose
+        marker.pose.position.z = 0.18
+        marker.scale.x = 0.7
+        marker.scale.y = 0.12
+        marker.scale.z = 0.12
+        marker.color.r = 1.0
+        marker.color.g = 0.05
+        marker.color.b = 0.05
+        marker.color.a = 0.95
+        marker.text = context
+        self._active_goal_pub.publish(marker)
 
     def _on_goal_response(self, future) -> None:
         try:

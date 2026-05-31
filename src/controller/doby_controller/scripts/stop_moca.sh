@@ -69,6 +69,7 @@ PATTERNS=(
     'patrol_scheduler'
     'guiding_controller'
     'table_occupancy_detector'
+    'table_markers'
     'completion_watcher'
     'idle_patrol_timer'
     'serving_dispatcher'

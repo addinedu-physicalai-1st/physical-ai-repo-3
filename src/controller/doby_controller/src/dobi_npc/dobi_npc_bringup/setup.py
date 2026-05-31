@@ -34,6 +34,7 @@ setup(
             'table_occupancy_detector = dobi_npc_bringup.table_occupancy_detector_node:main',
             'guiding_controller = dobi_npc_bringup.guiding_controller_node:main',
             'map_apply = dobi_npc_bringup.map_apply_node:main',
+            'table_markers = dobi_npc_bringup.table_markers_node:main',
         ],
     },
 )
