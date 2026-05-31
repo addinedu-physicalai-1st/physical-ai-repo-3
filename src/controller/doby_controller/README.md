@@ -80,10 +80,8 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 
 ```
 ~/moca/
-├── CLAUDE.md                              ← 프로젝트 컨텍스트 (LLM/팀원 첫 읽기)
 ├── README.md                              ← 본 문서
 ├── requirements.txt                       ← Python pip 의존성
-├── moca.repos                             ← vcs import 용
 ├── .gitignore
 │
 ├── src/
@@ -159,7 +157,7 @@ pip install --user -r requirements.txt
 pip uninstall --yes numpy opencv-contrib-python
 ```
 
-자세한 정책은 `CLAUDE.md` §7 "외부 의존성 버전 정책".
+외부 의존성은 ROS 시스템 패키지를 우선하고, pip 패키지는 `requirements.txt` 범위로 제한한다.
 
 ---
 
@@ -253,7 +251,7 @@ bash scripts/record_demo.sh
 
 ### 학술 트랙 (`docs/cafe_npc_*.md`)
 
-1. **신규 합류자** → `CLAUDE.md` (프로젝트 컨텍스트 전체, 본 워크스페이스 첫 읽기)
+1. **신규 합류자** → `README.md` (본 문서)
 2. **학술 배경** → `docs/cafe_npc_paper_master.md` (6-Layer + GEVA/GEFA 약어 매핑)
 3. **시스템 아키텍처** → `docs/cafe_npc_system_architecture.md`
 4. **구현 계획** → `docs/cafe_npc_implementation_plan.md` 
@@ -283,7 +281,7 @@ bash scripts/record_demo.sh
 
 ---
 
-### 작업 규칙 요약 (`CLAUDE.md` §7 발췌)
+### 작업 규칙 요약
 
 - 작업 시작 전 매일 1회 PC+RPi 백업 (`~/backup/moca_daily_YYYYMMDD/`)
 - `~/cabot` 경로 절대 참조 X — `~/moca` SoT

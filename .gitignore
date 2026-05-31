@@ -98,3 +98,13 @@ src/service/certs/
 
 # docker-compose 환경변수 (HTTPS cert 경로 등 로컬 설정)
 src/service/.env
+
+# doby_controller non-runtime docs/assets/test helpers
+src/controller/doby_controller/.claude/
+src/controller/doby_controller/docs/
+src/controller/doby_controller/images/
+src/controller/doby_controller/tests/
+src/controller/doby_controller/CLAUDE.md
+src/controller/doby_controller/moca.repos
+src/controller/doby_controller/single_arm_integration_plan.md
+src/controller/doby_controller/ui_to_robot_comm_flow.html
