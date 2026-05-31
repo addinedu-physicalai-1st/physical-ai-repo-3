@@ -1,0 +1,50 @@
+# collision_monitor.yaml — Vic Pinky 사람/벽 충돌 zone (Cat 2 정지)
+#
+# Phase B (2026-05-09) 도입. SoT: docs/cafe_npc_safety_zone.md §5.2.
+#
+# 토폴로지:
+#   velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel → zlac_driver
+#
+# 2026-05-09 라이브 진단:
+#   nav2 1.3.7 (RPi) 의 collision_monitor 는 action_type "stop" 만 작동.
+#   "slowdown"/"limit" 비작동 → 단일 STOP polygon 으로 운영.
+#   부드러운 감속(SLOWDOWN/LIMIT) 은 후속 — RPi nav2 1.3.10 업그레이드 또는 외부 cmd_vel scaler.
+#
+# STOP zone 0.7m × ±0.45m 결정 — 모드 별 거리 충돌 매트릭스:
+#   - follow (운영 거리 0.9m): 0.9m > 0.7m → 충돌 X
+#   - NPC 호객 BT (Approach 1.5m → abort 1m): BT abort 가 STOP 보다 먼저 → OK
+#   - serving (테이블 ~1m 미만): 0.7m 까지 접근 가능
+#   - idle (대기): 보수적 안전 OK
+#
+# scan source: /scan_filtered (laser_filters 의 0.22m polygon 마스킹 후) — 자기반사 자동 마스킹.
+
+collision_monitor:
+  ros__parameters:
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel_smoothed"
+    cmd_vel_out_topic: "cmd_vel"
+    state_topic: "collision_monitor_state"
+    transform_tolerance: 0.5
+    source_timeout: 2.0
+    base_shift_correction: true
+    enable_stamped_cmd_vel: false   # vic_pinky bringup Twist (unstamped) 호환
+
+    polygons: ["PolygonStop"]
+    observation_sources: ["scan"]
+
+    PolygonStop:
+      type: "polygon"
+      # 정면 0.70m × 좌우 ±0.45m × 후방 -0.20m. 자기반사는 laser_filter 0.22m 마스킹 처리.
+      points: "[[0.70, 0.45], [0.70, -0.45], [-0.20, -0.45], [-0.20, 0.45]]"
+      action_type: "stop"
+      # LiDAR 128pts 해상도 + 70cm 거리 작은 객체 측정점 한계 → 1 보수적 트리거.
+      min_points: 1
+      visualize: true
+      polygon_pub_topic: "polygon_stop"
+
+    scan:
+      type: "scan"
+      topic: "/scan_filtered"
+      min_height: 0.0
+      max_height: 1.0

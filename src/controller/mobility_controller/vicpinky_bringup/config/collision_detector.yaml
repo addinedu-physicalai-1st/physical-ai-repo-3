@@ -1,0 +1,44 @@
+# collision_detector.yaml — Vic Pinky 사회적 zone 알람 (action_type=none)
+#
+# Phase C (2026-05-12) 도입. SoT: docs/cafe_npc_safety_zone.md §C2.
+#
+# collision_monitor (cmd_vel 차단) 와 별도로 사회적 zone (Warning) 알람만 발행.
+# safety_zone_monitor_node 가 /collision_detector_state 구독 → SafetyZoneState 종합.
+#
+# Warning zone (1.20m × ±0.60m × 후방 -0.20m):
+#   - Hall 1966 personal space 끝 (0.46~1.2m)
+#   - Trautman 2010 freezing problem 회피 — 1.2m 진입 시 사회적 신호 (BT pause + TTS excuse)
+#   - cmd_vel 영향 X (action_type=none) — 부드러운 사회적 반응
+#
+# Stop zone (collision_monitor) 와 zone 매트릭스:
+#   1.2m → Warn (BT pause, 자동 재개)
+#   0.7m → Stop (collision_monitor 가 cmd_vel 0, BT abort 또는 zone 해제 후 재시도)
+#
+# scan source: /scan_filtered (laser_filters 자기반사 마스킹).
+
+collision_detector:
+  ros__parameters:
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    state_topic: "collision_detector_state"
+    transform_tolerance: 0.5
+    source_timeout: 2.0
+    base_shift_correction: true
+
+    polygons: ["PolygonWarn"]
+    observation_sources: ["scan"]
+
+    PolygonWarn:
+      type: "polygon"
+      # 정면 1.20m × 좌우 ±0.60m × 후방 -0.20m. Warning zone — 사회적 거리.
+      points: "[[1.20, 0.60], [1.20, -0.60], [-0.20, -0.60], [-0.20, 0.60]]"
+      action_type: "none"   # 알람만, cmd_vel 영향 X
+      min_points: 1
+      visualize: true
+      polygon_pub_topic: "polygon_warn"
+
+    scan:
+      type: "scan"
+      topic: "/scan_filtered"
+      min_height: 0.0
+      max_height: 1.0

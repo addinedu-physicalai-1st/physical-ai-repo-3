@@ -35,7 +35,7 @@ priority enforce 책임은 mode_manager 에 있음. 자동/수동 트리거 모�
 가드 발동 시 어느 상태에서든 idle 강제 전이.
 
 B 단계 launch 제어:
-  - subprocess.Popen("ros2 launch dobi_npc_bringup mode_<mode>.launch.py ...",
+  - subprocess.Popen("ros2 launch <mode package> mode_<mode>.launch.py ...",
                      start_new_session=True)
   - kill: os.killpg(pgid, SIGTERM) → grace 후 SIGKILL
   - spawn 후 grace_spawn 동안 즉사 감지 → 실패 시 idle rollback
@@ -84,6 +84,7 @@ class LaunchSupervisor:
 
     GRACE_SPAWN_SEC = 1.5     # spawn 후 즉사 감지 grace
     GRACE_TERM_SEC = 3.0      # SIGTERM 후 SIGKILL 까지 대기
+    MOBILITY_MODES = {'serving', 'patrol', 'guiding', 'follow'}
 
     def __init__(self, logger):
         self.logger = logger
@@ -149,7 +150,12 @@ class LaunchSupervisor:
             return True, "idle_no_stack"
 
         launch_file = f'mode_{mode}.launch.py'
-        cmd = ['ros2', 'launch', 'dobi_npc_bringup', launch_file]
+        launch_package = (
+            'mobility_controller'
+            if mode in self.MOBILITY_MODES
+            else 'dobi_npc_bringup'
+        )
+        cmd = ['ros2', 'launch', launch_package, launch_file]
         if params_json:
             # ros2 launch 는 인자에 공백 허용. shlex 로 감싸지 않고 그대로 전달.
             cmd.append(f'params_json:={params_json}')

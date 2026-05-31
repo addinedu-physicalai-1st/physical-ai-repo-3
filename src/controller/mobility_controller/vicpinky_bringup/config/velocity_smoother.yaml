@@ -1,0 +1,30 @@
+# velocity_smoother.yaml — Vic Pinky cmd_vel 가속/감속 곡선 + jerk limit
+#
+# Phase B (2026-05-09) 도입. SoT: docs/cafe_npc_safety_zone.md §6 Phase B.
+#
+# 토폴로지:
+#   twist_mux → /cmd_vel_raw → velocity_smoother → /cmd_vel_smoothed
+#                                                  → collision_monitor → /cmd_vel
+#
+# Babel 2022 (Safety Concerns from Robots in Pedestrian Areas) 권고:
+#   - 보수적 가속 (jerk limit 으로 보행자 놀라지 않게)
+#   - 감속은 빠르게 (안전 우선)
+#
+# velocity_timeout=1.0:
+#   /cmd_vel_raw 가 1초간 안 오면 자동 0 publish. zlac_driver 가 deadman 없으므로
+#   (memory: project_zlac_driver_no_deadman.md) 이 값이 사실상 시스템의 deadman 역할.
+#   짧으면(0.3~0.5) 호객 BT 짧은 idle 에서 끊김 빈번, 길면(2.0+) 안전 약화 → 1.0 절충.
+
+velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.3, 0.0, 1.0]
+    min_velocity: [-0.3, 0.0, -1.0]
+    max_accel: [0.3, 0.0, 1.5]
+    max_decel: [-0.8, 0.0, -1.5]
+    odom_topic: "odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0

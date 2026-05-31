@@ -15,7 +15,7 @@ mode_manager 가 모드별 stack 을 spawn/kill 할 때 살아있어야 하는 �
   map_apply                 (/map/apply → Nav2 map_server load_map)
   person_tracking_node      (/robot_cam/image_raw → /person_tracking/tracks)
   group_approach_node       (/person_tracking/tracks → /person_tracking/approach_target)
-  approach_controller_node  (/person_tracking/approach_target → /cmd_vel, bbox 기반 PD 제어)
+  approach_controller_node  (/person_tracking/approach_target → /bt/cmd_vel, bbox 기반 PD 제어)
 
 person_tracking_node 전제: run_robot_cam.sh 로 /robot_cam/image_raw 가 발행 중이어야 함.
 
@@ -123,7 +123,7 @@ def generate_launch_description():
             }],
         ),
         Node(
-            package='person_tracking_pkg', executable='approach_controller_node',
+            package='mobility_controller', executable='approach_controller',
             name='approach_controller_node', output='screen',
             parameters=[{
                 'linear_speed':    0.15,

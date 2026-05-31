@@ -1,0 +1,13 @@
+/**:
+  ros__parameters:
+    filter1:
+      name: polygon_filter
+      type: laser_filters/LaserScanPolygonFilter
+      params:
+        polygon_frame: base_link
+        # 2026-05-09 Phase B: 0.35×0.30 → 0.22×0.22 축소.
+        # 자기반사 실측 0.178m + 마진 0.04m. 이전 폭이 PolygonStop(0.40m) 의
+        # 정면 0.35m 영역까지 마스킹해서 collision_monitor 실 동작 X 였음.
+        # 0.22m 후엔 PolygonStop 의 0.22~0.40m, PolygonSlow 의 0.22~0.70m 영역 살아남음.
+        polygon: '[[0.22, -0.22], [0.22, 0.22], [-0.22, 0.22], [-0.22, -0.22]]'
+        invert: false

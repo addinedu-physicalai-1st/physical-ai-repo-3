@@ -1,0 +1,73 @@
+<?xml version='1.0' ?>
+<launch>
+    <arg name="use_sim_time" default="False"/>
+    <arg name="filter_yaml_path" default="$(find-pkg-share vicpinky_bringup)/config/laser_filter.yaml" />
+
+    <arg name="accel_limit" default="0.4"/>
+    <arg name="decel_limit" default="1.0"/>
+    <arg name="ang_accel_limit" default="1.0"/>
+    <arg name="ang_decel_limit" default="1.5"/>
+
+    <include file="$(find-pkg-share vicpinky_description)/launch/upload.launch.xml">
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <include file="$(find-pkg-share sllidar_ros2)/launch/sllidar_c1_launch.py">
+    </include>
+
+    <node pkg="vicpinky_bringup" exec="bringup">
+        <param name='accel_limit' value='$(var accel_limit)'/>
+        <param name='decel_limit' value='$(var decel_limit)'/>
+        <param name='ang_accel_limit' value='$(var ang_accel_limit)'/>
+        <param name='ang_accel_limit' value='$(var ang_decel_limit)'/>
+    </node>
+    
+    <node pkg="laser_filters" exec="scan_to_scan_filter_chain">
+        <param from="$(var filter_yaml_path)" />
+    </node>
+
+    <!-- Phase A/B: cmd_vel 안전 pipeline. SoT: docs/cafe_npc_safety_zone.md §4-§6
+         topology:
+           [발행자 3] → twist_mux → /cmd_vel_raw
+                                  → velocity_smoother → /cmd_vel_smoothed
+                                  → collision_monitor → /cmd_vel → zlac_driver
+         /e_stop (Bool) 은 twist_mux lock (priority 255). -->
+
+    <!-- Phase A: cmd_vel 우선순위 mux
+         입력  /joy/cmd_vel(100) /bt/cmd_vel(80) /follow/cmd_vel(50)
+         lock  /e_stop(255 timeout 5s)
+         출력  /cmd_vel_raw  (Phase B: smoother 입력) -->
+    <node pkg="twist_mux" exec="twist_mux" name="twist_mux" output="screen">
+        <param from="$(find-pkg-share vicpinky_bringup)/config/twist_mux.yaml"/>
+        <remap from="cmd_vel_out" to="cmd_vel_raw"/>
+    </node>
+
+    <!-- Phase B: velocity_smoother (lifecycle).
+         /cmd_vel_raw 받아 jerk limit 적용 후 /cmd_vel_smoothed 발행.
+         velocity_timeout=1.0 → zlac_driver deadman 자동 보강 (1초 입력 끊기면 0). -->
+    <node pkg="nav2_velocity_smoother" exec="velocity_smoother" name="velocity_smoother" output="screen">
+        <param from="$(find-pkg-share vicpinky_bringup)/config/velocity_smoother.yaml"/>
+        <remap from="cmd_vel" to="cmd_vel_raw"/>
+    </node>
+
+    <!-- Phase B: collision_monitor (lifecycle).
+         /cmd_vel_smoothed → PolygonStop(0.4m, action=stop) + PolygonSlow(0.7m, ratio=0.4)
+         → /cmd_vel. /scan_filtered 사용 (자기반사 마스킹). -->
+    <node pkg="nav2_collision_monitor" exec="collision_monitor" name="collision_monitor" output="screen">
+        <param from="$(find-pkg-share vicpinky_bringup)/config/collision_monitor.yaml"/>
+    </node>
+
+    <!-- Phase B: lifecycle_manager — velocity_smoother + collision_monitor 자동 configure/activate.
+         autostart=true 면 launch 직후 두 노드를 unconfigured → inactive → active 로 전이. -->
+    <node pkg="nav2_lifecycle_manager" exec="lifecycle_manager" name="lifecycle_manager_safety" output="screen">
+        <param name="autostart" value="true"/>
+        <param name="node_names" value="['velocity_smoother', 'collision_monitor']"/>
+    </node>
+
+    <!-- Phase A: e_stop default false 1Hz publisher.
+         twist_mux 4.5.0 의 lock 은 메시지 안 오면 default-locked (fail-safe). 운영 시
+         "정상 = 발행자 살아있음, e_stop=false" 구도. 발행자 죽으면 5초 후 lock 활성
+         (이중 fail-safe). 운영 UI 의 정지 버튼은 별도 노드(후속)가 true 발행 시 lock 활성. -->
+    <executable cmd='bash -c "ros2 topic pub --rate 1 /e_stop std_msgs/msg/Bool &apos;{data: false}&apos;"'
+                output="log" name="e_stop_default_pub"/>
+</launch>
