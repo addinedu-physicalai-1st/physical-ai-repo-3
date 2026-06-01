@@ -21,8 +21,8 @@
           </mesh>
         </geometry>
         <material>
-          <ambient>0.212500 0.162500 0.055000 1.000000</ambient>
-          <diffuse>0.850000 0.650000 0.220000 1.000000</diffuse>
+          <ambient>0.237500 0.090000 0.020000 1.000000</ambient>
+          <diffuse>0.950000 0.360000 0.080000 1.000000</diffuse>
           <specular>0.120000 0.120000 0.120000 1.000000</specular>
         </material>
       </visual>
@@ -30,7 +30,7 @@
         <pose>-0.000000016 0.000000000 0.000000045 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.020000008 0.020000008 0.160000011</size>
+            <size>0.020000007 0.020000000 0.160000011</size>
           </box>
         </geometry>
         <surface>

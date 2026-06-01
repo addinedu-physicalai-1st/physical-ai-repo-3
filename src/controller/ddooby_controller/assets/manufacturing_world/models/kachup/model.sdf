@@ -31,7 +31,7 @@
         <geometry>
           <cylinder>
             <radius>0.025000000</radius>
-            <length>0.150000006</length>
+            <length>0.109999999</length>
           </cylinder>
         </geometry>
         <surface>
@@ -44,7 +44,7 @@
         </surface>
       </collision>
       <collision name="kachup_kachup_cap_collision">
-        <pose>0.000000000 0.000000000 0.081791997 0 0 0</pose>
+        <pose>0.000000000 0.000000000 0.062567294 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.017500000</radius>
@@ -61,7 +61,7 @@
         </surface>
       </collision>
       <collision name="kachup_kachup_nozzle_collision">
-        <pose>0.000000000 0.000000000 0.106626034 0 0 0</pose>
+        <pose>0.000000000 0.007739812 0.087401330 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.002500000</radius>
