@@ -7,6 +7,17 @@ from app.clients.catalog_client import MocaCatalogClientError
 from app.clients.moca_shared import get_catalog_client
 
 
+# 한국어 음성 주문 인식 보조용 별명(alias).
+# product 테이블에 별명 컬럼이 아직 없어, 정식 명칭(name, 소문자) 기준으로 여기서 주입한다.
+# /api/menu 로 내려가 voice.js 의 ASR context 와 LLM 메뉴 매칭에 함께 쓰인다.
+# 손님이 실제로 부르는 말에 맞춰 값만 늘려주면 인식이 좋아진다.
+_KOREAN_ALIASES: dict[str, list[str]] = {
+    "hotdog": ["핫도그", "핫독", "핫 도그", "소시지", "뉴욕핫도그"],
+    "coke": ["콜라", "코카콜라", "코크"],
+    "coffee": ["커피", "아메리카노", "아메"],
+}
+
+
 class MenuServiceUnavailable(RuntimeError):
     pass
 
@@ -123,10 +134,17 @@ def _to_menu_item(item: Any) -> MenuItem:
     if not isinstance(options, list):
         options = []
 
+    name = item.get("name", "")
+    raw_aliases = item.get("aliases", [])
+    if not isinstance(raw_aliases, list):
+        raw_aliases = []
+    # DB 가 주는 별명(있으면) + 정식 명칭 기준 한국어 별명 주입. 순서 유지하며 중복 제거.
+    aliases = list(dict.fromkeys([*raw_aliases, *_KOREAN_ALIASES.get(name.lower(), [])]))
+
     return MenuItem(
         id=item.get("id"),
-        name=item.get("name", ""),
-        aliases=item.get("aliases", []),
+        name=name,
+        aliases=aliases,
         emoji=item.get("emoji") or item.get("image") or "",
         price=item.get("price"),
         hot=_has_option(options, "temperature", {"hot", "HOT", "핫", "뜨거운", "따뜻한"}),

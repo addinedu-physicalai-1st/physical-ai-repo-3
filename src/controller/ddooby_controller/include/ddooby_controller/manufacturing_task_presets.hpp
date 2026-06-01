@@ -12,6 +12,8 @@ enum class ManufacturingTarget
 {
   Bread,
   Case,
+  Coffee,
+  Coke,
   Hotdog,
   Ketchup,
   Sausage,
@@ -237,6 +239,10 @@ inline constexpr const char * targetName(ManufacturingTarget target)
       return "bread";
     case ManufacturingTarget::Case:
       return "case";
+    case ManufacturingTarget::Coffee:
+      return "coffee";
+    case ManufacturingTarget::Coke:
+      return "coke";
     case ManufacturingTarget::Hotdog:
       return "hotdog";
     case ManufacturingTarget::Ketchup:
@@ -266,7 +272,7 @@ inline constexpr const char * armName(ArmSide arm)
 // waypoint name과 개수는 target/task마다 다르게 정의할 수 있다.
 // 왼손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
 // 오른손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_right_hand_tcp
-inline constexpr std::array<StageWaypointPosePreset, 36> kStageWaypointPosePresets{{
+inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePresets{{
   // 빵 home stage: 작업 시작 pose, 비활성화 시 기존 ready pose 사용.
   {
     ManufacturingTarget::Bread,
@@ -313,7 +319,7 @@ inline constexpr std::array<StageWaypointPosePreset, 36> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Work,
     "work",
-    {true, 0.204, -0.007, 0.347, 0.504, 0.497, 0.503, -0.496}
+    {true, 0.204, -0.007, 0.367, 0.504, 0.497, 0.503, -0.496}
   },
   // 케이스 place stage: place pose, 현재는 비활성화.
   {
@@ -555,6 +561,134 @@ inline constexpr std::array<StageWaypointPosePreset, 36> kStageWaypointPosePrese
     "squeeze",
     {true, 0.205, 0.040, 0.699, -0.478, -0.517, 0.527, -0.476}
   },
+  // 콜라 home stage: 작업 시작 pose, 비활성화 시 기존 left ready pose 사용.
+  {
+    ManufacturingTarget::Coke,
+    ArmSide::Left,
+    ManufacturingStage::Home,
+    "ready",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 콜라 pick stage: 음료 진열대 앞 접근 pose.
+  {
+    ManufacturingTarget::Coke,
+    ArmSide::Left,
+    ManufacturingStage::Pick,
+    "pre_grasp",
+    {true, 0.438, 0.241, 0.520, 0.711, 0.036, 0.701, 0.035}
+  },
+  // 콜라 work stage: 왼팔이 오른팔에 캔을 넘겨주는 pose.
+  {
+    ManufacturingTarget::Coke,
+    ArmSide::Left,
+    ManufacturingStage::Work,
+    "handoff",
+    {true, 0.186, 0.028, 0.553, 0.503, -0.504, 0.480, 0.512}
+  },
+  // 콜라 work stage: 오른팔이 캔을 넘겨받기 전 진입 가이드 pose.
+  {
+    ManufacturingTarget::Coke,
+    ArmSide::Right,
+    ManufacturingStage::Work,
+    "pre_receive",
+    {true, 0.170, -0.101, 0.436, 0.511, 0.490, 0.503, -0.495}
+  },
+  // 콜라 work stage: 오른팔 인계 후 왼팔이 캔을 치지 않고 빠지는 pose.
+  {
+    ManufacturingTarget::Coke,
+    ArmSide::Left,
+    ManufacturingStage::Work,
+    "left_pull_out",
+    {true, 0.187, 0.060, 0.553, 0.503, -0.504, 0.480, 0.512}
+  },
+  // 콜라 place stage: pickup zone release pose로 가기 전 오른팔 중간 경유 pose.
+  {
+    ManufacturingTarget::Coke,
+    ArmSide::Right,
+    ManufacturingStage::Place,
+    "approach",
+    {true, -0.009, -0.613, 0.507, 0.499, -0.499, 0.494, 0.507}
+  },
+  // 콜라 place stage: pickup zone에 놓기 직전 pose. 비활성화 시 pickup zone 기준 자동 계산.
+  {
+    ManufacturingTarget::Coke,
+    ArmSide::Right,
+    ManufacturingStage::Place,
+    "release_pose",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 콜라 return_home stage: 오른팔 복귀 pose, 비활성화 시 named home pose 사용.
+  {
+    ManufacturingTarget::Coke,
+    ArmSide::Right,
+    ManufacturingStage::ReturnHome,
+    "return_home",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 커피 home stage: 작업 시작 pose, 비활성화 시 기존 left ready pose 사용.
+  {
+    ManufacturingTarget::Coffee,
+    ArmSide::Left,
+    ManufacturingStage::Home,
+    "ready",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 커피 pick stage: 음료 진열대 앞 접근 pose.
+  {
+    ManufacturingTarget::Coffee,
+    ArmSide::Left,
+    ManufacturingStage::Pick,
+    "pre_grasp",
+    {true, 0.438, 0.086, 0.520, 0.711, 0.036, 0.701, 0.035}
+  },
+  // 커피 work stage: 왼팔이 오른팔에 캔을 넘겨주는 pose.
+  {
+    ManufacturingTarget::Coffee,
+    ArmSide::Left,
+    ManufacturingStage::Work,
+    "handoff",
+    {true, 0.186, 0.028, 0.553, 0.503, -0.504, 0.480, 0.512}
+  },
+  // 커피 work stage: 오른팔이 캔을 넘겨받기 전 진입 가이드 pose.
+  {
+    ManufacturingTarget::Coffee,
+    ArmSide::Right,
+    ManufacturingStage::Work,
+    "pre_receive",
+    {true, 0.170, -0.101, 0.436, 0.511, 0.490, 0.503, -0.495}
+  },
+  // 커피 work stage: 오른팔 인계 후 왼팔이 캔을 치지 않고 빠지는 pose.
+  {
+    ManufacturingTarget::Coffee,
+    ArmSide::Left,
+    ManufacturingStage::Work,
+    "left_pull_out",
+    {true, 0.187, 0.060, 0.553, 0.503, -0.504, 0.480, 0.512}
+  },
+  // 커피 place stage: pickup zone release pose로 가기 전 오른팔 중간 경유 pose.
+  {
+    ManufacturingTarget::Coffee,
+    ArmSide::Right,
+    ManufacturingStage::Place,
+    "approach",
+    {true, -0.009, -0.613, 0.507, 0.499, -0.499, 0.494, 0.507}
+  },
+  // 커피 place stage: pickup zone에 놓기 직전 pose. 비활성화 시 pickup zone 기준 자동 계산.
+  {
+    ManufacturingTarget::Coffee,
+    ArmSide::Right,
+    ManufacturingStage::Place,
+    "release_pose",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 커피 return_home stage: 오른팔 복귀 pose, 비활성화 시 named home pose 사용.
+  {
+    ManufacturingTarget::Coffee,
+    ArmSide::Right,
+    ManufacturingStage::ReturnHome,
+    "return_home",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
 }};
 
 // 빵 pick 파지 세부 조정값.
@@ -568,7 +702,7 @@ inline constexpr PickTuningPreset kLeftBreadPickTuning{
 inline constexpr PickTuningPreset kRightCasePickTuning{
   -0.020,
   {true, 0.043},
-  {true, 0.025}
+  {true, 0.030}
 };
 
 // 케이스 pre_grasp 이후 target 방향으로 정렬하는 중간 pose 높이 보정값.
@@ -581,7 +715,7 @@ inline constexpr double kRightCaseGraspWorldZOffsetM = 0.004;
 
 // 소시지 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kLeftSausagePickTuning{
-  -0.015,
+  0.005,
   {true, 0.024},
   {true, 0.005}
 };
@@ -592,6 +726,34 @@ inline constexpr PickTuningPreset kLeftKetchupPickTuning{
   {true, 0.040},
   {true, 0.018}
 };
+
+// 음료 캔 pick/인계 파지 세부 조정값.
+inline constexpr PickTuningPreset kLeftBeverageCanPickTuning{
+  0.0,
+  {true, 0.043},
+  {true, 0.018}
+};
+
+inline constexpr PickTuningPreset kRightBeverageCanReceiveTuning{
+  0.0,
+  {true, 0.043},
+  {true, 0.018}
+};
+
+// 음료 캔은 왼손이 캔 중심보다 위를 잡고, 오른손이 캔 중심보다 아래를 잡는다.
+// horizontal pick에서 grasp_tcp_z_offset_m은 world z가 아니므로, 음료 전용 world z offset을 별도로 둔다.
+inline constexpr double kLeftBeverageCanGraspWorldZOffsetM = 0.025;
+inline constexpr double kRightBeverageCanReceiveWorldZOffsetM = -0.025;
+inline constexpr double kBeverageHandoffRightFromLeftZOffsetM =
+  kRightBeverageCanReceiveWorldZOffsetM - kLeftBeverageCanGraspWorldZOffsetM;
+// 왼손이 캔을 놓은 뒤 오른손과 캔을 건드리지 않도록 수평으로 빠지는 거리.
+inline constexpr double kBeverageLeftHandoffRetreatDistanceM = 0.120;
+
+// 음료 캔 pickup zone 배치 높이와 품목별 y offset.
+inline constexpr double kBeveragePickupApproachHeightM = 0.100;
+inline constexpr double kBeveragePickupPlaceClearanceM = 0.005;
+inline constexpr double kCokePickupZoneYOffsetM = -0.040;
+inline constexpr double kCoffeePickupZoneYOffsetM = 0.040;
 
 // 케첩 반환 시 음료 진열대 천장판을 넘기 위한 return_pose 직전 clearance 높이.
 inline constexpr double kLeftKetchupReturnLiftHeightM = 0.120;
@@ -629,6 +791,11 @@ inline const PickTuningPreset * findPickTuningPreset(ManufacturingTarget target,
   }
   if (target == ManufacturingTarget::Ketchup && arm == ArmSide::Left) {
     return &kLeftKetchupPickTuning;
+  }
+  if ((target == ManufacturingTarget::Coke || target == ManufacturingTarget::Coffee) &&
+    arm == ArmSide::Left)
+  {
+    return &kLeftBeverageCanPickTuning;
   }
   return nullptr;
 }

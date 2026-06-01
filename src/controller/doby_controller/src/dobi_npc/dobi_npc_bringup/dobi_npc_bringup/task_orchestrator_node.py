@@ -35,6 +35,15 @@ DONE_SIGNALS = {
     'guiding': {'done', 'aborted'},
     'engaging': {'done', 'completed'},
 }
+SERVING_PROGRESS_STATES = {
+    'navigating',
+    'routing',
+    'recovering',
+    'finalizing',
+    'spinning',
+    'dwell',
+    'returning',
+}
 
 
 @dataclass
@@ -48,6 +57,7 @@ class OrchestratorConfig:
     completion_dwell_guiding: float = 5.0
     completion_dwell_engaging: float = 2.0
     setmode_timeout_sec: float = 2.0
+    auto_return_after_serve: bool = True
 
 
 def _in_business_hours(spec: str) -> bool:
@@ -75,12 +85,15 @@ class TaskOrchestratorNode(Node):
         self.declare_parameter('business_hours', '09:00-22:00')
         self.declare_parameter('battery_min', 0.20)
         self.declare_parameter('serving_action_timeout_sec', 600.0)
+        self.declare_parameter('auto_return_after_serve', True)
 
         self.config = OrchestratorConfig(
             patrol_interval_minutes=float(self.get_parameter('patrol_interval_minutes').value),
             patrol_enabled=bool(self.get_parameter('patrol_enabled').value),
             business_hours=str(self.get_parameter('business_hours').value),
             battery_min=float(self.get_parameter('battery_min').value),
+            auto_return_after_serve=bool(
+                self.get_parameter('auto_return_after_serve').value),
         )
 
         self.current_mode = 'idle'
@@ -90,9 +103,14 @@ class TaskOrchestratorNode(Node):
         self._idle_entered_at: float | None = time.time()
         self._pickup_in_progress = False
         self._current_serving_has_drink = False
+        self._active_serving_route: str | None = None
         self._serving_progress_seen = False
         self._serving_done_started_at: float | None = None
         self._serving_state_seq = 0
+        self._serving_return_pending = False
+        self._serving_return_started = False
+        self._serving_return_deadline = 0.0
+        self._return_fallback_sec = 8.0
         self._mode_done_started_at: dict[str, float | None] = {
             'patrol': None,
             'guiding': None,
@@ -131,6 +149,7 @@ class TaskOrchestratorNode(Node):
         self.create_subscription(BatteryState, '/battery_state', self._on_battery, 10)
 
         self._event_pub = self.create_publisher(OpEvent, '/doby/event', 10)
+        self._serving_goto_pub = self.create_publisher(String, '/serving/goto_table', 10)
 
         self.create_service(RequestGuiding, '/task/request_guiding', self._on_request_guiding)
         self.create_service(GetTableStatus, '/task/get_table_status', self._on_get_table_status)
@@ -259,9 +278,7 @@ class TaskOrchestratorNode(Node):
 
                 state_json = dict(self._last_serving_state_json)
                 final_state = str(state_json.get('state', final_state or ''))
-                if self.current_mode == 'serving' and final_state in (
-                    'navigating', 'dwell', 'returning',
-                ):
+                if self.current_mode == 'serving' and final_state in SERVING_PROGRESS_STATES:
                     progress_seen = True
 
                 feedback = Serving.Feedback()
@@ -387,6 +404,8 @@ class TaskOrchestratorNode(Node):
 
     def _start_serving(self, payload: dict[str, Any], trigger_source: str) -> dict[str, Any]:
         self._current_serving_has_drink = bool(payload.get('has_drink', True))
+        self._active_serving_route = self._route_base(
+            str(payload.get('target_table', '')))
         if bool(payload.get('via_pickup', True)):
             if self._pickup_in_progress:
                 return {'ok': False, 'code': 'PICKUP_IN_PROGRESS', 'message': 'pickup action already running'}
@@ -425,10 +444,12 @@ class TaskOrchestratorNode(Node):
 
     def _request_serving_mode(self, payload: dict[str, Any], trigger_source: str) -> dict[str, Any]:
         del trigger_source
+        waypoint = str(payload['target_table'])
+        self._active_serving_route = self._route_base(waypoint)
         return self._request_mode(
             'serving',
             {
-                'waypoint': payload['target_table'],
+                'waypoint': waypoint,
                 'via_pickup': bool(payload.get('via_pickup', True)),
                 'has_drink': bool(payload.get('has_drink', True)),
                 'drink_id': payload.get('drink_id', ''),
@@ -447,6 +468,17 @@ class TaskOrchestratorNode(Node):
         now = time.time()
         if self.current_mode == 'serving' and self._serving_done_started_at is not None:
             if now - self._serving_done_started_at >= self.config.completion_dwell_serving:
+                if self._serving_return_pending:
+                    if not (self._serving_return_started
+                            or now >= self._serving_return_deadline):
+                        return
+                    self._serving_done_started_at = None
+                    self._completion_running.discard('serving')
+                    self._reset_serving_return()
+                    self._request_idle_after_completion(
+                        'serving', override_priority=True)
+                    return
+
                 self._serving_done_started_at = None
                 if 'serving' not in self._completion_running:
                     self._completion_running.add('serving')
@@ -497,10 +529,14 @@ class TaskOrchestratorNode(Node):
             self._serving_progress_seen = False
             self._serving_done_started_at = None
             self._current_serving_has_drink = False
+            self._active_serving_route = None
+            self._reset_serving_return()
         else:
             self._idle_entered_at = None
         if self.current_mode == 'serving':
             self._current_serving_has_drink = bool(self.mode_params.get('has_drink', True))
+            self._active_serving_route = self._route_base(
+                str(self.mode_params.get('waypoint', '')))
 
     def _on_serving_state(self, msg: String) -> None:
         try:
@@ -512,10 +548,12 @@ class TaskOrchestratorNode(Node):
         self._last_serving_state_json = dict(data)
         self._serving_state_seq += 1
         state = str(data.get('state', ''))
+        if self._serving_return_pending and state not in ('', 'idle'):
+            self._serving_return_started = True
         if self.current_mode != 'serving':
             self._serving_done_started_at = None
             return
-        if state in ('navigating', 'dwell', 'returning'):
+        if state in SERVING_PROGRESS_STATES:
             self._serving_progress_seen = True
             self._serving_done_started_at = None
         elif state == 'idle' and self._serving_progress_seen:
@@ -590,6 +628,20 @@ class TaskOrchestratorNode(Node):
 
     def _after_serve(self, success: bool, message: str) -> None:
         self.get_logger().info(f'serve action done success={success} message={message}')
+        if (success
+                and self.config.auto_return_after_serve
+                and not self._serving_return_pending
+                and self._target_has_route()):
+            target = self._active_serving_route
+            self._publish_serving_goto(f'{target}:return')
+            self._serving_return_pending = True
+            self._serving_return_started = False
+            self._serving_return_deadline = time.time() + self._return_fallback_sec
+            self._serving_done_started_at = None
+            self.get_logger().info(
+                f'serve completed; requested route return {target}:return')
+            return
+
         self._completion_running.discard('serving')
         self._request_idle_after_completion('serving', override_priority=True)
 
@@ -625,6 +677,28 @@ class TaskOrchestratorNode(Node):
             {'completed_mode': completed_mode, 'result': result},
             'accepted' if result.get('ok') else f'rejected:{result.get("code", "MODE_REJECTED")}',
         )
+
+    def _publish_serving_goto(self, command: str) -> None:
+        msg = String()
+        msg.data = command
+        self._serving_goto_pub.publish(msg)
+
+    @staticmethod
+    def _route_base(waypoint: str) -> str | None:
+        base = (waypoint or '').split(':', 1)[0].strip()
+        return base or None
+
+    def _target_has_route(self) -> bool:
+        target = self._active_serving_route
+        if not target:
+            return False
+        routes = self._last_serving_state_json.get('routes', [])
+        return target in (routes or [])
+
+    def _reset_serving_return(self) -> None:
+        self._serving_return_pending = False
+        self._serving_return_started = False
+        self._serving_return_deadline = 0.0
 
     def _publish_event(self, source: str, event_type: str, payload: dict[str, Any], outcome: str) -> None:
         msg = OpEvent()

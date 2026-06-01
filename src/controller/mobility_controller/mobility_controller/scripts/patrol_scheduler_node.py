@@ -68,6 +68,13 @@ class PatrolScheduler(Node):
         self.declare_parameter('report_to_orchestrator', True)
         self.declare_parameter('scan_service_name', '/table_occupancy/scan')
         self.declare_parameter('nav_action_name', '/navigate_to_pose')
+        # waypoint 순회 모드 (mapv6 W##). 설정 시 tables.yaml 대신 waypoints_yaml 의 W## 를
+        # 정차 시퀀스로 사용 (각 W## = 정차 pose 자체, approach 0). scan_table_map_json =
+        # {W##: [T##..]} — 그 지점에서 멈춰 스캔 + 보이는 테이블들로 TableReport. 매핑 없는
+        # W## 는 통과(스캔 X). 비우면 기존 tables.yaml 테이블 순회 모드.
+        self.declare_parameter('waypoints_yaml', '')
+        self.declare_parameter('scan_table_map_json',
+                               '{"W05": ["T02", "T03"], "W07": ["T04", "T05"]}')
 
         # ---- 내부 상태 ----
         self._state: State = State.INIT
@@ -118,6 +125,59 @@ class PatrolScheduler(Node):
     # ─────────── tables.yaml ───────────
 
     def _load_tables(self) -> None:
+        # waypoints_yaml 설정 시 W## 순회 모드, 아니면 기존 tables.yaml 테이블 모드.
+        wp_path = self.get_parameter('waypoints_yaml').value
+        if wp_path and os.path.isfile(wp_path):
+            self._load_waypoint_stops(wp_path)
+        else:
+            self._load_table_stops()
+        self._resolve_sweep_order()
+
+    def _load_waypoint_stops(self, path: str) -> None:
+        """mapv6 waypoints_yaml (W## + home) → 정차 시퀀스.
+
+        각 W## = 정차 pose 자체(approach_dist=0). scan_table_map_json 에 매핑된 W## 에서만
+        dwell+scan 하고, 그 지점에서 보이는 테이블 ID 들로 TableReport 발행. 매핑 없는
+        W## 는 통과(스캔 X).
+        """
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as e:
+            self.get_logger().error(f'waypoints_yaml 파싱 실패: {e}')
+            return
+        # scan_table_map_json: {"W05": ["T02","T03"], ...}
+        scan_map: dict[str, list] = {}
+        raw = self.get_parameter('scan_table_map_json').value
+        if raw:
+            try:
+                m = json.loads(raw)
+                if isinstance(m, dict):
+                    scan_map = {str(k): [str(t) for t in (v or [])]
+                                for k, v in m.items()}
+            except json.JSONDecodeError as e:
+                self.get_logger().warn(f'scan_table_map_json 파싱 실패: {e}')
+        for wid, d in (data.get('waypoints') or {}).items():
+            if not isinstance(d, dict):
+                continue
+            self._tables[wid] = {
+                'id': wid,
+                'pose_dict': {'frame_id': 'map', 'x': d.get('x', 0.0),
+                              'y': d.get('y', 0.0), 'yaw': d.get('yaw', 0.0)},
+                'approach_dist': 0.0,          # W## 자체가 정차 pose
+                'scan_tables': scan_map.get(wid, []),
+                'description': '',
+            }
+        for _hid, d in (data.get('home') or {}).items():
+            if isinstance(d, dict):
+                self._home_pose = self._dict_to_pose(d)
+                break
+        self.get_logger().info(
+            f'waypoint patrol: stops={sorted(self._tables.keys())} '
+            f'scan_map={scan_map} home={"OK" if self._home_pose else "MISSING"}')
+
+    def _load_table_stops(self) -> None:
+        """기존 tables.yaml 기반 — 각 테이블이 자기 자신을 스캔."""
         path = self.get_parameter('tables_yaml').value
         if not path or not os.path.isfile(path):
             self.get_logger().error(
@@ -129,13 +189,9 @@ class PatrolScheduler(Node):
         except Exception as e:
             self.get_logger().error(f'tables_yaml 파싱 실패: {e}')
             return
-
-        # home_pose
         home = data.get('home_pose')
         if home:
             self._home_pose = self._dict_to_pose(home)
-
-        # tables
         for entry in data.get('tables', []):
             tid = entry.get('id')
             pose_d = entry.get('pose', {})
@@ -145,40 +201,40 @@ class PatrolScheduler(Node):
                 'id': tid,
                 'pose_dict': pose_d,
                 'approach_dist': float(entry.get('approach_dist', 0.5)),
+                'scan_tables': [tid],          # 자기 테이블 스캔
                 'description': entry.get('description', ''),
             }
+        self.get_logger().info(
+            f'tables loaded: {sorted(self._tables.keys())} '
+            f'home_pose={"OK" if self._home_pose else "MISSING"}')
 
-        # sweep_order — params_json 우선 (task_orchestrator 가 priority_only 시 override)
+    def _resolve_sweep_order(self) -> None:
+        # sweep_order — params_json 우선, 아니면 sweep_order param.
         params_raw = self.get_parameter('params_json').value
         sweep_from_params: Optional[list[str]] = None
-        sweep_mode = 'all'
         if params_raw:
             try:
                 d = json.loads(params_raw)
-                sweep_mode = d.get('sweep_mode', 'all')
-                # 명시적 sweep_order override 도 지원 (M3 priority_only)
                 if isinstance(d.get('sweep_order'), list):
                     sweep_from_params = [str(x) for x in d['sweep_order']]
             except json.JSONDecodeError as e:
                 self.get_logger().warn(
                     f'params_json 파싱 실패: {e} — sweep_order param 사용')
-
         if sweep_from_params:
             self._sweep_order = sweep_from_params
         else:
-            # ParameterValue 가 list 또는 tuple 반환 가능
             self._sweep_order = list(self.get_parameter('sweep_order').value)
-
-        # tables.yaml 에 없는 ID 제거
-        self._sweep_order = [
-            tid for tid in self._sweep_order if tid in self._tables
-        ]
-        self._tables_total = len(self._sweep_order)
-
+        # 존재하는 정차점만 (없는 ID 제거)
+        self._sweep_order = [s for s in self._sweep_order if s in self._tables]
+        # 오설정 fallback — 정렬된 정차점 전체
+        if not self._sweep_order and self._tables:
+            self._sweep_order = sorted(self._tables.keys())
+        # tables_total = 스캔할 테이블 총 수 (정차점별 scan_tables 합)
+        self._tables_total = sum(
+            len(self._tables[s].get('scan_tables', []))
+            for s in self._sweep_order)
         self.get_logger().info(
-            f'tables loaded: {sorted(self._tables.keys())} '
-            f'home_pose={"OK" if self._home_pose else "MISSING"} '
-            f'sweep_mode={sweep_mode} sweep={self._sweep_order}')
+            f'sweep={self._sweep_order} tables_total={self._tables_total}')
 
     def _dict_to_pose(self, d: dict) -> Optional[PoseStamped]:
         try:
@@ -294,25 +350,29 @@ class PatrolScheduler(Node):
         self._transition(State.REPORT)
 
     def _on_enter_report(self) -> None:
-        msg = TableReport()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.table_id = self._current_table_id or ''
+        # 이 정차점에서 보이는 테이블들 — 한 번 스캔한 결과를 각 테이블에 동일 적용 (모드 A).
+        stop = self._tables.get(self._current_table_id) or {}
+        scan_tables = stop.get('scan_tables') or [self._current_table_id or '']
         r = self._last_scan_result
-        if r is not None and getattr(r, 'success', False):
-            msg.occupancy = r.occupancy
-            msg.person_count = int(r.person_count)
-            msg.dishes_detected = bool(r.dishes_detected)
-            msg.confidence = float(r.confidence)
-        else:
-            msg.occupancy = 'unknown'
-            msg.person_count = 0
-            msg.dishes_detected = False
-            msg.confidence = 0.0
-        self.pub_report.publish(msg)
-        self._tables_visited += 1
-        self.get_logger().info(
-            f'TableReport {msg.table_id} occupancy={msg.occupancy} '
-            f'person={msg.person_count} conf={msg.confidence:.2f}')
+        for tid in scan_tables:
+            msg = TableReport()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.table_id = tid
+            if r is not None and getattr(r, 'success', False):
+                msg.occupancy = r.occupancy
+                msg.person_count = int(r.person_count)
+                msg.dishes_detected = bool(r.dishes_detected)
+                msg.confidence = float(r.confidence)
+            else:
+                msg.occupancy = 'unknown'
+                msg.person_count = 0
+                msg.dishes_detected = False
+                msg.confidence = 0.0
+            self.pub_report.publish(msg)
+            self._tables_visited += 1
+            self.get_logger().info(
+                f'TableReport {msg.table_id} occupancy={msg.occupancy} '
+                f'person={msg.person_count} conf={msg.confidence:.2f}')
         self._last_scan_result = None
         self._transition(State.NEXT)
 
@@ -382,7 +442,11 @@ class PatrolScheduler(Node):
         self._nav_goal_handle = None
         if status == 4:
             if self._state == State.MOVING:
-                self._transition(State.DWELL)
+                stop = self._tables.get(self._current_table_id) or {}
+                if stop.get('scan_tables'):
+                    self._transition(State.DWELL)      # 스캔 지점 → dwell+scan
+                else:
+                    self._transition(State.NEXT)        # 경유점 → 통과
             elif self._state == State.RETURNING:
                 self._transition(State.DONE)
         else:
@@ -407,17 +471,21 @@ class PatrolScheduler(Node):
     # ─────────── 보조 ───────────
 
     def _emit_report_unknown(self, error: str = '') -> None:
-        msg = TableReport()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.table_id = self._current_table_id or ''
-        msg.occupancy = 'unknown'
-        msg.person_count = 0
-        msg.dishes_detected = False
-        msg.confidence = 0.0
-        self.pub_report.publish(msg)
-        self._tables_visited += 1
-        self.get_logger().info(
-            f'TableReport {msg.table_id} occupancy=unknown reason={error}')
+        # 알려진 정차점: scan_tables 단위(경유점=[] 이면 리포트 없음). 미등록 stop: 현재 id fallback.
+        stop = self._tables.get(self._current_table_id) or {}
+        scan_tables = stop.get('scan_tables', [self._current_table_id or ''])
+        for tid in scan_tables:
+            msg = TableReport()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.table_id = tid
+            msg.occupancy = 'unknown'
+            msg.person_count = 0
+            msg.dishes_detected = False
+            msg.confidence = 0.0
+            self.pub_report.publish(msg)
+            self._tables_visited += 1
+            self.get_logger().info(
+                f'TableReport {msg.table_id} occupancy=unknown reason={error}')
 
     def _on_rapport(self, msg: RapportEvent) -> None:
         if msg.event_type != 'abort_trigger':
@@ -434,6 +502,12 @@ class PatrolScheduler(Node):
         """20Hz FSM tick — dwell/timeout 만 체크 (Nav2/Scan 은 콜백 진행)."""
         now = self.get_clock().now()
         elapsed = (now - self._state_entered_at).nanoseconds / 1e9
+        # use_sim_time /clock 동기화 레이스 가드: 노드 기동 직후 state 진입 시각이 /clock
+        # 수신 전 stale 일 수 있어 elapsed 가 음수/비현실적으로 큼 → 재기준 후 이번 tick skip
+        # (안 그러면 첫 MOVING 에서 arrival_timeout 즉시 오발동 → goal 연사 cancel).
+        if elapsed < 0.0 or elapsed > 3600.0:
+            self._state_entered_at = now
+            return
 
         if self._state == State.DWELL:
             if elapsed >= float(

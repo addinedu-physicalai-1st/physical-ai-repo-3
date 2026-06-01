@@ -59,6 +59,49 @@
   // "콤마 명사구 나열 형태이면 unknown" 방어를 같이 두었다.
   // 단일 진실: web_service menu_service.py list_menu() MenuItem(name, aliases) → /api/menu → MENU 전역 → 여기로 전파.
   const ASR_CONTEXT_PREFIX = '카페 키오스크 주문.';
+  // 수량/세는 말도 ASR 바이어싱에 넣어 "두 개"를 "두게", "세 개"를 "새개" 등으로 잘못 받아쓰는 것을 줄인다.
+  // 메뉴 별명(aliases)이 아니라 ASR 컨텍스트 영역이다 — LLM 은 수량을 이미 잘 파싱하므로 ASR 입력 품질만 올리면 된다.
+  // 라벨 "자주 쓰는 말:" 은 prompts.py 의 'ASR context echo 차단' 규칙이 인식하는 라벨이라 echo 시 unknown 처리된다.
+  const ASR_COUNT_CONTEXT =
+    '자주 쓰는 말: 하나, 한 개, 한 잔, 둘, 두 개, 두 잔, 셋, 세 개, 세 잔, 넷, 네 개, 다섯, 다섯 개, 개, 잔, '
+    + '맞아, 맞아요, 네, 응, 좋아요, 확인했어요, 주문할게요, 주문 확인, 다음, 다음으로, 뒤로, 이전, 취소, 안 할래요, '
+    + '추가, 빼 주세요, 적게, 많이, 주세요, 해 주세요.';
+
+  // 폰에서 ASR/LLM 결과를 눈으로 보기 위한 디버그 오버레이.
+  // URL 에 ?debug=1 (또는 &debug=1) 이 있을 때만 화면 하단에 "들림/의도/에러" 롤링 로그 표시.
+  // 손님이 보는 일반 주문에는 영향 없음. 무엇을 잘못 받아쓰는지 바로 확인해 컨텍스트를 정밀 보강하는 용도.
+  const VOICE_DEBUG = new URLSearchParams(location.search).has('debug');
+  function _voiceDebugEl() {
+    let el = document.getElementById('voice-debug');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'voice-debug';
+      el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:128px;z-index:1000;'
+        + 'background:rgba(0,0,0,0.88);color:#39ff6a;font:12px/1.45 monospace;'
+        + 'padding:8px 10px;border-radius:8px;white-space:pre-wrap;pointer-events:none;'
+        + 'max-height:42vh;overflow:hidden;';
+      el.innerHTML = '<div id="voice-debug-status" style="color:#ffd479;border-bottom:1px solid #555;'
+        + 'padding-bottom:4px;margin-bottom:4px;"></div><div id="voice-debug-log"></div>';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  // 고정 상태줄(제자리 갱신): 마이크 입력 % 처럼 자주 바뀌는 값. 로그를 밀어내지 않는다.
+  function voiceDebugStatus(msg) {
+    if (!VOICE_DEBUG) return;
+    _voiceDebugEl();
+    const s = document.getElementById('voice-debug-status');
+    if (s) s.textContent = msg;
+  }
+  // 이벤트 로그(위로 쌓임): 들림(인식)/의도/발화/에러 — 상태줄과 분리해 사라지지 않게.
+  function voiceDebugLog(msg) {
+    if (!VOICE_DEBUG) return;
+    _voiceDebugEl();
+    const logEl = document.getElementById('voice-debug-log');
+    if (!logEl) return;
+    const prev = logEl.textContent ? logEl.textContent.split('\n') : [];
+    logEl.textContent = [msg, ...prev].slice(0, 10).join('\n');
+  }
 
   // wake 한 번 → 여러 발화 follow-up. 외부에서 window.voiceIdle() 을 호출할 때까지 listening 유지.
   // (주문번호 화면 도달 시 kiosk 측에서 명시적으로 voiceIdle 호출)
@@ -76,6 +119,7 @@
   let kwsSession = null;
 
   let vadInstance = null;
+  let _vadPeak = 0, _vadFrames = 0;  // 디버그: 마이크 입력 발화확률 추적 (?debug 시에만 사용)
   let vadBusy = false;  // VAD active 또는 ASR/LLM 처리 중이면 KWS 게이트 차단
   let ttsSpeaking = false;  // TTS 재생 중 — KWS/VAD 모두 차단해 echo 방지
   let turnCount = 0;    // wake 후 처리한 발화 수 (정보 로그용, 매 wake 마다 0)
@@ -89,9 +133,9 @@
   let lastTriggerTs = 0;
   let busy = false;
 
-  // PTT (table 모드): pointerdown 사이의 Int16 청크를 누적.
-  let pttRecording = false;
-  let pttChunks = [];   // Int16Array 청크 리스트
+  // table 모드: 탭으로 음성 세션 시작/종료. 세션 중에는 kiosk 와 동일하게
+  // VAD 가 발화 끝을 자동 감지하고 ASR/LLM/TTS 후 다음 발화로 멀티턴 이어진다.
+  let tableSessionActive = false;
 
   // KWS 학습 분포(raw PCM + SNR augmentation)에 맞추기 위해 브라우저 신호 처리 OFF.
   const baseAudioConstraints = {
@@ -161,22 +205,26 @@
     vadInstance = await window.vad.MicVAD.new({
       baseAssetPath: VAD_ASSET_BASE,
       onnxWASMBasePath: VAD_ORT_BASE,
-      positiveSpeechThreshold: 0.7,   // 잡음(키보드/주변 대화) 으로 인한 false speech 차단
-      negativeSpeechThreshold: 0.35,
-      minSpeechFrames: 8,             // 너무 짧은 잡음 제외 (~256ms)
+      positiveSpeechThreshold: 0.5,   // 폰 마이크(거리/볼륨 낮음) 대응 0.7→0.5. 너무 낮으면 잡음 오감지↑
+      negativeSpeechThreshold: 0.25,
+      minSpeechFrames: 4,             // 8→4 (~256ms→~128ms): "커피" 처럼 무성음(ㅋ/ㅍ) 많아 voiced 구간 짧은
+                                      // 발화가 misfire(너무 짧음)로 잘리던 문제 대응. 너무 낮추면 잡음 오감지↑
       redemptionFrames: 24,           // 발화 끝 판정 후 ~768ms 여유
       onSpeechStart: () => {
         clearIdleTimer();
         setState('listening');
         console.log('[vad] speech start');
+        voiceDebugLog('발화 시작 감지');
       },
       onSpeechEnd: async (audio) => {
         console.log(`[vad] speech end, ${audio.length} samples`);
+        voiceDebugLog(`발화 끝: ${audio.length}샘플 → ASR`);
         try { vadInstance.pause(); } catch (_) {}
         await processUtterance(audio);
       },
       onVADMisfire: () => {
         console.log('[vad] misfire (너무 짧은 발화) — listening 유지');
+        voiceDebugLog('너무 짧음(misfire) — 다시 말하세요');
         // 발화가 너무 짧아 무시. 같은 wake 안에서는 listening 으로 다시 진입.
         try {
           vadInstance.pause();
@@ -188,8 +236,20 @@
           vadBusy = false;
         }
       },
+      // 디버그 전용: 매 프레임 발화확률의 ~1초 최고치를 오버레이에 찍어 마이크 입력 여부/임계값 진단.
+      // 0% → 마이크 무음(입력 안 들어옴), 40~60% → 임계값(0.7) 너무 높음, 70%↑ → 감지는 정상.
+      onFrameProcessed: (probs) => {
+        if (!VOICE_DEBUG) return;
+        const p = (probs && typeof probs.isSpeech === 'number') ? probs.isSpeech : 0;
+        if (p > _vadPeak) _vadPeak = p;
+        if (++_vadFrames % 15 === 0) {
+          voiceDebugStatus(`🎤 발화확률 최고 ${(_vadPeak * 100).toFixed(0)}% (감지기준 50%)`);
+          _vadPeak = 0;
+        }
+      },
     });
     console.log('[vad] loaded');
+    voiceDebugLog('VAD 준비됨 (모델 로드 OK)');
   }
 
   async function acquireMic() {
@@ -237,10 +297,7 @@
 
   async function processChunk(int16Chunk) {
     if (IS_TABLE) {
-      // PTT: 누른 동안만 누적. 그 외엔 폐기 (KWS 파이프라인 우회).
-      if (pttRecording && !ttsSpeaking) {
-        pttChunks.push(new Int16Array(int16Chunk));
-      }
+      // table 모드는 KWS 를 쓰지 않는다 — 음성 세션은 VAD 가 직접 마이크를 잡고 처리.
       return;
     }
     if (busy) return;
@@ -356,16 +413,19 @@
       const ctList = (typeof cart !== 'undefined' && Array.isArray(cart)) ? cart : [];
       const alList = (typeof ALLERGY_INFO !== 'undefined' && Array.isArray(ALLERGY_INFO)) ? ALLERGY_INFO : [];
 
-      // "메뉴: 아메리카노 (아메, 아아, 따아), 카페라떼 (라떼), ..." 형태로 동적 구성.
+      // ASR 바이어싱엔 손님이 실제로 말하는 한국어 형태만 넣는다.
+      // 메뉴 정식명이 영어(hotdog/coke/coffee)면 한국어 발화 ASR 에 노이즈가 되므로 제외하고,
+      // name 이 한글일 때만 포함한다. 별명(aliases, 한국어)은 항상 포함.
+      // 결과 예: "메뉴: 핫도그, 핫독, 소시지, 콜라, 코카콜라, 커피, 아메리카노, 아메."
       const menuPart = mnList.length
         ? '메뉴: ' + mnList.map((m) => {
-            const ali = Array.isArray(m.aliases) && m.aliases.length
-              ? ` (${m.aliases.join(', ')})`
-              : '';
-            return `${m.name}${ali}`;
+            const aliases = (Array.isArray(m.aliases) ? m.aliases : []).filter(Boolean);
+            const nameHasHangul = /[가-힣]/.test(String(m.name || ''));
+            const spoken = [...(nameHasHangul ? [m.name] : []), ...aliases];
+            return (spoken.length ? spoken : [m.name]).join(', ');
           }).join(', ') + '.'
         : '';
-      const asrContext = menuPart ? `${ASR_CONTEXT_PREFIX} ${menuPart}` : ASR_CONTEXT_PREFIX;
+      const asrContext = [ASR_CONTEXT_PREFIX, menuPart, ASR_COUNT_CONTEXT].filter(Boolean).join(' ');
 
       const fd = new FormData();
       fd.append('file', new Blob([wav], { type: 'audio/wav' }), 'utt.wav');
@@ -379,6 +439,7 @@
       if (!asrRes.ok) throw new Error(`ASR HTTP ${asrRes.status}`);
       const asr = await asrRes.json();
       console.log(`[asr] "${asr.text}" (${asr.latency_ms.toFixed(0)}ms)`);
+      voiceDebugLog(`들림: "${asr.text}"`);
 
       const llmRes = await fetchWithTimeout(
         `${VOICE_SERVICE_URL}/llm/intent`,
@@ -402,6 +463,8 @@
       if (!llmRes.ok) throw new Error(`LLM HTTP ${llmRes.status}`);
       intent = await llmRes.json();
       console.log(`[llm] intent=${intent.intent} (${intent.latency_ms.toFixed(0)}ms)`);
+      voiceDebugLog(`의도: ${intent.intent}` + (Array.isArray(intent.items) && intent.items.length
+        ? ` — ${intent.items.map((i) => `${i.menu_name}×${i.qty}`).join(', ')}` : ''));
       // 유효 의도가 분류된 경우만 손님 활동으로 인정 → idle 카운트 anchor 갱신.
       // 잡음/leak (intent='unknown') 은 anchor 유지 → 무발화 30초 카운트 잡음 사이클 사이에서도 이어짐.
       if (intent && intent.intent && intent.intent !== 'unknown') {
@@ -425,6 +488,7 @@
       }
     } catch (e) {
       console.error('[voice] processUtterance error:', e);
+      voiceDebugLog(`에러: ${(e && e.message) ? e.message : e}`);
       // 손님에게 무발화/오류 사실을 정형 TTS 한 마디로 안내.
       // 안내 자체가 또 실패하면 무한 루프 방지 위해 console.warn 까지만.
       try {
@@ -433,13 +497,10 @@
         console.warn('[voice] 에러 안내 TTS 재생 실패:', ttsErr);
       }
     } finally {
-      if (IS_TABLE) {
-        // PTT: 한 발화 처리 후 idle 로 복귀. 다음 발화는 사용자가 PTT 버튼을 다시 누르면 시작.
-        setState('idle');
-        vadBusy = false;
-        turnCount = 0;
-      } else {
-        // wake 후 모든 발화에 대해 listening 자동 재진입. 종료는 외부(window.voiceIdle) 호출 또는 무발화 타이머.
+      // 세션이 살아있으면(kiosk: wake 후 / table: 탭 세션) 발화 끝마다 listening 자동 재진입(멀티턴).
+      // 종료는 외부(window.voiceIdle, 화면 전환) 호출 또는 무발화 타이머.
+      const sessionActive = !IS_TABLE || tableSessionActive;
+      if (sessionActive) {
         try {
           vadInstance.start();
           setState('listening');
@@ -448,10 +509,18 @@
           console.log(`[voice] follow-up listening (turn ${turnCount})`);
         } catch (e) {
           console.error('[voice] follow-up VAD start failed:', e);
-          setState('idle');
-          vadBusy = false;
-          turnCount = 0;
+          if (IS_TABLE && typeof window.voiceIdle === 'function') {
+            window.voiceIdle();
+          } else {
+            setState('idle');
+            vadBusy = false;
+            turnCount = 0;
+          }
         }
+      } else {
+        setState('idle');
+        vadBusy = false;
+        turnCount = 0;
       }
     }
   }
@@ -504,6 +573,7 @@
       return;
     }
     console.log('[voice] 무발화 30초 — standby 복귀');
+    voiceDebugLog('무발화 30초 → 대기화면 복귀 (발화 미감지)');
     lastActivityTs = 0;
     if (typeof resetSession === 'function') {
       resetSession();   // 내부에서 showScreen('screen-standby') → window.voiceIdle 호출
@@ -512,7 +582,7 @@
     }
   }
   function armIdleTimer() {
-    if (IS_TABLE) return;
+    if (IS_TABLE && !tableSessionActive) return;
     clearIdleTimer();
     if (lastActivityTs === 0) lastActivityTs = Date.now(); // 첫 호출 시 anchor 초기화
     const remaining = lastActivityTs + IDLE_TIMEOUT_MS - Date.now();
@@ -528,7 +598,13 @@
     turnCount = 0;
     clearIdleTimer();
     lastActivityTs = 0;
-    console.log('[voice] voiceIdle — KWS 대기로 복귀');
+    if (IS_TABLE) {
+      // table 음성 세션 종료: 버튼 라벨/표시 원복.
+      tableSessionActive = false;
+      setPttLabel('탭하여 말하기');
+      if (pttBtn) pttBtn.classList.remove('pressed');
+    }
+    console.log('[voice] voiceIdle — 음성 세션 종료/대기');
   };
 
   // Float32Array @ sampleRate → 16-bit PCM mono WAV (Uint8Array).
@@ -570,10 +646,8 @@
     if (startBtn) { startBtn.disabled = true; startBtn.textContent = '모델 로드 중...'; }
     try {
       await loadModels();
-      if (!IS_TABLE) {
-        // VAD 도 미리 로드해서 첫 wake 후 추가 지연 없게
-        try { await loadVAD(); } catch (e) { console.warn('[voice] VAD 미리 로드 실패 (첫 wake 때 재시도):', e); }
-      }
+      // VAD 미리 로드 — kiosk: 첫 wake 후 지연 방지 / table: 탭 즉시 listening.
+      try { await loadVAD(); } catch (e) { console.warn('[voice] VAD 미리 로드 실패 (시작 시 재시도):', e); }
 
       if (startBtn) startBtn.textContent = '마이크 시작 중...';
       stream = await acquireMic();
@@ -601,9 +675,9 @@
       console.log(`[voice] VOICE_SERVICE_URL=${VOICE_SERVICE_URL}`);
 
       if (IS_TABLE) {
-        // PTT 모드: 마이크/AudioContext 만 켜고 대기. 실제 녹음은 pttStart 부터.
+        // table 모드: 마이크/VAD 준비만 하고 대기. 실제 listening 은 탭(startTableSession)부터.
         setState('idle');
-        console.log('[voice] mic started (PTT mode — press 버튼 to talk)');
+        console.log('[voice] mic ready (table mode — 탭하여 대화 시작)');
       } else {
         setState('listening');
         if (startBtn) {
@@ -631,8 +705,7 @@
     melBuf = [];
     embBuf = [];
     kwsHitBuf = [];
-    pttChunks = [];
-    pttRecording = false;
+    tableSessionActive = false;
     busy = false;
     vadBusy = false;
     clearIdleTimer();
@@ -646,56 +719,69 @@
     console.log('[voice] mic stopped');
   }
 
-  // PTT 핸들러 (table 모드 전용)
-  async function pttStart() {
+  // table 모드: 탭으로 음성 세션 시작/종료. kiosk 의 "wake → VAD 자동 대화" 흐름을
+  // 웨이크워드 대신 버튼 탭으로 트리거한다.
+  function setPttLabel(text) {
+    if (!pttBtn) return;
+    const label = pttBtn.querySelector('.ptt-label');
+    if (label) label.textContent = text;
+  }
+
+  function endTableSession() {
+    // voiceIdle 이 VAD pause + 상태/플래그/라벨 정리를 모두 담당.
+    if (typeof window.voiceIdle === 'function') window.voiceIdle();
+  }
+
+  async function startTableSession() {
     if (ttsSpeaking) return;
-    // 첫 누름에 마이크/AudioContext start (iOS Safari 는 사용자 제스처 안에서만 허용)
-    if (!audioCtx) {
-      try { await start(); } catch (e) { console.error('[voice] PTT start mic failed', e); return; }
+    // table 은 KWS 를 안 쓰므로 KWS 마이크/AudioWorklet(start()) 을 타지 않는다.
+    // VAD(MicVAD) 가 자체적으로 마이크를 잡는다 — 첫 탭(사용자 제스처) 안에서 로드.
+    // (start() 경로는 폰에서 'pcm-capture' worklet 미등록으로 실패하므로 table 은 우회한다.)
+    if (!vadInstance) {
+      try {
+        await loadVAD();
+      } catch (e) {
+        console.error('[voice] table 세션 VAD 로드 실패', e);
+        voiceDebugLog(`VAD 로드 실패: ${(e && e.message) ? e.message : e}`);
+        alert('마이크 시작 실패: ' + (e && e.message ? e.message : e));
+        return;
+      }
     }
-    if (!audioCtx) return;  // 권한 거부 등
-    pttChunks = [];
-    pttRecording = true;
-    vadBusy = true;
-    setState('listening');
+    tableSessionActive = true;
+    // table 은 KWS 가 없어 vadBusy 게이트가 불필요. false 로 둬야 무발화 30초 standby 타이머가
+    // onIdleTimeout 에서 defer 되지 않고 실제로 동작한다 (VAD 자체는 vadBusy 와 무관하게 돈다).
+    vadBusy = false;
+    turnCount = 0;
+    // standby 화면이면 메뉴로 진입 (kiosk wake 와 동일 경험).
+    if (typeof currentScreen !== 'undefined' && currentScreen === 'screen-standby' &&
+        typeof goToMenu === 'function') {
+      try { await goToMenu(); } catch (e) { console.warn('[voice] goToMenu 실패:', e); }
+    }
+    try {
+      vadInstance.start();
+      setState('listening');
+      armIdleTimer();
+      voiceDebugLog('세션 시작 — 이제 말하세요');
+    } catch (e) {
+      console.error('[voice] table 세션 VAD start 실패:', e);
+      voiceDebugLog(`VAD start 실패: ${(e && e.message) ? e.message : e}`);
+      endTableSession();
+      return;
+    }
+    setPttLabel('대화 중 · 탭하여 종료');
     if (pttBtn) pttBtn.classList.add('pressed');
+    console.log('[voice] table 음성 세션 시작 (VAD 자동 대화)');
   }
-
-  async function pttEnd() {
-    if (!pttRecording) {
-      if (pttBtn) pttBtn.classList.remove('pressed');
-      return;
-    }
-    pttRecording = false;
-    if (pttBtn) pttBtn.classList.remove('pressed');
-
-    let total = 0;
-    for (const c of pttChunks) total += c.length;
-    const audio = new Float32Array(total);
-    let off = 0;
-    for (const c of pttChunks) {
-      for (let i = 0; i < c.length; i++) audio[off + i] = c[i] / 32768;
-      off += c.length;
-    }
-    pttChunks = [];
-
-    if (audio.length < 16000 * 0.3) {
-      console.log(`[voice] PTT 너무 짧음 (${audio.length} samples) — 무시`);
-      setState('idle');
-      vadBusy = false;
-      return;
-    }
-    await processUtterance(audio);
-  }
-  window.pttStart = pttStart;
-  window.pttEnd = pttEnd;
+  window.startTableSession = startTableSession;
 
   if (IS_TABLE) {
-    // pointer 이벤트로 mouse/touch 통합 처리. pointerleave/cancel 도 end 로 처리해 누른 채 손가락이 벗어나도 발화 종료.
-    pttBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); pttStart(); });
-    pttBtn.addEventListener('pointerup',     (e) => { e.preventDefault(); pttEnd(); });
-    pttBtn.addEventListener('pointerleave',  () => { if (pttRecording) pttEnd(); });
-    pttBtn.addEventListener('pointercancel', () => { if (pttRecording) pttEnd(); });
+    // 탭 토글: 한 번 탭하면 음성 세션 시작(이후 VAD 자동 대화·멀티턴), 다시 탭하면 종료.
+    // click 은 사용자 제스처라 iOS Safari 의 getUserMedia 권한 요건도 충족.
+    pttBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (tableSessionActive) endTableSession();
+      else startTableSession();
+    });
     // iOS Safari 가 contextmenu 띄우는 것 차단
     pttBtn.addEventListener('contextmenu', (e) => e.preventDefault());
   } else {
