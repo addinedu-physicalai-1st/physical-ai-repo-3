@@ -12,6 +12,5 @@ string final_state
 ---
 string state
 string current_table
-string queue_json
 bool home_registered
 string message

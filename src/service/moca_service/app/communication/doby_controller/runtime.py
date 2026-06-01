@@ -374,11 +374,10 @@ class DobyControllerRosRuntime:
         if feedback is None:
             return
         self.logger.info(
-            "doby serving feedback action=%s state=%s current_table=%s queue=%s home_registered=%s message=%s",
+            "doby serving feedback action=%s state=%s current_table=%s home_registered=%s message=%s",
             self.serving_action_name,
             getattr(feedback, "state", ""),
             getattr(feedback, "current_table", ""),
-            getattr(feedback, "queue_json", ""),
             bool(getattr(feedback, "home_registered", False)),
             getattr(feedback, "message", ""),
         )

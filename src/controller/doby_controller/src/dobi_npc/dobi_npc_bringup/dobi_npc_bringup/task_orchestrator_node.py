@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import threading
 import time
-from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
@@ -107,7 +106,6 @@ class TaskOrchestratorNode(Node):
             self.get_parameter('serving_action_timeout_sec').value)
 
         self._seen_event_ids: dict[str, float] = {}
-        self._serving_queue: deque[dict[str, Any]] = deque()
         self._tables: dict[str, dict[str, Any]] = {
             tid: {
                 'id': tid,
@@ -133,7 +131,6 @@ class TaskOrchestratorNode(Node):
         self.create_subscription(BatteryState, '/battery_state', self._on_battery, 10)
 
         self._event_pub = self.create_publisher(OpEvent, '/doby/event', 10)
-        self._serving_goto_pub = self.create_publisher(String, '/serving/goto_table', 10)
 
         self.create_service(RequestGuiding, '/task/request_guiding', self._on_request_guiding)
         self.create_service(GetTableStatus, '/task/get_table_status', self._on_get_table_status)
@@ -170,55 +167,45 @@ class TaskOrchestratorNode(Node):
                 'code': 'INVALID_TABLE',
                 'message': f'unknown table: {target}',
             }
-        if event_id:
-            self._event_mark(event_id)
-
         current = self.current_mode or 'idle'
         if current == 'serving':
-            self._publish_serving_goto(target)
             self._publish_event(trigger_source, 'pickup_ready', payload,
-                                'accepted:forwarded_to_serving')
+                                'rejected:SERVING_BUSY')
             return {
-                'success': True,
-                'code': 'OK',
-                'message': 'forwarded to active serving dispatcher',
+                'success': False,
+                'code': 'SERVING_BUSY',
+                'message': 'serving action already running',
                 'mode_requested': False,
-                'queued': False,
             }
 
-        if current == 'guiding':
-            pos = self._queue_serving(payload)
+        if current != 'idle':
             self._publish_event(trigger_source, 'pickup_ready', payload,
-                                'queued:guiding_in_progress')
+                                f'rejected:MODE_BUSY:{current}')
             return {
-                'success': True,
-                'code': 'QUEUED',
-                'message': 'queued until guiding returns idle',
+                'success': False,
+                'code': 'MODE_BUSY',
+                'message': f'current mode is {current}',
                 'mode_requested': False,
-                'queued': True,
-                'queue_position': pos,
             }
 
         result = self._start_serving(payload, trigger_source=trigger_source)
         if result.get('ok'):
+            if event_id:
+                self._event_mark(event_id)
             self._publish_event(trigger_source, 'pickup_ready', payload, 'accepted')
             return {
                 'success': True,
                 'code': 'OK',
                 'message': result.get('message', ''),
                 'mode_requested': bool(result.get('mode_requested', True)),
-                'queued': False,
             }
 
-        pos = self._queue_serving(payload)
         self._publish_event(trigger_source, 'pickup_ready', payload,
                             f'rejected:{result.get("code", "ERROR")}')
         return {
             'success': False,
             'code': result.get('code', 'ERROR'),
             'message': result.get('message', ''),
-            'queued': True,
-            'queue_position': pos,
         }
 
     def _on_serving_action_goal(self, goal_request):
@@ -280,14 +267,11 @@ class TaskOrchestratorNode(Node):
                 feedback = Serving.Feedback()
                 feedback.state = final_state
                 feedback.current_table = str(state_json.get('current_table') or '')
-                feedback.queue_json = json.dumps(
-                    state_json.get('queue', []), ensure_ascii=False)
                 feedback.home_registered = bool(state_json.get('home_registered', False))
                 feedback.message = str(start.get('message', ''))
                 feedback_key = (
                     feedback.state,
                     feedback.current_table,
-                    feedback.queue_json,
                     feedback.home_registered,
                     feedback.message,
                 )
@@ -407,20 +391,29 @@ class TaskOrchestratorNode(Node):
             if self._pickup_in_progress:
                 return {'ok': False, 'code': 'PICKUP_IN_PROGRESS', 'message': 'pickup action already running'}
             self._pickup_in_progress = True
+            pickup_result: dict[str, Any] | None = None
+
+            def on_pickup_done(ok: bool, msg: str) -> None:
+                nonlocal pickup_result
+                pickup_result = self._after_pickup(ok, msg, payload, trigger_source)
+
             self._send_pickup_goal(
                 has_drink=self._current_serving_has_drink,
-                done_cb=lambda ok, msg: self._after_pickup(ok, msg, payload, trigger_source),
+                done_cb=on_pickup_done,
             )
+            if pickup_result is not None:
+                return pickup_result
             return {'ok': True, 'message': 'pickup requested', 'mode_requested': False}
 
         return self._request_serving_mode(payload, trigger_source)
 
-    def _after_pickup(self, success: bool, message: str, payload: dict[str, Any], trigger_source: str) -> None:
+    def _after_pickup(self, success: bool, message: str, payload: dict[str, Any],
+                      trigger_source: str) -> dict[str, Any]:
         self._pickup_in_progress = False
         if not success:
             self.get_logger().warn(f'pickup failed: {message}')
             self._publish_event(trigger_source, 'pickup_ready', payload, f'rejected:pickup:{message}')
-            return
+            return {'ok': False, 'code': 'PICKUP_FAILED', 'message': message}
         result = self._request_serving_mode(payload, trigger_source)
         self._publish_event(
             trigger_source,
@@ -428,6 +421,7 @@ class TaskOrchestratorNode(Node):
             payload,
             'accepted' if result.get('ok') else f'rejected:{result.get("code", "MODE_REJECTED")}',
         )
+        return result
 
     def _request_serving_mode(self, payload: dict[str, Any], trigger_source: str) -> dict[str, Any]:
         del trigger_source
@@ -443,23 +437,10 @@ class TaskOrchestratorNode(Node):
             override_priority=False,
         )
 
-    def _drain_serving_queue(self) -> None:
-        if self.current_mode != 'idle' or self._pickup_in_progress or not self._serving_queue:
-            return
-        entry = self._serving_queue[0]
-        result = self._start_serving(entry, trigger_source='queue_drain')
-        if result.get('ok'):
-            self._serving_queue.popleft()
-            self._publish_event('timer', 'serving_queue_drain', {
-                'target_table': entry.get('target_table', ''),
-                'remaining': len(self._serving_queue),
-            }, 'accepted')
-
     # ---------- completion / patrol timers ----------
 
     def _tick(self) -> None:
         self._tick_completion()
-        self._drain_serving_queue()
         self._tick_idle_patrol()
 
     def _tick_completion(self) -> None:
@@ -645,11 +626,6 @@ class TaskOrchestratorNode(Node):
             'accepted' if result.get('ok') else f'rejected:{result.get("code", "MODE_REJECTED")}',
         )
 
-    def _publish_serving_goto(self, table_id: str) -> None:
-        msg = String()
-        msg.data = table_id
-        self._serving_goto_pub.publish(msg)
-
     def _publish_event(self, source: str, event_type: str, payload: dict[str, Any], outcome: str) -> None:
         msg = OpEvent()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -668,10 +644,6 @@ class TaskOrchestratorNode(Node):
 
     def _event_mark(self, event_id: str) -> None:
         self._seen_event_ids[event_id] = time.time()
-
-    def _queue_serving(self, payload: dict[str, Any]) -> int:
-        self._serving_queue.append(dict(payload))
-        return len(self._serving_queue)
 
     def _assign_table(self, preferred: str) -> str:
         if preferred in self._tables and self._tables[preferred]['occupancy'] in ('empty', 'unknown'):

@@ -23,7 +23,7 @@ Vic Pinky Pro 위에 BehaviorTree.CPP 기반 5-stage funnel BT 를 얹고, 사�
 
 | 모드 | priority | 기능 | launch |
 |---|---|---|---|
-| **serving** | 1 (최상) | 픽업 테이블 → 목표 테이블 배달 → home 복귀. Nav2 NavigateToPose 단발 반복 + dwell | `mode_serving.launch.py` |
+| **serving** | 1 (최상) | 픽업 테이블 → 목표 테이블 배달 → home 복귀. Nav2 NavigateToPose 단일 target + dwell | `mode_serving.launch.py` |
 | **guiding** | 2 | 카운터 결제 완료 고객을 빈 테이블로 인솔 | `mode_guiding.launch.py` |
 | **patrol** | 3 | 5분 주기 전 테이블 순회 + 점유 감지 + 보고 | `mode_patrol.launch.py` |
 | **follow** | 4 | 1인 reactive 추종 | `mode_follow.launch.py` |
