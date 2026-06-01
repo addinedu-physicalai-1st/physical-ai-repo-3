@@ -29,3 +29,6 @@ moca_opserver:
     completion_dwell_patrol: 1.0
     completion_dwell_guiding: 5.0
     completion_dwell_engaging: 2.0
+
+    # 서빙 적재(Serve) 완료 후 자동 return 경로 복귀 → idle (route 서빙 전체)
+    auto_return_after_serve: true

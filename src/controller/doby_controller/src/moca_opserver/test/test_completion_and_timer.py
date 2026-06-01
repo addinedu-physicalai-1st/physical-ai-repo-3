@@ -31,6 +31,7 @@ class _FakeConfig:
     patrol_enabled = True
     business_hours = ''
     battery_min = 0.20
+    auto_return_after_serve = True
 
 
 class _FakeLogger:
@@ -327,3 +328,138 @@ def test_completion_dwell_per_mode_uses_config():
     # default fallback (config 에 없는 모드) — _FakeConfig 에는 다 있지만 일반 dict
     # 미존재 모드는 default 사용
     assert w._dwell_for_mode('unknown') == 2.0
+
+
+# ──────────────── 4. CompletionWatcher 적재(Serve) 후 자동 return ────────────────
+
+class _FakeServingNode(_FakeNode):
+    """serving auto-return 테스트용 — arm/return 인터페이스 추가."""
+
+    def __init__(self, route='T03', routes=('T01', 'T02', 'T03')):
+        super().__init__(current_mode='serving')
+        self._active_serving_route = route
+        self._serving_state_json = {'state': 'idle', 'routes': list(routes)}
+        self._current_serving_has_drink = True
+        self.goto_published = []
+        self.arm_serve_cb = None   # send_arm_serve_goal 이 저장 → 테스트가 직접 호출
+
+    def send_arm_serve_goal(self, done_cb, has_drink=None):
+        self.arm_serve_cb = done_cb
+
+    def publish_serving_goto_table(self, cmd):
+        self.goto_published.append(cmd)
+
+
+def _run_phase1(w):
+    """serving idle dwell 만료 → phase1 tick (arm serve 요청)."""
+    w._retrigger_cooldown_sec = 0.0   # 테스트는 phase1/2 가 ms 간격이라 cooldown off
+    w.on_serving_state('idle')
+    w._dwell_start['serving'] = time.time() - 10.0
+    w.tick()
+
+
+def _run_phase2_idle(w):
+    """복귀 완료 idle → phase2 tick."""
+    w.on_serving_state('idle')
+    w._dwell_start['serving'] = time.time() - 10.0
+    w.tick()
+
+
+def test_autoreturn_phase1_requests_arm_serve():
+    node = _FakeServingNode()
+    w = CompletionWatcher(node)
+    _run_phase1(w)
+    assert node.arm_serve_cb is not None        # arm serve 요청됨
+    assert w._arm_running['serving'] is True      # 콜백 전까지 진행 중
+    assert node.goto_published == []
+    node.orchestrator.request_mode_change.assert_not_called()  # 아직 idle 안 함
+
+
+def test_autoreturn_publishes_return_on_serve_success():
+    node = _FakeServingNode(route='T03')
+    w = CompletionWatcher(node)
+    _run_phase1(w)
+    node.arm_serve_cb(True, 'ok')                 # 적재 성공 시뮬
+    assert node.goto_published == ['T03:return']  # return 발행
+    assert w._serving_return_pending is True
+    assert w._arm_running['serving'] is False
+    node.orchestrator.request_mode_change.assert_not_called()  # idle 보류
+
+
+def test_autoreturn_idle_after_return_completes():
+    node = _FakeServingNode(route='T03')
+    w = CompletionWatcher(node)
+    _run_phase1(w)
+    node.arm_serve_cb(True, 'ok')
+    w.on_serving_state('routing')                 # dispatcher 복귀 주행 시작
+    assert w._serving_return_started is True
+    _run_phase2_idle(w)                           # 복귀 완료 → idle
+    node.orchestrator.request_mode_change.assert_called_once()
+    call = node.orchestrator.request_mode_change.call_args
+    assert (call.kwargs.get('target_mode') == 'idle') or (call.args[0] == 'idle')
+    assert w._serving_return_pending is False
+    assert node.goto_published == ['T03:return']  # return 한 번만
+
+
+def test_autoreturn_phase2_waits_until_return_started():
+    """return 발행 후 dispatcher 가 idle 벗어나기 전엔 조기 idle 안 함."""
+    node = _FakeServingNode(route='T03')
+    w = CompletionWatcher(node)
+    _run_phase1(w)
+    node.arm_serve_cb(True, 'ok')
+    _run_phase2_idle(w)                           # started=False, deadline 미래
+    node.orchestrator.request_mode_change.assert_not_called()
+    assert w._serving_return_pending is True
+
+
+def test_autoreturn_deadline_fallback_when_return_noop():
+    """빈/누락 return(no-op, started 안 됨) → deadline 후 idle."""
+    node = _FakeServingNode(route='T03')
+    w = CompletionWatcher(node)
+    _run_phase1(w)
+    node.arm_serve_cb(True, 'ok')
+    w._serving_return_deadline = time.time() - 1.0   # fallback 발동 시뮬
+    _run_phase2_idle(w)
+    node.orchestrator.request_mode_change.assert_called_once()
+    assert w._serving_return_pending is False
+
+
+def test_autoreturn_skipped_when_target_not_route():
+    """대상이 routes 에 없으면(=table) return 없이 즉시 idle."""
+    node = _FakeServingNode(route='T09', routes=('T01', 'T02', 'T03'))
+    w = CompletionWatcher(node)
+    _run_phase1(w)
+    node.arm_serve_cb(True, 'ok')
+    assert node.goto_published == []
+    node.orchestrator.request_mode_change.assert_called_once()
+
+
+def test_autoreturn_skipped_when_toggle_off():
+    node = _FakeServingNode(route='T03')
+    node.config.auto_return_after_serve = False
+    w = CompletionWatcher(node)
+    _run_phase1(w)
+    node.arm_serve_cb(True, 'ok')
+    assert node.goto_published == []
+    node.orchestrator.request_mode_change.assert_called_once()
+
+
+def test_autoreturn_skipped_on_serve_failure():
+    node = _FakeServingNode(route='T03')
+    w = CompletionWatcher(node)
+    _run_phase1(w)
+    node.arm_serve_cb(False, 'arm error')         # 적재 실패
+    assert node.goto_published == []
+    node.orchestrator.request_mode_change.assert_called_once()  # 실패해도 idle
+
+
+def test_autoreturn_state_reset_when_leaving_serving():
+    """serving 이탈 시 return 플래그 리셋(다음 세션 클린)."""
+    node = _FakeServingNode(route='T03')
+    w = CompletionWatcher(node)
+    w._serving_return_pending = True
+    w._serving_return_started = True
+    node.current_mode = 'idle'
+    w._observe(mode='serving', state_value='idle')
+    assert w._serving_return_pending is False
+    assert w._serving_return_started is False

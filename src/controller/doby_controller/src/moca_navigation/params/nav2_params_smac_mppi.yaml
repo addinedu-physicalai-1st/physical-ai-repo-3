@@ -114,6 +114,9 @@ controller_server:
       # xy_tol 0.50->0.2 (2026-05-25): 50cm 거친 도착 -> 정차 위치 정확도 개선.
       # 정차 직전 미세조정 늘면 progress_checker(10s/0.5m) ABORTED 주의.
       xy_goal_tolerance: 0.2
+      # yaw_tol 0.05 시도(2026-06-01) 환원: tight 끝점에서 MPPI 가 수렴 못해 progress_checker
+      # (0.5m/25s) 에 걸려 route abort/timeout. 0.10 유지. 정밀 yaw 는 tolerance 조정만으론 한계
+      # (MPPI 정차 overshoot ~5deg) — 후속: 끝점 Spin 정렬 또는 DWB(RotateToGoal critic).
       yaw_goal_tolerance: 0.10
     # MPPI parameters (DWB 에서 전환). diff-drive 모델. PreferForwardCritic 으로 후진 억제 -
     # SmacHybrid+MPPI 시도 시 발생했던 정차 직전 후미 충돌 재발 방지.
@@ -161,7 +164,9 @@ controller_server:
       GoalAngleCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 3.0
+        # cost_weight 3.0->6.0 (2026-06-01): 정차 접근(0.5m 내)에서 PreferForward(5.0) 이겨
+        # 최종 heading 정렬 강화. 끝점 yaw ~6deg->~2deg 개선(검증됨). tolerance 변경 아님이라 route 안전.
+        cost_weight: 6.0
         threshold_to_consider: 0.5
       PreferForwardCritic:
         enabled: true

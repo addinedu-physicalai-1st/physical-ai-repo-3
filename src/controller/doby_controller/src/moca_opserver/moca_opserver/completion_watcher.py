@@ -46,8 +46,12 @@ class CompletionWatcher:
           - current_mode (str)
           - orchestrator (ModeOrchestrator)
           - config.completion_dwell_<mode> (float)
+          - config.auto_return_after_serve (bool)  ← 적재 후 자동 return 토글
           - get_logger(), publish_op_event(...)
           - send_arm_serve_goal(done_cb)  ← serving 완료 후 arm action 전송
+          - publish_serving_goto_table(cmd)  ← return 명령 발행 (예 'T03:return')
+          - _active_serving_route (str|None)  ← 현재 serving 대상 route id
+          - _serving_state_json (dict)  ← /serving/state 캐시 (routes 목록 참조)
         """
         self.node = node
         # mode → dwell 시작 시각 (None = dwell 비활성)
@@ -66,11 +70,20 @@ class CompletionWatcher:
         self._arm_running: dict[str, bool] = {
             mode: False for mode in _DONE_SIGNALS
         }
+        # 적재(Serve) 후 자동 return 2-phase 상태
+        self._serving_return_pending: bool = False  # return 명령 발행됨, 복귀 대기
+        self._serving_return_started: bool = False   # dispatcher 가 실제 return 주행 시작 확인
+        self._serving_return_deadline: float = 0.0   # 빈/누락 return no-op 대비 fallback 시각
+        self._return_fallback_sec: float = 8.0
 
     # ─────────── 외부 신호 수신 (opserver_node 의 콜백이 호출) ───────────
 
     def on_serving_state(self, state_value: str) -> None:
         """/serving/state 의 JSON 파싱된 state 필드 (예: 'idle', 'navigating')."""
+        # return 명령 발행 후 dispatcher 가 idle 을 벗어나면(=실제 복귀 주행 시작) 표시.
+        if (self._serving_return_pending
+                and (state_value or '') not in _DONE_SIGNALS['serving']):
+            self._serving_return_started = True
         self._observe(mode='serving', state_value=state_value or '')
 
     def on_patrol_state(self, current_state: str) -> None:
@@ -96,6 +109,8 @@ class CompletionWatcher:
         # 현재 모드가 본 모드가 아니면 신호 무시 (다른 모드 진행 중 stale 신호)
         if self.node.current_mode != mode:
             self._dwell_start[mode] = None
+            if mode == 'serving':
+                self._reset_return_state()
             return
 
         if state_value in _DONE_SIGNALS[mode]:
@@ -130,10 +145,25 @@ class CompletionWatcher:
             if self.node.current_mode != mode:
                 self._dwell_start[mode] = None
                 continue
-            # arm action 진행 중이면 tick 무시 (완료 콜백이 idle 트리거)
+            # arm action 진행 중이면 tick 무시 (완료 콜백이 다음 단계 트리거)
             if self._arm_running[mode]:
                 continue
-            # 트리거
+
+            # phase 2: 적재 후 return 발행됨 — 복귀 완료(or no-op fallback) 시 idle 전환.
+            if mode == 'serving' and self._serving_return_pending:
+                if not (self._serving_return_started
+                        or now >= self._serving_return_deadline):
+                    # 복귀 주행이 아직 시작 안 됨 — 조기 idle 방지, 다음 tick 재확인
+                    continue
+                self._dwell_start[mode] = None
+                self._last_trigger_at[mode] = now
+                self._reset_return_state()
+                self.node.get_logger().info(
+                    'CompletionWatcher[serving]: return 복귀 완료 — idle 전환')
+                self._trigger_idle('serving')
+                continue
+
+            # phase 1: 활동 종료 → (serving 이면) arm serve, 아니면 바로 idle
             self._dwell_start[mode] = None
             self._last_trigger_at[mode] = now
             self._arm_running[mode] = True
@@ -143,7 +173,7 @@ class CompletionWatcher:
             self._trigger_arm_then_idle(mode)
 
     def _trigger_arm_then_idle(self, completed_mode: str) -> None:
-        """serving 완료 시 arm Serve action 전송 → 완료 후 idle 전환.
+        """serving 완료 시 arm Serve action 전송 → (옵션) return 복귀 → idle 전환.
         serving 외 모드는 arm 없이 바로 idle 전환.
         """
         if completed_mode != 'serving':
@@ -152,10 +182,21 @@ class CompletionWatcher:
             return
 
         def _after_arm(success: bool, msg: str) -> None:
-            self._arm_running[completed_mode] = False
-            self.node.get_logger().info(
-                f'[arm] {"성공" if success else "실패"}: {msg} — idle 전환')
-            self._trigger_idle(completed_mode)
+            self._arm_running['serving'] = False
+            self.node.get_logger().info(f'[arm] {"성공" if success else "실패"}: {msg}')
+            # 적재 성공 + 토글 on + 대상이 return 경로 보유 → return 복귀 발행 후 idle 보류.
+            if (success and not self._serving_return_pending
+                    and getattr(self.node.config, 'auto_return_after_serve', True)
+                    and self._target_has_route()):
+                target = self.node._active_serving_route
+                self.node.publish_serving_goto_table(f'{target}:return')
+                self._serving_return_pending = True
+                self._serving_return_started = False
+                self._serving_return_deadline = time.time() + self._return_fallback_sec
+                self.node.get_logger().info(
+                    f'[arm] 적재 완료 → 자동 복귀 {target}:return 발행 — idle 보류')
+                return
+            self._trigger_idle('serving')
 
         try:
             self.node.send_arm_serve_goal(
@@ -165,8 +206,8 @@ class CompletionWatcher:
         except Exception as e:
             self.node.get_logger().error(
                 f'[arm] goal send 실패: {e} — idle 전환')
-            self._arm_running[completed_mode] = False
-            self._trigger_idle(completed_mode)
+            self._arm_running['serving'] = False
+            self._trigger_idle('serving')
 
     def _trigger_idle(self, completed_mode: str) -> None:
         """orchestrator 로 SetMode('idle', override=True)."""
@@ -194,6 +235,22 @@ class CompletionWatcher:
             )
         except Exception:
             pass
+
+    # ─────────── return 2-phase 헬퍼 ───────────
+
+    def _reset_return_state(self) -> None:
+        self._serving_return_pending = False
+        self._serving_return_started = False
+        self._serving_return_deadline = 0.0
+
+    def _target_has_route(self) -> bool:
+        """현재 serving 대상이 dispatcher 의 routes 목록에 있는 route 인지 (return 경로 후보)."""
+        target = getattr(self.node, '_active_serving_route', None)
+        if not target:
+            return False
+        sj = getattr(self.node, '_serving_state_json', None)
+        routes = sj.get('routes', []) if isinstance(sj, dict) else []
+        return target in (routes or [])
 
     # ─────────── 설정 ───────────
 
