@@ -59,6 +59,49 @@
   // "콤마 명사구 나열 형태이면 unknown" 방어를 같이 두었다.
   // 단일 진실: web_service menu_service.py list_menu() MenuItem(name, aliases) → /api/menu → MENU 전역 → 여기로 전파.
   const ASR_CONTEXT_PREFIX = '카페 키오스크 주문.';
+  // 수량/세는 말도 ASR 바이어싱에 넣어 "두 개"를 "두게", "세 개"를 "새개" 등으로 잘못 받아쓰는 것을 줄인다.
+  // 메뉴 별명(aliases)이 아니라 ASR 컨텍스트 영역이다 — LLM 은 수량을 이미 잘 파싱하므로 ASR 입력 품질만 올리면 된다.
+  // 라벨 "자주 쓰는 말:" 은 prompts.py 의 'ASR context echo 차단' 규칙이 인식하는 라벨이라 echo 시 unknown 처리된다.
+  const ASR_COUNT_CONTEXT =
+    '자주 쓰는 말: 하나, 한 개, 한 잔, 둘, 두 개, 두 잔, 셋, 세 개, 세 잔, 넷, 네 개, 다섯, 다섯 개, 개, 잔, '
+    + '맞아, 맞아요, 네, 응, 좋아요, 확인했어요, 주문할게요, 주문 확인, 다음, 다음으로, 뒤로, 이전, 취소, 안 할래요, '
+    + '추가, 빼 주세요, 적게, 많이, 주세요, 해 주세요.';
+
+  // 폰에서 ASR/LLM 결과를 눈으로 보기 위한 디버그 오버레이.
+  // URL 에 ?debug=1 (또는 &debug=1) 이 있을 때만 화면 하단에 "들림/의도/에러" 롤링 로그 표시.
+  // 손님이 보는 일반 주문에는 영향 없음. 무엇을 잘못 받아쓰는지 바로 확인해 컨텍스트를 정밀 보강하는 용도.
+  const VOICE_DEBUG = new URLSearchParams(location.search).has('debug');
+  function _voiceDebugEl() {
+    let el = document.getElementById('voice-debug');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'voice-debug';
+      el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:128px;z-index:1000;'
+        + 'background:rgba(0,0,0,0.88);color:#39ff6a;font:12px/1.45 monospace;'
+        + 'padding:8px 10px;border-radius:8px;white-space:pre-wrap;pointer-events:none;'
+        + 'max-height:42vh;overflow:hidden;';
+      el.innerHTML = '<div id="voice-debug-status" style="color:#ffd479;border-bottom:1px solid #555;'
+        + 'padding-bottom:4px;margin-bottom:4px;"></div><div id="voice-debug-log"></div>';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  // 고정 상태줄(제자리 갱신): 마이크 입력 % 처럼 자주 바뀌는 값. 로그를 밀어내지 않는다.
+  function voiceDebugStatus(msg) {
+    if (!VOICE_DEBUG) return;
+    _voiceDebugEl();
+    const s = document.getElementById('voice-debug-status');
+    if (s) s.textContent = msg;
+  }
+  // 이벤트 로그(위로 쌓임): 들림(인식)/의도/발화/에러 — 상태줄과 분리해 사라지지 않게.
+  function voiceDebugLog(msg) {
+    if (!VOICE_DEBUG) return;
+    _voiceDebugEl();
+    const logEl = document.getElementById('voice-debug-log');
+    if (!logEl) return;
+    const prev = logEl.textContent ? logEl.textContent.split('\n') : [];
+    logEl.textContent = [msg, ...prev].slice(0, 10).join('\n');
+  }
 
   // wake 한 번 → 여러 발화 follow-up. 외부에서 window.voiceIdle() 을 호출할 때까지 listening 유지.
   // (주문번호 화면 도달 시 kiosk 측에서 명시적으로 voiceIdle 호출)
@@ -76,6 +119,7 @@
   let kwsSession = null;
 
   let vadInstance = null;
+  let _vadPeak = 0, _vadFrames = 0;  // 디버그: 마이크 입력 발화확률 추적 (?debug 시에만 사용)
   let vadBusy = false;  // VAD active 또는 ASR/LLM 처리 중이면 KWS 게이트 차단
   let ttsSpeaking = false;  // TTS 재생 중 — KWS/VAD 모두 차단해 echo 방지
   let turnCount = 0;    // wake 후 처리한 발화 수 (정보 로그용, 매 wake 마다 0)
@@ -161,22 +205,26 @@
     vadInstance = await window.vad.MicVAD.new({
       baseAssetPath: VAD_ASSET_BASE,
       onnxWASMBasePath: VAD_ORT_BASE,
-      positiveSpeechThreshold: 0.7,   // 잡음(키보드/주변 대화) 으로 인한 false speech 차단
-      negativeSpeechThreshold: 0.35,
-      minSpeechFrames: 8,             // 너무 짧은 잡음 제외 (~256ms)
+      positiveSpeechThreshold: 0.5,   // 폰 마이크(거리/볼륨 낮음) 대응 0.7→0.5. 너무 낮으면 잡음 오감지↑
+      negativeSpeechThreshold: 0.25,
+      minSpeechFrames: 4,             // 8→4 (~256ms→~128ms): "커피" 처럼 무성음(ㅋ/ㅍ) 많아 voiced 구간 짧은
+                                      // 발화가 misfire(너무 짧음)로 잘리던 문제 대응. 너무 낮추면 잡음 오감지↑
       redemptionFrames: 24,           // 발화 끝 판정 후 ~768ms 여유
       onSpeechStart: () => {
         clearIdleTimer();
         setState('listening');
         console.log('[vad] speech start');
+        voiceDebugLog('발화 시작 감지');
       },
       onSpeechEnd: async (audio) => {
         console.log(`[vad] speech end, ${audio.length} samples`);
+        voiceDebugLog(`발화 끝: ${audio.length}샘플 → ASR`);
         try { vadInstance.pause(); } catch (_) {}
         await processUtterance(audio);
       },
       onVADMisfire: () => {
         console.log('[vad] misfire (너무 짧은 발화) — listening 유지');
+        voiceDebugLog('너무 짧음(misfire) — 다시 말하세요');
         // 발화가 너무 짧아 무시. 같은 wake 안에서는 listening 으로 다시 진입.
         try {
           vadInstance.pause();
@@ -188,8 +236,20 @@
           vadBusy = false;
         }
       },
+      // 디버그 전용: 매 프레임 발화확률의 ~1초 최고치를 오버레이에 찍어 마이크 입력 여부/임계값 진단.
+      // 0% → 마이크 무음(입력 안 들어옴), 40~60% → 임계값(0.7) 너무 높음, 70%↑ → 감지는 정상.
+      onFrameProcessed: (probs) => {
+        if (!VOICE_DEBUG) return;
+        const p = (probs && typeof probs.isSpeech === 'number') ? probs.isSpeech : 0;
+        if (p > _vadPeak) _vadPeak = p;
+        if (++_vadFrames % 15 === 0) {
+          voiceDebugStatus(`🎤 발화확률 최고 ${(_vadPeak * 100).toFixed(0)}% (감지기준 50%)`);
+          _vadPeak = 0;
+        }
+      },
     });
     console.log('[vad] loaded');
+    voiceDebugLog('VAD 준비됨 (모델 로드 OK)');
   }
 
   async function acquireMic() {
@@ -353,16 +413,19 @@
       const ctList = (typeof cart !== 'undefined' && Array.isArray(cart)) ? cart : [];
       const alList = (typeof ALLERGY_INFO !== 'undefined' && Array.isArray(ALLERGY_INFO)) ? ALLERGY_INFO : [];
 
-      // "메뉴: 아메리카노 (아메, 아아, 따아), 카페라떼 (라떼), ..." 형태로 동적 구성.
+      // ASR 바이어싱엔 손님이 실제로 말하는 한국어 형태만 넣는다.
+      // 메뉴 정식명이 영어(hotdog/coke/coffee)면 한국어 발화 ASR 에 노이즈가 되므로 제외하고,
+      // name 이 한글일 때만 포함한다. 별명(aliases, 한국어)은 항상 포함.
+      // 결과 예: "메뉴: 핫도그, 핫독, 소시지, 콜라, 코카콜라, 커피, 아메리카노, 아메."
       const menuPart = mnList.length
         ? '메뉴: ' + mnList.map((m) => {
-            const ali = Array.isArray(m.aliases) && m.aliases.length
-              ? ` (${m.aliases.join(', ')})`
-              : '';
-            return `${m.name}${ali}`;
+            const aliases = (Array.isArray(m.aliases) ? m.aliases : []).filter(Boolean);
+            const nameHasHangul = /[가-힣]/.test(String(m.name || ''));
+            const spoken = [...(nameHasHangul ? [m.name] : []), ...aliases];
+            return (spoken.length ? spoken : [m.name]).join(', ');
           }).join(', ') + '.'
         : '';
-      const asrContext = menuPart ? `${ASR_CONTEXT_PREFIX} ${menuPart}` : ASR_CONTEXT_PREFIX;
+      const asrContext = [ASR_CONTEXT_PREFIX, menuPart, ASR_COUNT_CONTEXT].filter(Boolean).join(' ');
 
       const fd = new FormData();
       fd.append('file', new Blob([wav], { type: 'audio/wav' }), 'utt.wav');
@@ -376,6 +439,7 @@
       if (!asrRes.ok) throw new Error(`ASR HTTP ${asrRes.status}`);
       const asr = await asrRes.json();
       console.log(`[asr] "${asr.text}" (${asr.latency_ms.toFixed(0)}ms)`);
+      voiceDebugLog(`들림: "${asr.text}"`);
 
       const llmRes = await fetchWithTimeout(
         `${VOICE_SERVICE_URL}/llm/intent`,
@@ -399,6 +463,8 @@
       if (!llmRes.ok) throw new Error(`LLM HTTP ${llmRes.status}`);
       intent = await llmRes.json();
       console.log(`[llm] intent=${intent.intent} (${intent.latency_ms.toFixed(0)}ms)`);
+      voiceDebugLog(`의도: ${intent.intent}` + (Array.isArray(intent.items) && intent.items.length
+        ? ` — ${intent.items.map((i) => `${i.menu_name}×${i.qty}`).join(', ')}` : ''));
       // 유효 의도가 분류된 경우만 손님 활동으로 인정 → idle 카운트 anchor 갱신.
       // 잡음/leak (intent='unknown') 은 anchor 유지 → 무발화 30초 카운트 잡음 사이클 사이에서도 이어짐.
       if (intent && intent.intent && intent.intent !== 'unknown') {
@@ -422,6 +488,7 @@
       }
     } catch (e) {
       console.error('[voice] processUtterance error:', e);
+      voiceDebugLog(`에러: ${(e && e.message) ? e.message : e}`);
       // 손님에게 무발화/오류 사실을 정형 TTS 한 마디로 안내.
       // 안내 자체가 또 실패하면 무한 루프 방지 위해 console.warn 까지만.
       try {
@@ -506,6 +573,7 @@
       return;
     }
     console.log('[voice] 무발화 30초 — standby 복귀');
+    voiceDebugLog('무발화 30초 → 대기화면 복귀 (발화 미감지)');
     lastActivityTs = 0;
     if (typeof resetSession === 'function') {
       resetSession();   // 내부에서 showScreen('screen-standby') → window.voiceIdle 호출
@@ -674,6 +742,7 @@
         await loadVAD();
       } catch (e) {
         console.error('[voice] table 세션 VAD 로드 실패', e);
+        voiceDebugLog(`VAD 로드 실패: ${(e && e.message) ? e.message : e}`);
         alert('마이크 시작 실패: ' + (e && e.message ? e.message : e));
         return;
       }
@@ -692,8 +761,10 @@
       vadInstance.start();
       setState('listening');
       armIdleTimer();
+      voiceDebugLog('세션 시작 — 이제 말하세요');
     } catch (e) {
       console.error('[voice] table 세션 VAD start 실패:', e);
+      voiceDebugLog(`VAD start 실패: ${(e && e.message) ? e.message : e}`);
       endTableSession();
       return;
     }

@@ -126,9 +126,10 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO store_table (table_id, map_id, table_number, pos_x, pos_y, occupancy) VALUES
     (1, 1, '1', 0.000, 0.000, 'EMPTY'),
-    (2, 1, '2', 0.000, 0.000, 'OCCUPIED'),
+    (2, 1, '2', 0.000, 0.000, 'EMPTY'),
     (3, 1, '3', 0.000, 0.000, 'EMPTY'),
-    (4, 1, '4', 0.000, 0.000, 'OCCUPIED')
+    (4, 1, '4', 0.000, 0.000, 'EMPTY'),
+    (5, 1, '5', 0.000, 0.000, 'EMPTY')
 ON DUPLICATE KEY UPDATE
     table_id = VALUES(table_id),
     map_id = VALUES(map_id),

@@ -8,6 +8,9 @@ from app.services import menu_service
 
 _lock = threading.Lock()
 _orders: dict[int, Order] = {}
+# 카운터 안내용 주문 번호(in-memory). moca_service 는 order_id 만 돌려주므로 표시용 번호는
+# 여기서 101 부터 순번으로 부여한다. 프로세스 재시작 시 다시 101 부터.
+_next_order_number = 101
 
 class OrderError(Exception):
     pass
@@ -65,13 +68,16 @@ def create(payload: OrderCreate) -> Order:
         raise OrderServiceUnavailable(str(exc)) from exc
 
     with _lock:
+        global _next_order_number
+        order_number = _next_order_number
+        _next_order_number += 1
         order = Order(
             order_id=order_id,
-            order_number=101,
+            order_number=order_number,
             channel=payload.channel,
             receive_type="pending",
             payment=payload.payment,
-            table_no=None,
+            table_no=payload.table_no,
             items=payload.items,
             total=total,
         )

@@ -585,8 +585,11 @@ window.TABLE_NO = (() => {
   const v = parseInt(new URLSearchParams(location.search).get('no'), 10);
   return Number.isFinite(v) && v > 0 ? v : null;
 })();
-// voice_service (pai-server). 폰 브라우저의 마이크 권한(secure context) 위해 https 종단.
-window.VOICE_SERVICE_URL = 'https://192.168.0.133:8010';
+// voice_service 는 web_service 와 다른 호스트(pai-server, RTX 5090 GPU)에서 돈다.
+// 따라서 web_service 호스트(location.hostname)가 아니라 pai-server 의 고정 IP:8010 을 가리킨다.
+// 폰 브라우저의 마이크 권한(secure context) 위해 https 종단. pai-server IP 가 바뀌면 ?voice= 로 덮어쓰거나 이 값을 갱신.
+window.VOICE_SERVICE_URL =
+  new URLSearchParams(location.search).get('voice') || 'https://192.168.0.133:8010';
 </script>
 
 <script>
@@ -602,6 +605,8 @@ let cart = [];
 let currentScreen = 'screen-standby';
 let currentOptionIndex = 0;
 let orderNumber = null;
+let submitting = false;   // 주문 제출 재진입 가드: 결제 오버레이가 닫힌 뒤 카운터 화면이 뜨기 전 알러지 화면이
+                          // 잠깐 다시 보이는데, 그 사이 "확인했습니다"를 또 누르면 주문이 중복되던 것을 막는다.
 
 // ─── API ────────────────────────────────────────────
 const API_BASE_URL = location.origin;
@@ -924,18 +929,35 @@ function fakeOnlinePayment() {
       ov.classList.add('done');
       title.textContent = '결제 완료 ✓';
       sub.textContent = '주문을 접수합니다';
-      setTimeout(() => { ov.classList.remove('show'); resolve(); }, 800);
+      // 오버레이는 여기서 닫지 않는다. 호출부(submitTableOrder)가 카운터 화면을 띄운 뒤 닫아,
+      // 닫힌 직후 알러지 화면이 다시 노출되어 중복 주문되던 창(window)을 없앤다.
+      setTimeout(() => { resolve(); }, 800);
     }, 1500);
   });
 }
 
 // ─── COUNTER (테이블 주문 제출) ───────────────────────
 async function submitTableOrder() {
+  if (submitting) return;   // 이미 제출 진행 중이면 무시 (중복 주문 방지)
   if (cart.length === 0) { alert('주문할 메뉴가 없습니다.'); return; }
-  await fakeOnlinePayment();   // 인터넷 결제 진행 표시 (가짜)
+  submitting = true;
+  const ov = document.getElementById('fake-pay-overlay');
+  await fakeOnlinePayment();   // 인터넷 결제 진행 표시 (가짜) — 오버레이는 켜진 채 유지
   try {
     const r = await api('/api/orders', { method:'POST', body: JSON.stringify(buildOrderPayload()) });
     orderNumber = r.order_number;
+    // 이 테이블로 자동 서빙되도록 dine_in 할당. table_number 가 있어야 서버가 받으므로(없으면 거부)
+    // ?no= 가 있을 때만 호출하고, 주문은 이미 접수됐으니 할당 실패는 접수 화면을 막지 않는다.
+    if (window.TABLE_NO) {
+      try {
+        await api('/api/tables', {
+          method: 'POST',
+          body: JSON.stringify({ order_id: r.order_id, receive_type: 'dine_in', table_number: window.TABLE_NO }),
+        });
+      } catch (assignErr) {
+        console.warn('테이블 할당 실패 (주문은 접수됨):', assignErr && assignErr.message ? assignErr.message : assignErr);
+      }
+    }
     document.getElementById('order-number-counter').textContent = orderNumber;
     const tableLabel = window.TABLE_NO ? `${window.TABLE_NO}번 테이블로` : '주문하신 자리로';
     document.getElementById('counter-voice-text').textContent =
@@ -943,9 +965,11 @@ async function submitTableOrder() {
     document.getElementById('counter-desc').innerHTML =
       `주문이 접수되었습니다.<br>감사합니다 😊`;
     showScreen('screen-counter');
+    if (ov) ov.classList.remove('show');   // 카운터 표시 후 오버레이 닫기 → 알러지 화면 재노출 차단
     startCountdown('bar-counter', () => { resetSession(); }, 8000);
   } catch (e) {
-    const ov = document.getElementById('fake-pay-overlay'); if (ov) ov.classList.remove('show');
+    if (ov) ov.classList.remove('show');
+    submitting = false;        // 실패 시 재시도 허용 (성공 시엔 resetSession 에서 해제)
     alert('주문 생성 실패: ' + (e && e.message ? e.message : e));
   }
 }
@@ -966,6 +990,7 @@ function startCountdown(barId, cb, durationMs) {
 function resetSession() {
   cart = [];
   orderNumber = null;
+  submitting = false;   // 다음 손님이 주문할 수 있도록 가드 해제
   showScreen('screen-standby');
 }
 
@@ -995,6 +1020,6 @@ loadAllergy().catch(()=>{});
 <!-- ?v= 는 브라우저 JS 캐시 무력화용. shared 스크립트 수정 시 숫자를 올리면 새로고침만으로 갱신됨. -->
 <script src="/order_vui/shared/checkout_rules.js?v=2"></script>
 <script src="/order_vui/shared/intent_handler.js?v=2"></script>
-<script src="/order_vui/shared/voice.js?v=2"></script>
+<script src="/order_vui/shared/voice.js?v=10"></script>
 </body>
 </html>
