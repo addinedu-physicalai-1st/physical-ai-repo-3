@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """
 serving_dispatcher_node.py
-mode_serving 메인 노드 — Nav2 NavigateToPose 단발 반복 + 큐 + dwell + home 복귀.
+mode_serving 메인 노드 — Nav2 NavigateToPose 단일 서빙 주행 + dwell + home 복귀.
 
 책임 (Phase S-A):
   - tables.yaml 로드 → 테이블 ID ↔ PoseStamped 매핑
-  - 큐 (FIFO) 관리: 진입 시 params_json 의 waypoint + /serving/goto_table 토픽 append
+  - 진입 시 params_json 의 waypoint 단일 target 실행
   - Nav2 NavigateToPose action 호출 → 도착 → dwell N초 → home_pose 복귀 → idle 대기
   - /serving/state 1Hz 발행 (JSON)
 
-S-B 후속 (큐 hook 자리만 비워둠):
+S-B 후속:
   - /serving/empty_tables 중앙 서버 push
-  - /serving/clear_queue 서비스
-  - 우선순위 큐 (manual override)
 
 mode_manager 와의 인터페이스:
   - launch param `params_json` 으로 첫 명령 (예: '{"waypoint": "T01"}')
-  - 추가 명령은 /serving/goto_table 토픽 (mode 진입 후)
   - mode_manager 가 SIGTERM 던지면 active goal cancel + cleanup
 
 안전:
@@ -30,7 +27,6 @@ mode_manager 와의 인터페이스:
 import json
 import math
 import os
-from collections import deque
 from enum import Enum
 
 import rclpy
@@ -53,7 +49,7 @@ class State(str, Enum):
     RETURNING = 'returning'
 
 
-HOME_TABLE_ID = '__home__'  # 큐 sentinel — home 복귀 명령
+HOME_TABLE_ID = '__home__'
 
 
 class ServingDispatcher(Node):
@@ -81,7 +77,7 @@ class ServingDispatcher(Node):
 
         # 상태
         self.state: State = State.IDLE
-        self.queue: deque[str] = deque()
+        self.target_table: str | None = None
         self.current_table: str | None = None
         self.dwell_start_ns: int | None = None
         self._goal_handle = None
@@ -90,21 +86,19 @@ class ServingDispatcher(Node):
         # Action client
         self._ac = ActionClient(self, NavigateToPose, self.nav_action)
 
-        # 토픽
-        self.create_subscription(String, '/serving/goto_table', self._on_goto_table, 10)
         self._state_pub = self.create_publisher(String, '/serving/state', 10)
         self._active_goal_pub = self.create_publisher(
             Marker, '/serving/active_goal_marker', 10)
 
         # 서비스 — tables.yaml 라이브 갱신 (운영 UI 좌표 등록 후 호출).
-        # 큐 + 진행 중 nav 보존, home_pose + tables 만 다시 로드.
+        # 진행 중 nav 보존, home_pose + tables 만 다시 로드.
         self.create_service(Trigger, '/serving/reload_tables', self._on_reload_tables)
 
         # 진입 시 첫 명령 (params_json 의 waypoint)
         first_table = self._parse_first_waypoint(self.params_json)
         if first_table:
-            self.queue.append(first_table)
-            self.get_logger().info(f'진입 첫 명령 큐 추가: {first_table}')
+            self.target_table = first_table
+            self.get_logger().info(f'진입 서빙 target 등록: {first_table}')
 
         # 메인 tick
         self.create_timer(0.2, self._tick)
@@ -204,27 +198,12 @@ class ServingDispatcher(Node):
             return None
         return wp
 
-    # ───────── /serving/goto_table 구독 ─────────
-
-    def _on_goto_table(self, msg: String) -> None:
-        tid = msg.data.strip()
-        if not tid:
-            return
-        if tid not in self.tables:
-            self.get_logger().warn(
-                f'/serving/goto_table {tid!r} — tables.yaml 에 없음, 무시. '
-                f'가용: {sorted(self.tables.keys())}')
-            return
-        self.queue.append(tid)
-        self.get_logger().info(
-            f'/serving/goto_table {tid!r} 큐 추가 (대기={len(self.queue)}, state={self.state.value})')
-
     # ───────── 메인 tick (5Hz) ─────────
 
     def _tick(self) -> None:
         if self.state == State.IDLE:
-            if self.queue:
-                self._start_next_nav()
+            if self.target_table:
+                self._start_target_nav()
             return
 
         if self.state == State.NAVIGATING:
@@ -254,24 +233,23 @@ class ServingDispatcher(Node):
             return
 
     def _after_dwell(self) -> None:
-        # 큐에 남은 테이블 있으면 우선 진행, 없으면 home 복귀 (옵션)
-        if self.queue:
-            self._start_next_nav()
-            return
         if self.return_home and self.home_pose is not None:
             self._start_home_return()
             return
         self.state = State.IDLE
         self.current_table = None
-        self.get_logger().info('idle 진입 (큐 비었음, home 복귀 비활성)')
+        self.get_logger().info('idle 진입 (home 복귀 비활성)')
 
     # ───────── nav 시작 ─────────
 
-    def _start_next_nav(self) -> None:
-        tid = self.queue.popleft()
+    def _start_target_nav(self) -> None:
+        tid = self.target_table
+        self.target_table = None
+        if not tid:
+            return
         entry = self.tables.get(tid)
         if not entry:
-            self.get_logger().warn(f'큐의 {tid!r} 가 tables 에 없음 — skip')
+            self.get_logger().warn(f'target {tid!r} 가 tables 에 없음 — skip')
             return
         if entry['placeholder']:
             self.get_logger().error(
@@ -283,9 +261,9 @@ class ServingDispatcher(Node):
             self.state = State.NAVIGATING
         else:
             self.get_logger().warn(
-                f'테이블 {tid} nav 시작 실패 — drop, 다음 액션')
+                f'테이블 {tid} nav 시작 실패 — idle')
             self.current_table = None
-            self._after_dwell()
+            self.state = State.IDLE
 
     def _start_home_return(self) -> None:
         self.current_table = HOME_TABLE_ID
@@ -377,9 +355,9 @@ class ServingDispatcher(Node):
                 self.get_logger().info(
                     f'테이블 {self.current_table} 도착 — dwell {self.dwell_sec}s 시작')
             else:
-                # nav 실패 시 해당 테이블 drop + 다음 큐 또는 home
+                # nav 실패 시 해당 테이블 drop + home 또는 idle
                 self.get_logger().warn(
-                    f'테이블 {self.current_table} nav 실패 — drop, 다음 액션')
+                    f'테이블 {self.current_table} nav 실패 — drop')
                 self._after_dwell()
         elif self.state == State.RETURNING:
             if success:
@@ -432,7 +410,6 @@ class ServingDispatcher(Node):
         msg.data = json.dumps({
             'state': self.state.value,
             'current_table': self.current_table,
-            'queue': list(self.queue),
             'dwell_sec': self.dwell_sec,
             'return_home': self.return_home,
             'home_registered': self.home_pose is not None,

@@ -6,11 +6,11 @@ Nav2 (vicpinky_navigation) 가 별도로 가동되어 있어야 NavigateToPose a
 노드 구성:
   - serving_dispatcher (mobility_controller):
       tables.yaml 로드 → Nav2 NavigateToPose action 호출 → dwell → home 복귀
-      구독 /serving/goto_table (수동/자동 추가 명령), 발행 /serving/state (1Hz)
+      발행 /serving/state (1Hz)
 
 launch 인자:
   params_json: SetMode 서비스로 받은 JSON params 그대로 (예: '{"waypoint":"T01"}')
-              dispatcher 가 진입 시 첫 명령으로 큐 prepend.
+              dispatcher 가 진입 시 단일 target 으로 실행.
   dwell_sec: 도착 후 대기 시간 (기본 5.0). S-D 호객 trigger 시 별 launch 또는 0 으로.
   return_home_after_dwell: dwell 후 home_pose 자동 복귀 여부 (기본 true).
 
