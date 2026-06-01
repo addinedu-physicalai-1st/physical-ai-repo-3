@@ -93,6 +93,7 @@ class TaskOrchestratorNode(Node):
         self._current_serving_has_drink = False
         self._serving_progress_seen = False
         self._serving_done_started_at: float | None = None
+        self._serving_state_seq = 0
         self._mode_done_started_at: dict[str, float | None] = {
             'patrol': None,
             'guiding': None,
@@ -248,6 +249,7 @@ class TaskOrchestratorNode(Node):
         progress_seen = False
         final_state = ''
         try:
+            start_state_seq = self._serving_state_seq
             start = self._handle_serving_payload(payload, trigger_source='action')
             if not bool(start.get('success')):
                 result.success = False
@@ -299,6 +301,19 @@ class TaskOrchestratorNode(Node):
                     result.message = 'serving completed'
                     result.final_state = final_state or 'idle'
                     goal_handle.succeed()
+                    return result
+
+                if self._serving_failed_before_progress(
+                    state_json, progress_seen, start_state_seq):
+                    idle_result = self._request_mode(
+                        'idle', {}, override_priority=True)
+                    result.success = False
+                    result.code = 'SERVING_NO_PROGRESS'
+                    result.message = (
+                        'serving dispatcher returned idle before navigation '
+                        f'progress; idle_result={idle_result}')
+                    result.final_state = final_state or 'idle'
+                    goal_handle.abort()
                     return result
 
                 time.sleep(0.2)
@@ -514,6 +529,7 @@ class TaskOrchestratorNode(Node):
         if not isinstance(data, dict):
             data = {'value': data}
         self._last_serving_state_json = dict(data)
+        self._serving_state_seq += 1
         state = str(data.get('state', ''))
         if self.current_mode != 'serving':
             self._serving_done_started_at = None
@@ -524,6 +540,23 @@ class TaskOrchestratorNode(Node):
         elif state == 'idle' and self._serving_progress_seen:
             if self._serving_done_started_at is None:
                 self._serving_done_started_at = time.time()
+
+    def _serving_failed_before_progress(
+        self,
+        state_json: dict[str, Any],
+        progress_seen: bool,
+        start_state_seq: int,
+    ) -> bool:
+        if progress_seen or self._serving_state_seq <= start_state_seq:
+            return False
+        if self.current_mode != 'serving':
+            return False
+        if str(state_json.get('state', '')) != 'idle':
+            return False
+        if state_json.get('current_table'):
+            return False
+        queue = state_json.get('queue', [])
+        return not queue
 
     def _on_patrol_state(self, msg: PatrolState) -> None:
         self._observe_mode_done('patrol', msg.current_state)

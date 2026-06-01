@@ -175,7 +175,7 @@ ok "이전 인스턴스 종료 (있었다면)"
 # ─────────────────────────────────────────────────────────────
 step "[1/4] Gazebo 기동"
 dim "world: mapv5_moca.world, spawn: ($SPAWN_X, $SPAWN_Y, yaw=$SPAWN_YAW)"
-nohup ros2 launch moca_gazebo launch_mapv5_moca.launch.xml \
+setsid ros2 launch moca_gazebo launch_mapv5_moca.launch.xml \
   > "$GAZEBO_LOG" 2>&1 &
 GAZEBO_PID=$!
 dim "launcher PID = $GAZEBO_PID, log = $GAZEBO_LOG"
@@ -211,7 +211,7 @@ fi
 # 2. Safety chain (velocity_smoother + collision_monitor)
 # ─────────────────────────────────────────────────────────────
 step "[2/5] Safety chain"
-nohup ros2 launch moca_navigation safety_sim.launch.xml \
+setsid ros2 launch moca_navigation safety_sim.launch.xml \
   > "$SAFETY_LOG" 2>&1 &
 SAFETY_PID=$!
 dim "launcher PID = $SAFETY_PID, log = $SAFETY_LOG"
@@ -241,7 +241,7 @@ if [ -n "$NAV2_MAP" ]; then
 else
   dim "map: moca_navigation launch default, use_sim_time: True"
 fi
-nohup ros2 launch moca_navigation bringup_launch.xml \
+setsid ros2 launch moca_navigation bringup_launch.xml \
   "${NAV2_ARGS[@]}" \
   > "$NAV2_LOG" 2>&1 &
 NAV2_PID=$!
@@ -324,7 +324,7 @@ fi
 # ─────────────────────────────────────────────────────────────
 if [ $USE_RVIZ -eq 1 ]; then
   step "[5/5] RViz (nav2_view)"
-  nohup ros2 launch moca_navigation nav2_view.launch.xml \
+  setsid ros2 launch moca_navigation nav2_view.launch.xml \
     use_sim_time:=True \
     > "$RVIZ_LOG" 2>&1 &
   RVIZ_PID=$!
