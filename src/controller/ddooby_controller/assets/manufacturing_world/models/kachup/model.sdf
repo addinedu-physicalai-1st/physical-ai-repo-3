@@ -4,11 +4,11 @@
     <static>false</static>
     <link name="kachup_link">
       <inertial>
-        <mass>0.200000</mass>
+        <mass>0.080000</mass>
         <inertia>
-          <ixx>0.000200000</ixx>
-          <iyy>0.000200000</iyy>
-          <izz>0.000200000</izz>
+          <ixx>0.000080000</ixx>
+          <iyy>0.000080000</iyy>
+          <izz>0.000080000</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>

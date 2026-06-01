@@ -36,18 +36,10 @@
         <surface>
           <friction>
             <ode>
-              <mu>0.6</mu>
-              <mu2>0.6</mu2>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
             </ode>
           </friction>
-          <contact>
-            <ode>
-              <soft_cfm>0.000100</soft_cfm>
-              <soft_erp>0.200000</soft_erp>
-              <max_vel>0.050000</max_vel>
-              <min_depth>0.002000</min_depth>
-            </ode>
-          </contact>
         </surface>
       </collision>
       <collision name="case2_case_bottom_001_collision">
@@ -60,18 +52,10 @@
         <surface>
           <friction>
             <ode>
-              <mu>0.6</mu>
-              <mu2>0.6</mu2>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
             </ode>
           </friction>
-          <contact>
-            <ode>
-              <soft_cfm>0.000100</soft_cfm>
-              <soft_erp>0.200000</soft_erp>
-              <max_vel>0.050000</max_vel>
-              <min_depth>0.002000</min_depth>
-            </ode>
-          </contact>
         </surface>
       </collision>
       <collision name="case2_case_left_001_collision">
@@ -84,18 +68,10 @@
         <surface>
           <friction>
             <ode>
-              <mu>0.6</mu>
-              <mu2>0.6</mu2>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
             </ode>
           </friction>
-          <contact>
-            <ode>
-              <soft_cfm>0.000100</soft_cfm>
-              <soft_erp>0.200000</soft_erp>
-              <max_vel>0.050000</max_vel>
-              <min_depth>0.002000</min_depth>
-            </ode>
-          </contact>
         </surface>
       </collision>
       <collision name="case2_case_right_001_collision">
@@ -108,18 +84,10 @@
         <surface>
           <friction>
             <ode>
-              <mu>0.6</mu>
-              <mu2>0.6</mu2>
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
             </ode>
           </friction>
-          <contact>
-            <ode>
-              <soft_cfm>0.000100</soft_cfm>
-              <soft_erp>0.200000</soft_erp>
-              <max_vel>0.050000</max_vel>
-              <min_depth>0.002000</min_depth>
-            </ode>
-          </contact>
         </surface>
       </collision>
     </link>

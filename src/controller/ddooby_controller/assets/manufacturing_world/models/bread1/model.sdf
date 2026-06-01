@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <sdf version="1.9">
-  <model name="bread2">
+  <model name="bread1">
     <static>false</static>
-    <link name="bread2_link">
+    <link name="bread1_link">
       <inertial>
         <mass>0.030000</mass>
         <inertia>
@@ -14,20 +14,20 @@
           <iyz>0</iyz>
         </inertia>
       </inertial>
-      <visual name="bread2_visual">
+      <visual name="bread1_visual">
         <geometry>
           <mesh>
-            <uri>meshes/bread2.obj</uri>
+            <uri>meshes/bread1.obj</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.230000 0.165000 0.085000 1.000000</ambient>
-          <diffuse>0.920000 0.660000 0.340000 1.000000</diffuse>
+          <ambient>0.237500 0.182500 0.105000 1.000000</ambient>
+          <diffuse>0.950000 0.730000 0.420000 1.000000</diffuse>
           <specular>0.120000 0.120000 0.120000 1.000000</specular>
         </material>
       </visual>
-      <collision name="bread2_bread2_bottom_collision">
-        <pose>0.000000000 -0.000300001 -0.010399997 0 0 0</pose>
+      <collision name="bread1_bread1_bottom_collision">
+        <pose>0.000000000 0.000000000 -0.010399997 0 0 0</pose>
         <geometry>
           <box>
             <size>0.119999997 0.025000017 0.009999998</size>
@@ -42,8 +42,8 @@
           </friction>
         </surface>
       </collision>
-      <collision name="bread2_bread2_left_collision">
-        <pose>0.000000000 0.017299999 0.002499998 0 0 0</pose>
+      <collision name="bread1_bread1_left_collision">
+        <pose>0.000000000 0.017600000 0.002499998 0 0 0</pose>
         <geometry>
           <box>
             <size>0.119999990 0.010000017 0.024999999</size>
@@ -58,8 +58,8 @@
           </friction>
         </surface>
       </collision>
-      <collision name="bread2_bread2_right_collision">
-        <pose>0.000000000 -0.017900001 0.002400011 0 0 0</pose>
+      <collision name="bread1_bread1_right_collision">
+        <pose>0.000000000 -0.017700002 0.002400011 0 0 0</pose>
         <geometry>
           <box>
             <size>0.119999990 0.010000017 0.024999999</size>

@@ -46,7 +46,7 @@ def generate_launch_description():
     )
     bread_target_model_arg = DeclareLaunchArgument(
         "bread_target_model",
-        default_value="bread",
+        default_value="bread1",
         description="World model name used for the bread step in task:=hotdog.",
     )
     sausage_target_model_arg = DeclareLaunchArgument(

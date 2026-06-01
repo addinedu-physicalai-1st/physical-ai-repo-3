@@ -230,18 +230,18 @@
       "spawn_delay_sec": 10.5
     },
     {
-      "name": "bread",
+      "name": "bread1",
       "collection": "Object",
-      "model_dir": "manufacturing_world/models/bread",
+      "model_dir": "manufacturing_world/models/bread1",
       "xyz": [
-        0.382148,
-        0.121476,
-        0.34167
+        0.3821,
+        0.1215,
+        0.3417
       ],
       "rpy": [
         0.0,
         -0.0,
-        -3.141593
+        0.0
       ],
       "spawn_delay_sec": 11.0
     },
@@ -250,14 +250,14 @@
       "collection": "Object",
       "model_dir": "manufacturing_world/models/bread2",
       "xyz": [
-        0.382148,
-        0.031834,
-        0.34167
+        0.3821,
+        0.0318,
+        0.3417
       ],
       "rpy": [
         0.0,
         -0.0,
-        -3.141593
+        0.0
       ],
       "spawn_delay_sec": 11.5
     },

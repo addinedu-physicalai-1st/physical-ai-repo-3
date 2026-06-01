@@ -4,9 +4,11 @@
 #include <cctype>
 #include <cmath>
 #include <fstream>
+#include <future>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -21,8 +23,12 @@
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
 #include <moveit/robot_trajectory/robot_trajectory.hpp>
 #include <moveit/trajectory_processing/time_optimal_trajectory_generation.hpp>
+#include <moveit_msgs/msg/allowed_collision_entry.hpp>
 #include <moveit_msgs/msg/collision_object.hpp>
+#include <moveit_msgs/msg/planning_scene.hpp>
+#include <moveit_msgs/msg/planning_scene_components.hpp>
 #include <moveit_msgs/msg/robot_trajectory.hpp>
+#include <moveit_msgs/srv/get_planning_scene.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
 
@@ -433,6 +439,88 @@ geometry_msgs::msg::Pose makePoseFromPreset(const task_presets::TcpPosePreset & 
   return pose;
 }
 
+struct PoseAxisReferenceValues
+{
+  std::optional<Eigen::Vector3d> case_position;
+  std::optional<Eigen::Vector3d> target_position;
+};
+
+const char * poseAxisSourceName(task_presets::PoseAxisSource source)
+{
+  switch (source) {
+    case task_presets::PoseAxisSource::Preset:
+      return "preset";
+    case task_presets::PoseAxisSource::CaseTcp:
+      return "case_tcp";
+    case task_presets::PoseAxisSource::TargetObject:
+      return "target_object";
+  }
+  return "unknown";
+}
+
+double resolvePoseAxisValue(
+  const rclcpp::Logger & logger,
+  task_presets::PoseAxisSource source,
+  double preset_value,
+  int axis_index,
+  const PoseAxisReferenceValues & references,
+  const char * label)
+{
+  if (source == task_presets::PoseAxisSource::CaseTcp) {
+    if (references.case_position.has_value()) {
+      return references.case_position.value()[axis_index];
+    }
+    RCLCPP_WARN(
+      logger,
+      "%s requested case_tcp axis source, but case reference is unavailable; using preset value",
+      label);
+    return preset_value;
+  }
+
+  if (source == task_presets::PoseAxisSource::TargetObject) {
+    if (references.target_position.has_value()) {
+      return references.target_position.value()[axis_index];
+    }
+    RCLCPP_WARN(
+      logger,
+      "%s requested target_object axis source, but target reference is unavailable; using preset value",
+      label);
+    return preset_value;
+  }
+
+  return preset_value;
+}
+
+geometry_msgs::msg::Pose makePoseFromWaypointPreset(
+  const rclcpp::Logger & logger,
+  const task_presets::StageWaypointPosePreset & preset,
+  const PoseAxisReferenceValues & references,
+  const char * label)
+{
+  geometry_msgs::msg::Pose pose = makePoseFromPreset(preset.pose);
+  pose.position.x = resolvePoseAxisValue(
+    logger, preset.x_source, preset.pose.x, 0, references, label) + preset.x_offset;
+  pose.position.y = resolvePoseAxisValue(
+    logger, preset.y_source, preset.pose.y, 1, references, label) + preset.y_offset;
+  pose.position.z = resolvePoseAxisValue(
+    logger, preset.z_source, preset.pose.z, 2, references, label) + preset.z_offset;
+
+  RCLCPP_INFO(
+    logger,
+    "%s waypoint axis sources: x=%s y=%s z=%s, offsets=[%.3f %.3f %.3f] -> xyz=[%.3f %.3f %.3f]",
+    label,
+    poseAxisSourceName(preset.x_source),
+    poseAxisSourceName(preset.y_source),
+    poseAxisSourceName(preset.z_source),
+    preset.x_offset,
+    preset.y_offset,
+    preset.z_offset,
+    pose.position.x,
+    pose.position.y,
+    pose.position.z);
+  return pose;
+}
+
 Eigen::Vector3d posePosition(const geometry_msgs::msg::Pose & pose)
 {
   return Eigen::Vector3d(pose.position.x, pose.position.y, pose.position.z);
@@ -447,6 +535,14 @@ Eigen::Quaterniond poseOrientation(const geometry_msgs::msg::Pose & pose)
     pose.orientation.z);
   orientation.normalize();
   return orientation;
+}
+
+Eigen::Vector3d heldCaseCenterFromTcpPose(const geometry_msgs::msg::Pose & right_tcp_pose)
+{
+  const Eigen::Matrix3d right_tcp_rotation = poseOrientation(right_tcp_pose).toRotationMatrix();
+  return posePosition(right_tcp_pose) +
+         right_tcp_rotation.col(2).normalized() *
+         (-task_presets::kRightCasePickTuning.grasp_tcp_z_offset_m);
 }
 
 double poseOrientationDistanceRad(
@@ -1075,6 +1171,108 @@ bool closeGripperForPick(
     task_presets::kDefaultGripperMinDurationSec);
 }
 
+std::vector<std::string> makeGripperTouchLinks(
+  const moveit::planning_interface::MoveGroupInterface & gripper,
+  const std::string & tcp_link)
+{
+  std::vector<std::string> touch_links = gripper.getLinkNames();
+  touch_links.push_back(tcp_link);
+
+  constexpr std::string_view kHandTcpSuffix = "_hand_tcp";
+  if (tcp_link.size() > kHandTcpSuffix.size() &&
+    tcp_link.compare(
+      tcp_link.size() - kHandTcpSuffix.size(),
+      kHandTcpSuffix.size(),
+      kHandTcpSuffix) == 0)
+  {
+    const std::string arm_prefix = tcp_link.substr(0, tcp_link.size() - kHandTcpSuffix.size());
+    touch_links.push_back(arm_prefix + "_hand");
+    touch_links.push_back(arm_prefix + "_hand_tcp");
+    touch_links.push_back(arm_prefix + "_left_finger");
+    touch_links.push_back(arm_prefix + "_right_finger");
+  }
+
+  std::sort(touch_links.begin(), touch_links.end());
+  touch_links.erase(std::unique(touch_links.begin(), touch_links.end()), touch_links.end());
+  return touch_links;
+}
+
+bool applyTargetGripperAllowedCollision(
+  const rclcpp::Node::SharedPtr & node,
+  const rclcpp::Logger & logger,
+  moveit::planning_interface::PlanningSceneInterface & planning_scene_interface,
+  const std::string & target_object,
+  const std::vector<std::string> & touch_links,
+  bool allow,
+  int settle_ms)
+{
+  if (target_object.empty() || touch_links.empty()) {
+    return true;
+  }
+
+  auto client = node->create_client<moveit_msgs::srv::GetPlanningScene>("get_planning_scene");
+  if (!client->wait_for_service(2s)) {
+    RCLCPP_ERROR(logger, "MoveIt get_planning_scene service is not available");
+    return false;
+  }
+
+  auto request = std::make_shared<moveit_msgs::srv::GetPlanningScene::Request>();
+  request->components.components =
+    moveit_msgs::msg::PlanningSceneComponents::ALLOWED_COLLISION_MATRIX;
+  auto future = client->async_send_request(request);
+  if (future.wait_for(2s) != std::future_status::ready) {
+    RCLCPP_ERROR(logger, "Timed out while reading MoveIt allowed collision matrix");
+    return false;
+  }
+
+  auto acm = future.get()->scene.allowed_collision_matrix;
+  auto ensure_entry = [&acm](const std::string & name) {
+      const auto found = std::find(acm.entry_names.begin(), acm.entry_names.end(), name);
+      if (found != acm.entry_names.end()) {
+        return static_cast<std::size_t>(std::distance(acm.entry_names.begin(), found));
+      }
+
+      const std::size_t new_size = acm.entry_names.size() + 1;
+      acm.entry_names.push_back(name);
+      for (auto & entry : acm.entry_values) {
+        entry.enabled.resize(new_size, false);
+      }
+      moveit_msgs::msg::AllowedCollisionEntry entry;
+      entry.enabled.assign(new_size, false);
+      acm.entry_values.push_back(entry);
+      return new_size - 1;
+    };
+
+  const std::size_t target_index = ensure_entry(target_object);
+  for (const auto & link : touch_links) {
+    const std::size_t link_index = ensure_entry(link);
+    acm.entry_values[target_index].enabled[link_index] = allow;
+    acm.entry_values[link_index].enabled[target_index] = allow;
+  }
+
+  moveit_msgs::msg::PlanningScene scene;
+  scene.is_diff = true;
+  scene.allowed_collision_matrix = acm;
+
+  RCLCPP_INFO(
+    logger,
+    "%s target/gripper collision between '%s' and %zu touch links",
+    allow ? "Allowing" : "Restoring",
+    target_object.c_str(),
+    touch_links.size());
+  if (!planning_scene_interface.applyPlanningScene(scene)) {
+    RCLCPP_ERROR(
+      logger,
+      "Failed to apply allowed collision update for target '%s'",
+      target_object.c_str());
+    return false;
+  }
+  if (settle_ms > 0) {
+    rclcpp::sleep_for(std::chrono::milliseconds(settle_ms));
+  }
+  return true;
+}
+
 bool planAndExecuteStageWaypointPoseIfConfigured(
   const rclcpp::Logger & logger,
   moveit::planning_interface::MoveGroupInterface & arm,
@@ -1096,12 +1294,27 @@ bool planAndExecuteStageWaypointPoseIfConfigured(
   configured = true;
   geometry_msgs::msg::Pose target_pose = makePoseFromPreset(preset->pose);
 
+  const std::string label =
+    std::string("stage waypoint pose ") + task_presets::stageName(stage) + "." + waypoint;
+  const geometry_msgs::msg::Pose current_pose = arm.getCurrentPose(tcp_link).pose;
+  const double position_error = (posePosition(current_pose) - posePosition(target_pose)).norm();
+  const double orientation_error = poseOrientationDistanceRad(current_pose, target_pose);
+  if (position_error <= task_presets::kDefaultPoseTargetSkipPositionToleranceM &&
+    orientation_error <= task_presets::kDefaultPoseTargetSkipOrientationToleranceRad)
+  {
+    RCLCPP_INFO(
+      logger,
+      "%s skipped; current TCP is already near target (pos_error=%.4f m, rot_error=%.4f rad)",
+      label.c_str(),
+      position_error,
+      orientation_error);
+    return true;
+  }
+
   arm.clearPoseTargets();
   setBoundedStartState(arm);
   arm.setPoseTarget(target_pose, tcp_link);
 
-  const std::string label =
-    std::string("stage waypoint pose ") + task_presets::stageName(stage) + "." + waypoint;
   return planAndExecute(
     logger,
     arm,
@@ -1396,7 +1609,7 @@ public:
     arm_name_ = declare_parameter<std::string>("arm", "auto");
     target_model_ = declare_parameter<std::string>("target_model", "auto");
     case_target_model_ = declare_parameter<std::string>("case_target_model", "case");
-    bread_target_model_ = declare_parameter<std::string>("bread_target_model", "bread");
+    bread_target_model_ = declare_parameter<std::string>("bread_target_model", "bread1");
     sausage_target_model_ = declare_parameter<std::string>("sausage_target_model", "sausage");
     ketchup_target_model_ = declare_parameter<std::string>("ketchup_target_model", "kachup");
     coke_target_model_ = declare_parameter<std::string>("coke_target_model", "can_coke");
@@ -1501,10 +1714,10 @@ public:
       declare_parameter<bool>("enable_ketchup_squeeze_gripper", false);
     gripper_open_target_ = declare_parameter<std::string>("gripper_open_target", "open");
     gripper_grasp_target_ = declare_parameter<std::string>("gripper_grasp_target", "half_closed");
-    remove_target_collision_before_grasp_ =
+    allow_gripper_target_collision_for_grasp_ =
       declare_parameter<bool>(
-      "remove_target_collision_before_grasp",
-      task_presets::kDefaultPlanningScene.remove_target_collision_before_grasp);
+      "allow_gripper_target_collision_for_grasp",
+      task_presets::kDefaultPlanningScene.allow_gripper_target_collision_for_grasp);
     collision_scene_settle_ms_ = declare_parameter<int>(
       "collision_scene_settle_ms",
       task_presets::kDefaultPlanningScene.collision_scene_settle_ms);
@@ -2047,8 +2260,24 @@ private:
       }
     }
 
-    bool target_collision_removed = false;
     bool gripper_opened_for_approach = false;
+    bool target_gripper_collision_allowed = false;
+    std::vector<std::string> gripper_touch_links;
+    auto restore_target_gripper_collision = [&]() {
+      if (!target_gripper_collision_allowed) {
+        return true;
+      }
+      const bool restored = applyTargetGripperAllowedCollision(
+        self,
+        get_logger(),
+        planning_scene_interface,
+        target.name,
+        gripper_touch_links,
+        false,
+        collision_scene_settle_ms_);
+      target_gripper_collision_allowed = false;
+      return restored;
+    };
 
     PreGraspGoalMode pre_grasp_goal_mode = PreGraspGoalMode::ExactPose;
     geometry_msgs::msg::Pose reached_pre_grasp_pose;
@@ -2250,17 +2479,20 @@ private:
         }
       }
 
-      if (remove_target_collision_before_grasp_ && !target_collision_removed) {
-        RCLCPP_INFO(
-          get_logger(),
-          "%s: removing target collision object '%s' before grasp approach",
-          config.log_label.c_str(),
-          target.name.c_str());
-        planning_scene_interface.removeCollisionObjects({target.name});
-        target_collision_removed = true;
-        if (collision_scene_settle_ms_ > 0) {
-          rclcpp::sleep_for(std::chrono::milliseconds(collision_scene_settle_ms_));
+      if (allow_gripper_target_collision_for_grasp_) {
+        gripper_touch_links = makeGripperTouchLinks(gripper, config.tcp_link);
+        if (!applyTargetGripperAllowedCollision(
+            self,
+            get_logger(),
+            planning_scene_interface,
+            target.name,
+            gripper_touch_links,
+            true,
+            collision_scene_settle_ms_))
+        {
+          return false;
         }
+        target_gripper_collision_allowed = true;
       }
 
       if (config.use_planned_grasp_approach) {
@@ -2274,6 +2506,7 @@ private:
             task_presets::kDefaultPlanExecuteMaxAttempts,
             pose_min_duration_sec_))
         {
+          restore_target_gripper_collision();
           return false;
         }
       } else {
@@ -2291,6 +2524,7 @@ private:
             cartesian_min_duration_sec_))
         {
           if (!config.allow_planned_grasp_approach_fallback) {
+            restore_target_gripper_collision();
             return false;
           }
 
@@ -2307,12 +2541,14 @@ private:
               task_presets::kDefaultPlanExecuteMaxAttempts,
               pose_min_duration_sec_))
           {
+            restore_target_gripper_collision();
             return false;
           }
         }
       }
       logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " grasp");
       if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "grasp")) {
+        restore_target_gripper_collision();
         return true;
       }
 
@@ -2323,9 +2559,26 @@ private:
           tuning,
           gripper_grasp_target_))
       {
+        restore_target_gripper_collision();
         return false;
       }
       rclcpp::sleep_for(300ms);
+      if (gripper_touch_links.empty()) {
+        gripper_touch_links = makeGripperTouchLinks(gripper, config.tcp_link);
+      }
+      if (!attachTargetCollisionObject(
+          arm,
+          target.name,
+          config.tcp_link,
+          gripper_touch_links,
+          config.log_label))
+      {
+        restore_target_gripper_collision();
+        return false;
+      }
+      if (!restore_target_gripper_collision()) {
+        return false;
+      }
       if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "close")) {
         return true;
       }
@@ -2344,10 +2597,12 @@ private:
             acceleration_scaling_,
             cartesian_min_duration_sec_))
         {
+          restore_target_gripper_collision();
           return false;
         }
         logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " lift");
         if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "lift")) {
+          restore_target_gripper_collision();
           return true;
         }
       }
@@ -2377,10 +2632,12 @@ private:
           acceleration_scaling_,
           cartesian_min_duration_sec_))
       {
+        restore_target_gripper_collision();
         return false;
       }
       logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " pull-out");
       if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "pull_out")) {
+        restore_target_gripper_collision();
         return true;
       }
       lift_pose.position.x = pull_out_pose.position.x;
@@ -2401,15 +2658,26 @@ private:
           acceleration_scaling_,
           cartesian_min_duration_sec_))
       {
+        restore_target_gripper_collision();
         return false;
       }
       logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " lift");
       if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "lift")) {
+        restore_target_gripper_collision();
         return true;
       }
     }
 
+    if (!restore_target_gripper_collision()) {
+      return false;
+    }
+
     if (shouldStopAfter(ManufacturingStage::Pick)) {
+      return true;
+    }
+
+    if (config.target == ManufacturingTarget::Bread || config.target == ManufacturingTarget::Sausage) {
+      RCLCPP_INFO(get_logger(), "%s", config.completed_log.c_str());
       return true;
     }
 
@@ -2487,7 +2755,7 @@ private:
   bool runBreadPick()
   {
     const std::string bread_target_model =
-      target_model_.empty() || target_model_ == "auto" ? "bread" : target_model_;
+      target_model_.empty() || target_model_ == "auto" ? "bread1" : target_model_;
     RCLCPP_INFO(
       get_logger(),
       "Hotdog bread pick started: item=%s, target_model=%s",
@@ -2602,6 +2870,107 @@ private:
       return false;
     }
 
+    return true;
+  }
+
+  bool attachTargetCollisionObject(
+    moveit::planning_interface::MoveGroupInterface & arm,
+    const std::string & target_model,
+    const std::string & attach_link,
+    const std::vector<std::string> & touch_links,
+    const std::string & log_label)
+  {
+    if (target_model.empty()) {
+      return true;
+    }
+    if (attached_collision_objects_.find(target_model) != attached_collision_objects_.end()) {
+      RCLCPP_INFO(
+        get_logger(),
+        "%s: collision object '%s' is already attached",
+        log_label.c_str(),
+        target_model.c_str());
+      return true;
+    }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "%s: attaching collision object '%s' to '%s' with %zu touch links",
+      log_label.c_str(),
+      target_model.c_str(),
+      attach_link.c_str(),
+      touch_links.size());
+    if (!arm.attachObject(target_model, attach_link, touch_links)) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "%s: failed to attach collision object '%s'",
+        log_label.c_str(),
+        target_model.c_str());
+      return false;
+    }
+
+    attached_collision_objects_.insert(target_model);
+    if (collision_scene_settle_ms_ > 0) {
+      rclcpp::sleep_for(std::chrono::milliseconds(collision_scene_settle_ms_));
+    }
+    return true;
+  }
+
+  bool detachTargetCollisionObject(
+    moveit::planning_interface::MoveGroupInterface & arm,
+    const std::string & target_model,
+    const std::string & log_label)
+  {
+    if (target_model.empty()) {
+      return true;
+    }
+    if (attached_collision_objects_.find(target_model) == attached_collision_objects_.end()) {
+      RCLCPP_INFO(
+        get_logger(),
+        "%s: collision object '%s' is not attached; skipping detach",
+        log_label.c_str(),
+        target_model.c_str());
+      return true;
+    }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "%s: detaching collision object '%s'",
+      log_label.c_str(),
+      target_model.c_str());
+    if (!arm.detachObject(target_model)) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "%s: failed to detach collision object '%s'",
+        log_label.c_str(),
+        target_model.c_str());
+      return false;
+    }
+
+    attached_collision_objects_.erase(target_model);
+    if (collision_scene_settle_ms_ > 0) {
+      rclcpp::sleep_for(std::chrono::milliseconds(collision_scene_settle_ms_));
+    }
+    return true;
+  }
+
+  bool removeTargetCollisionObject(
+    moveit::planning_interface::PlanningSceneInterface & planning_scene_interface,
+    const std::string & target_model,
+    const std::string & log_label)
+  {
+    if (target_model.empty()) {
+      return true;
+    }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "%s: removing world collision object '%s'",
+      log_label.c_str(),
+      target_model.c_str());
+    planning_scene_interface.removeCollisionObjects({target_model});
+    if (collision_scene_settle_ms_ > 0) {
+      rclcpp::sleep_for(std::chrono::milliseconds(collision_scene_settle_ms_));
+    }
     return true;
   }
 
@@ -2794,7 +3163,7 @@ private:
       if (requested_play_to_stage.has_value() &&
         stageOrder(requested_play_to_stage.value()) > stageOrder(ManufacturingStage::Pick))
       {
-        play_to_stage_.reset();
+        play_to_stage_ = ManufacturingStage::Pick;
       }
       const bool pick_ok = runBeverageCanPick(beverage_target);
       play_to_stage_ = requested_play_to_stage;
@@ -3014,6 +3383,18 @@ private:
         return false;
       }
       rclcpp::sleep_for(300ms);
+      if (!detachTargetCollisionObject(left_arm, beverage_target_model, "Beverage handoff")) {
+        return false;
+      }
+      if (!attachTargetCollisionObject(
+          right_arm,
+          beverage_target_model,
+          right_tcp_link_,
+          makeGripperTouchLinks(right_gripper, right_tcp_link_),
+          "Beverage receive"))
+      {
+        return false;
+      }
       if (shouldStopAfterWaypoint(ManufacturingStage::Work, "receive_close")) {
         return true;
       }
@@ -3234,6 +3615,9 @@ private:
       return false;
     }
     rclcpp::sleep_for(300ms);
+    if (!detachTargetCollisionObject(right_arm, beverage_target_model, "Beverage place")) {
+      return false;
+    }
     if (shouldStopAfterWaypoint(ManufacturingStage::Place, "release")) {
       return true;
     }
@@ -3343,14 +3727,12 @@ private:
   bool runBreadPlace()
   {
     RCLCPP_INFO(get_logger(), "Hotdog bread place started: item=%s", item_name_.c_str());
+    const std::string bread_target_model =
+      target_model_.empty() || target_model_ == "auto" ? bread_target_model_ : target_model_;
 
     if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
       const auto requested_play_to_stage = play_to_stage_;
-      if (requested_play_to_stage.has_value() &&
-        stageOrder(requested_play_to_stage.value()) > stageOrder(ManufacturingStage::Pick))
-      {
-        play_to_stage_.reset();
-      }
+      play_to_stage_ = ManufacturingStage::Pick;
       const bool bread_pick_ok = runBreadPick();
       play_to_stage_ = requested_play_to_stage;
       if (!bread_pick_ok) {
@@ -3371,38 +3753,58 @@ private:
     auto self = shared_from_this();
     moveit::planning_interface::MoveGroupInterface left_arm(self, left_arm_group_);
     moveit::planning_interface::MoveGroupInterface left_gripper(self, left_gripper_group_);
+    moveit::planning_interface::MoveGroupInterface right_arm(self, right_arm_group_);
 
     left_arm.setPlanningTime(planning_time_sec_);
     left_arm.setNumPlanningAttempts(planning_attempts_);
     left_arm.setMaxVelocityScalingFactor(velocity_scaling_);
     left_arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
+    right_arm.setPlanningTime(planning_time_sec_);
+    right_arm.setNumPlanningAttempts(planning_attempts_);
+    right_arm.setMaxVelocityScalingFactor(velocity_scaling_);
+    right_arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
     left_gripper.setMaxVelocityScalingFactor(gripper_velocity_scaling_);
     left_gripper.setMaxAccelerationScalingFactor(gripper_acceleration_scaling_);
 
     left_arm.setPoseReferenceFrame(left_arm.getPlanningFrame());
+    right_arm.setPoseReferenceFrame(right_arm.getPlanningFrame());
     left_arm.setEndEffectorLink(left_tcp_link_);
+    right_arm.setEndEffectorLink(right_tcp_link_);
 
     RCLCPP_INFO(
       get_logger(),
       "Bread place MoveIt setup: left_eef='%s'",
       left_arm.getEndEffectorLink().c_str());
+    logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Bread place case reference");
     logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread place initial");
 
     bool left_work_pose_configured = false;
     if (shouldRunStage(ManufacturingStage::Work)) {
       RCLCPP_INFO(get_logger(), "Bread place: moving to configured work pose");
-      if (!planAndExecuteStageWaypointPoseIfConfigured(
-          get_logger(),
-          left_arm,
+      const auto * work_preset =
+        task_presets::findStageWaypointPosePreset(
           ManufacturingTarget::Bread,
           ArmSide::Left,
           task_presets::ManufacturingStage::Work,
-          "work",
-          left_tcp_link_,
-          left_work_pose_configured,
-          cartesian_min_duration_sec_))
-      {
-        return false;
+          "work");
+      if (work_preset != nullptr) {
+        left_work_pose_configured = true;
+        PoseAxisReferenceValues references;
+        references.case_position =
+          heldCaseCenterFromTcpPose(right_arm.getCurrentPose(right_tcp_link_).pose);
+        const geometry_msgs::msg::Pose work_pose =
+          makePoseFromWaypointPreset(get_logger(), *work_preset, references, "Bread place work");
+        if (!planAndExecutePoseTarget(
+            get_logger(),
+            left_arm,
+            work_pose,
+            left_tcp_link_,
+            "bread place work pose",
+            task_presets::kDefaultPlanExecuteMaxAttempts,
+            cartesian_min_duration_sec_))
+        {
+          return false;
+        }
       }
       if (left_work_pose_configured) {
         logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread place work");
@@ -3431,6 +3833,14 @@ private:
       return false;
     }
     rclcpp::sleep_for(300ms);
+
+    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+    if (!detachTargetCollisionObject(left_arm, bread_target_model, "Bread place")) {
+      return false;
+    }
+    if (!removeTargetCollisionObject(planning_scene_interface, bread_target_model, "Bread place")) {
+      return false;
+    }
 
     if (shouldStopAfter(ManufacturingStage::Place)) {
       return true;
@@ -3465,14 +3875,12 @@ private:
   bool runSausagePlace()
   {
     RCLCPP_INFO(get_logger(), "Hotdog sausage place started: item=%s", item_name_.c_str());
+    const std::string sausage_target_model =
+      target_model_.empty() || target_model_ == "auto" ? sausage_target_model_ : target_model_;
 
     if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
       const auto requested_play_to_stage = play_to_stage_;
-      if (requested_play_to_stage.has_value() &&
-        stageOrder(requested_play_to_stage.value()) > stageOrder(ManufacturingStage::Pick))
-      {
-        play_to_stage_.reset();
-      }
+      play_to_stage_ = ManufacturingStage::Pick;
       const bool sausage_pick_ok = runSausagePick();
       play_to_stage_ = requested_play_to_stage;
       if (!sausage_pick_ok) {
@@ -3493,8 +3901,8 @@ private:
     TargetObject sausage_target;
     TargetObject bread_target;
     TargetObject case_target;
-    if (!loadManufacturingTarget("sausage", sausage_target) ||
-      !loadManufacturingTarget("bread", bread_target) ||
+    if (!loadManufacturingTarget(sausage_target_model, sausage_target) ||
+      !loadManufacturingTarget("bread1", bread_target) ||
       !loadManufacturingTarget("case", case_target))
     {
       return false;
@@ -3531,6 +3939,7 @@ private:
 
     bool right_work_pose_configured = false;
     bool left_work_pose_configured = false;
+    std::optional<geometry_msgs::msg::Pose> left_work_pose;
     if (shouldRunStage(ManufacturingStage::Work)) {
       if (!planAndExecuteStageWaypointPoseIfConfigured(
           get_logger(),
@@ -3553,18 +3962,33 @@ private:
           "Case presentation work pose is disabled; using current right TCP pose");
       }
 
-      if (!planAndExecuteStageWaypointPoseIfConfigured(
-          get_logger(),
-          left_arm,
+      const auto * left_work_preset =
+        task_presets::findStageWaypointPosePreset(
           ManufacturingTarget::Sausage,
           ArmSide::Left,
           task_presets::ManufacturingStage::Work,
-          "work",
-          left_tcp_link_,
-          left_work_pose_configured,
-          cartesian_min_duration_sec_))
-      {
-        return false;
+          "work");
+      if (left_work_preset != nullptr) {
+        left_work_pose_configured = true;
+        PoseAxisReferenceValues references;
+        references.case_position =
+          heldCaseCenterFromTcpPose(right_arm.getCurrentPose(right_tcp_link_).pose);
+        references.target_position = sausage_target.xyz;
+        const geometry_msgs::msg::Pose work_pose =
+          makePoseFromWaypointPreset(
+            get_logger(), *left_work_preset, references, "Sausage place work");
+        left_work_pose = work_pose;
+        if (!planAndExecutePoseTarget(
+            get_logger(),
+            left_arm,
+            work_pose,
+            left_tcp_link_,
+            "sausage place work pose",
+            task_presets::kDefaultPlanExecuteMaxAttempts,
+            cartesian_min_duration_sec_))
+        {
+          return false;
+        }
       }
       if (left_work_pose_configured) {
         logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Sausage pre-place work");
@@ -3581,11 +4005,7 @@ private:
 
     const geometry_msgs::msg::Pose right_tcp_pose = right_arm.getCurrentPose(right_tcp_link_).pose;
     const geometry_msgs::msg::Pose left_current_pose = left_arm.getCurrentPose(left_tcp_link_).pose;
-    const Eigen::Matrix3d right_tcp_rotation = poseOrientation(right_tcp_pose).toRotationMatrix();
-    const Eigen::Vector3d case_center =
-      posePosition(right_tcp_pose) +
-      right_tcp_rotation.col(2).normalized() *
-      (-task_presets::kRightCasePickTuning.grasp_tcp_z_offset_m);
+    const Eigen::Vector3d case_center = heldCaseCenterFromTcpPose(right_tcp_pose);
 
     const double sausage_thickness = topDownPlaceThickness(sausage_target);
     const double release_z =
@@ -3617,8 +4037,18 @@ private:
         "release");
 
     if (work_preset != nullptr) {
-      approach_pose = makePoseFromPreset(work_preset->pose);
-      RCLCPP_INFO(get_logger(), "Sausage place approach pose preset applied");
+      if (left_work_pose.has_value()) {
+        approach_pose = left_work_pose.value();
+        RCLCPP_INFO(get_logger(), "Sausage place approach reuses completed work pose");
+      } else {
+        PoseAxisReferenceValues references;
+        references.case_position = case_center;
+        references.target_position = sausage_target.xyz;
+        approach_pose =
+          makePoseFromWaypointPreset(
+            get_logger(), *work_preset, references, "Sausage place approach");
+        RCLCPP_INFO(get_logger(), "Sausage place approach pose preset applied");
+      }
     } else {
       RCLCPP_INFO(
         get_logger(),
@@ -3629,9 +4059,15 @@ private:
     }
 
     if (place_preset != nullptr) {
-      release_pose = makePoseFromPreset(place_preset->pose);
+      PoseAxisReferenceValues references;
+      references.case_position = case_center;
+      references.target_position = sausage_target.xyz;
+      release_pose =
+        makePoseFromWaypointPreset(get_logger(), *place_preset, references, "Sausage place release");
       RCLCPP_INFO(get_logger(), "Sausage place release pose preset applied");
     } else {
+      release_pose.position.x = approach_pose.position.x;
+      release_pose.position.y = approach_pose.position.y;
       release_pose.orientation = approach_pose.orientation;
       RCLCPP_INFO(
         get_logger(),
@@ -3641,32 +4077,43 @@ private:
         release_pose.position.z);
     }
 
-    RCLCPP_INFO(get_logger(), "Sausage place: moving to approach pose");
-    if (!planAndExecutePoseTarget(
-        get_logger(),
-        left_arm,
-        approach_pose,
-        left_tcp_link_,
-        "sausage place approach pose"))
-    {
-      return false;
+    if (left_work_pose.has_value()) {
+      RCLCPP_INFO(get_logger(), "Sausage place: already at approach pose from work stage");
+    } else {
+      RCLCPP_INFO(get_logger(), "Sausage place: moving to approach pose");
+      if (!planAndExecutePoseTarget(
+          get_logger(),
+          left_arm,
+          approach_pose,
+          left_tcp_link_,
+          "sausage place approach pose"))
+      {
+        return false;
+      }
     }
     logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Sausage place approach pose");
 
-    RCLCPP_INFO(get_logger(), "Sausage place: Cartesian lower to release pose");
-    if (!executeCartesian(
+    if (left_work_pose.has_value() && place_preset == nullptr) {
+      release_pose = approach_pose;
+      RCLCPP_INFO(
         get_logger(),
-        left_arm,
-        {release_pose},
-        "sausage place lower",
-        cartesian_eef_step_,
-        min_cartesian_fraction_,
-        cartesian_avoid_collisions_,
-        velocity_scaling_,
-        acceleration_scaling_,
-        cartesian_min_duration_sec_))
-    {
-      return false;
+        "Sausage place lower skipped; work pose is used as release pose");
+    } else {
+      RCLCPP_INFO(get_logger(), "Sausage place: Cartesian lower to release pose");
+      if (!executeCartesian(
+          get_logger(),
+          left_arm,
+          {release_pose},
+          "sausage place lower",
+          cartesian_eef_step_,
+          min_cartesian_fraction_,
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
+      {
+        return false;
+      }
     }
     logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Sausage place release pose");
 
@@ -3683,26 +4130,19 @@ private:
     }
     rclcpp::sleep_for(300ms);
 
+    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+    if (!detachTargetCollisionObject(left_arm, sausage_target_model, "Sausage place")) {
+      return false;
+    }
+    if (!removeTargetCollisionObject(planning_scene_interface, sausage_target_model, "Sausage place")) {
+      return false;
+    }
+
     if (shouldStopAfter(ManufacturingStage::Place)) {
       return true;
     }
 
-    RCLCPP_INFO(get_logger(), "Sausage place: Cartesian retreat");
-    if (!executeCartesian(
-        get_logger(),
-        left_arm,
-        {approach_pose},
-        "sausage place retreat",
-        cartesian_eef_step_,
-        min_cartesian_fraction_,
-        cartesian_avoid_collisions_,
-        velocity_scaling_,
-        acceleration_scaling_,
-        cartesian_min_duration_sec_))
-    {
-      return false;
-    }
-    logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Sausage place retreat");
+    RCLCPP_INFO(get_logger(), "Sausage place: release completed without extra retreat");
 
     bool return_home_pose_configured = false;
     if (shouldRunStage(ManufacturingStage::ReturnHome)) {
@@ -4116,6 +4556,9 @@ private:
     }
 
     moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+    if (!detachTargetCollisionObject(left_arm, ketchup_target_model, "Ketchup place")) {
+      return false;
+    }
     if (!restoreTargetCollisionObject(
         planning_scene_interface,
         ketchup_target_model,
@@ -4365,6 +4808,9 @@ private:
       return false;
     }
     rclcpp::sleep_for(300ms);
+    if (!detachTargetCollisionObject(right_arm, case_target_model_, "Completed hotdog place")) {
+      return false;
+    }
     if (shouldStopAfterWaypoint(ManufacturingStage::Place, "release")) {
       return true;
     }
@@ -4469,9 +4915,10 @@ private:
   bool enable_ketchup_squeeze_gripper_{false};
   std::string gripper_open_target_;
   std::string gripper_grasp_target_;
-  bool remove_target_collision_before_grasp_{
-    task_presets::kDefaultPlanningScene.remove_target_collision_before_grasp};
+  bool allow_gripper_target_collision_for_grasp_{
+    task_presets::kDefaultPlanningScene.allow_gripper_target_collision_for_grasp};
   int collision_scene_settle_ms_{task_presets::kDefaultPlanningScene.collision_scene_settle_ms};
+  std::set<std::string> attached_collision_objects_;
   double max_pre_grasp_xy_error_{task_presets::kDefaultMaxPreGraspXyError};
   bool dry_run_{false};
 };

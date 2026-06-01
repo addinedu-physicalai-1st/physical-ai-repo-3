@@ -56,6 +56,18 @@ struct TcpPosePreset
   double qw;
 };
 
+enum class PoseAxisSource
+{
+  // waypoint pose preset에 저장된 축 값을 그대로 사용.
+  Preset,
+
+  // 현재 오른손이 들고 있는 케이스 중심 위치의 해당 축 값을 사용.
+  CaseTcp,
+
+  // 선택된 target object 중심 위치의 해당 축 값을 사용.
+  TargetObject,
+};
+
 struct StageWaypointPosePreset
 {
   ManufacturingTarget target;
@@ -63,6 +75,12 @@ struct StageWaypointPosePreset
   ManufacturingStage stage;
   const char * name;
   TcpPosePreset pose;
+  PoseAxisSource x_source{PoseAxisSource::Preset};
+  PoseAxisSource y_source{PoseAxisSource::Preset};
+  PoseAxisSource z_source{PoseAxisSource::Preset};
+  double x_offset{0.0};
+  double y_offset{0.0};
+  double z_offset{0.0};
 };
 
 struct GripperJointPreset
@@ -141,8 +159,8 @@ struct CartesianPreset
 
 struct PlanningScenePreset
 {
-  // grasp 직전 target collision object 제거 여부와 settle 시간.
-  bool remove_target_collision_before_grasp;
+  // grasp 직전 target object와 gripper touch link 사이의 collision 허용 여부와 settle 시간.
+  bool allow_gripper_target_collision_for_grasp;
   int collision_scene_settle_ms;
 };
 
@@ -282,12 +300,16 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
   // 빵 work stage: 케이스 위 빵 놓기 직전 pose.
+  // x/y는 현재 오른손 케이스 중심을 따라가고, z/orientation은 guide pose를 유지한다.
   {
     ManufacturingTarget::Bread,
     ArmSide::Left,
     ManufacturingStage::Work,
     "work",
-    {true, 0.196, 0.035, 0.446, 0.728, -0.686, -0.002, 0.003}
+    {true, 0.196, 0.035, 0.446, 0.728, -0.686, -0.002, 0.003},
+    PoseAxisSource::CaseTcp,
+    PoseAxisSource::CaseTcp,
+    PoseAxisSource::Preset
   },
   // 빵 place stage: 케이스 위 빵 release pose, 비활성화 시 work pose에서 drop.
   {
@@ -346,12 +368,20 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
   // 소시지 work stage: 빵 위 소시지 놓기 직전 pose, 비활성화 시 자동 approach pose 사용.
+  // x/y는 현재 오른손 케이스 중심을 따라가되 길쭉한 소시지를 위해 y 방향으로 살짝 앞쪽에 둔다.
+  // z/orientation은 guide pose를 유지한다.
   {
     ManufacturingTarget::Sausage,
     ArmSide::Left,
     ManufacturingStage::Work,
     "work",
-    {true, 0.203, 0.029, 0.436, -0.707, 0.707, 0.002, -0.002}
+    {true, 0.203, 0.029, 0.436, -0.707, 0.707, 0.002, -0.002},
+    PoseAxisSource::CaseTcp,
+    PoseAxisSource::CaseTcp,
+    PoseAxisSource::Preset,
+    0.0,
+    0.020,
+    0.0
   },
   // 소시지 place stage: 빵 위 소시지 release pose, 비활성화 시 오른손 케이스 pose 기준 자동 계산.
   {
@@ -695,14 +725,14 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
 inline constexpr PickTuningPreset kLeftBreadPickTuning{
   0.0,
   {true, 0.030},
-  {true, 0.019}
+  {true, 0.021}
 };
 
 // 케이스 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kRightCasePickTuning{
   -0.020,
   {true, 0.043},
-  {true, 0.030}
+  {true, 0.034}
 };
 
 // 케이스 pre_grasp 이후 target 방향으로 정렬하는 중간 pose 높이 보정값.
@@ -715,7 +745,7 @@ inline constexpr double kRightCaseGraspWorldZOffsetM = 0.004;
 
 // 소시지 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kLeftSausagePickTuning{
-  0.005,
+  0.006,
   {true, 0.024},
   {true, 0.005}
 };
