@@ -6,6 +6,29 @@
   const SHOT_MAP = { extra: '추가', less: '기본' };
   const ICE_MAP = { less: '얼음 없음', more: '각 얼음' };
 
+  // 메뉴 매칭: 정식 이름 + 별명(aliases) 모두 비교. 공백/대소문자 무시.
+  // LLM 이 menu_name 을 "아메리카노"(별명) 로 줘도 name="coffee" 항목을 찾도록.
+  function normalizeName(s) {
+    return String(s == null ? '' : s).toLowerCase().replace(/\s+/g, '');
+  }
+  function findMenu(name) {
+    if (!name || !Array.isArray(MENU)) return null;
+    const q = normalizeName(name);
+    if (!q) return null;
+    const candsOf = (m) => [m.name, ...(Array.isArray(m.aliases) ? m.aliases : [])];
+    // 1) 정확 매칭 (이름/별명)
+    const exact = MENU.find((m) => candsOf(m).some((c) => normalizeName(c) === q));
+    if (exact) return exact;
+    // 2) 부분 매칭: 이름/별명이 발화 안에 포함 (예: "아메리카노 한잔" → "아메리카노")
+    const partial = MENU.find((m) =>
+      candsOf(m).some((c) => {
+        const n = normalizeName(c);
+        return n.length >= 2 && q.includes(n);
+      }),
+    );
+    return partial || null;
+  }
+
   function addItems(items) {
     if (typeof addToCart !== 'function' || !Array.isArray(MENU)) {
       console.warn('[intent] addToCart/MENU 가 전역에 없음 — kiosk 컨텍스트가 아닙니다.');
@@ -14,7 +37,7 @@
     for (const it of items || []) {
       const name = it && it.menu_name;
       if (!name) continue;
-      const menu = MENU.find((m) => m.name === name);
+      const menu = findMenu(name);
       if (!menu) {
         console.warn(`[intent] 메뉴 매칭 실패: "${name}"`);
         continue;
@@ -39,7 +62,7 @@
       const opts = (it && it.options) || {};
       let target = null;
       if (it && it.menu_name) {
-        const menu = Array.isArray(MENU) ? MENU.find((m) => m.name === it.menu_name) : null;
+        const menu = findMenu(it.menu_name);
         if (menu) target = cart.find((c) => c.menuId === menu.id);
       }
       if (!target) target = cart[cart.length - 1];

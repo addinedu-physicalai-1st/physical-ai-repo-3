@@ -89,9 +89,9 @@
   let lastTriggerTs = 0;
   let busy = false;
 
-  // PTT (table 모드): pointerdown 사이의 Int16 청크를 누적.
-  let pttRecording = false;
-  let pttChunks = [];   // Int16Array 청크 리스트
+  // table 모드: 탭으로 음성 세션 시작/종료. 세션 중에는 kiosk 와 동일하게
+  // VAD 가 발화 끝을 자동 감지하고 ASR/LLM/TTS 후 다음 발화로 멀티턴 이어진다.
+  let tableSessionActive = false;
 
   // KWS 학습 분포(raw PCM + SNR augmentation)에 맞추기 위해 브라우저 신호 처리 OFF.
   const baseAudioConstraints = {
@@ -237,10 +237,7 @@
 
   async function processChunk(int16Chunk) {
     if (IS_TABLE) {
-      // PTT: 누른 동안만 누적. 그 외엔 폐기 (KWS 파이프라인 우회).
-      if (pttRecording && !ttsSpeaking) {
-        pttChunks.push(new Int16Array(int16Chunk));
-      }
+      // table 모드는 KWS 를 쓰지 않는다 — 음성 세션은 VAD 가 직접 마이크를 잡고 처리.
       return;
     }
     if (busy) return;
@@ -433,13 +430,10 @@
         console.warn('[voice] 에러 안내 TTS 재생 실패:', ttsErr);
       }
     } finally {
-      if (IS_TABLE) {
-        // PTT: 한 발화 처리 후 idle 로 복귀. 다음 발화는 사용자가 PTT 버튼을 다시 누르면 시작.
-        setState('idle');
-        vadBusy = false;
-        turnCount = 0;
-      } else {
-        // wake 후 모든 발화에 대해 listening 자동 재진입. 종료는 외부(window.voiceIdle) 호출 또는 무발화 타이머.
+      // 세션이 살아있으면(kiosk: wake 후 / table: 탭 세션) 발화 끝마다 listening 자동 재진입(멀티턴).
+      // 종료는 외부(window.voiceIdle, 화면 전환) 호출 또는 무발화 타이머.
+      const sessionActive = !IS_TABLE || tableSessionActive;
+      if (sessionActive) {
         try {
           vadInstance.start();
           setState('listening');
@@ -448,10 +442,18 @@
           console.log(`[voice] follow-up listening (turn ${turnCount})`);
         } catch (e) {
           console.error('[voice] follow-up VAD start failed:', e);
-          setState('idle');
-          vadBusy = false;
-          turnCount = 0;
+          if (IS_TABLE && typeof window.voiceIdle === 'function') {
+            window.voiceIdle();
+          } else {
+            setState('idle');
+            vadBusy = false;
+            turnCount = 0;
+          }
         }
+      } else {
+        setState('idle');
+        vadBusy = false;
+        turnCount = 0;
       }
     }
   }
@@ -512,7 +514,7 @@
     }
   }
   function armIdleTimer() {
-    if (IS_TABLE) return;
+    if (IS_TABLE && !tableSessionActive) return;
     clearIdleTimer();
     if (lastActivityTs === 0) lastActivityTs = Date.now(); // 첫 호출 시 anchor 초기화
     const remaining = lastActivityTs + IDLE_TIMEOUT_MS - Date.now();
@@ -528,7 +530,13 @@
     turnCount = 0;
     clearIdleTimer();
     lastActivityTs = 0;
-    console.log('[voice] voiceIdle — KWS 대기로 복귀');
+    if (IS_TABLE) {
+      // table 음성 세션 종료: 버튼 라벨/표시 원복.
+      tableSessionActive = false;
+      setPttLabel('탭하여 말하기');
+      if (pttBtn) pttBtn.classList.remove('pressed');
+    }
+    console.log('[voice] voiceIdle — 음성 세션 종료/대기');
   };
 
   // Float32Array @ sampleRate → 16-bit PCM mono WAV (Uint8Array).
@@ -570,10 +578,8 @@
     if (startBtn) { startBtn.disabled = true; startBtn.textContent = '모델 로드 중...'; }
     try {
       await loadModels();
-      if (!IS_TABLE) {
-        // VAD 도 미리 로드해서 첫 wake 후 추가 지연 없게
-        try { await loadVAD(); } catch (e) { console.warn('[voice] VAD 미리 로드 실패 (첫 wake 때 재시도):', e); }
-      }
+      // VAD 미리 로드 — kiosk: 첫 wake 후 지연 방지 / table: 탭 즉시 listening.
+      try { await loadVAD(); } catch (e) { console.warn('[voice] VAD 미리 로드 실패 (시작 시 재시도):', e); }
 
       if (startBtn) startBtn.textContent = '마이크 시작 중...';
       stream = await acquireMic();
@@ -601,9 +607,9 @@
       console.log(`[voice] VOICE_SERVICE_URL=${VOICE_SERVICE_URL}`);
 
       if (IS_TABLE) {
-        // PTT 모드: 마이크/AudioContext 만 켜고 대기. 실제 녹음은 pttStart 부터.
+        // table 모드: 마이크/VAD 준비만 하고 대기. 실제 listening 은 탭(startTableSession)부터.
         setState('idle');
-        console.log('[voice] mic started (PTT mode — press 버튼 to talk)');
+        console.log('[voice] mic ready (table mode — 탭하여 대화 시작)');
       } else {
         setState('listening');
         if (startBtn) {
@@ -631,8 +637,7 @@
     melBuf = [];
     embBuf = [];
     kwsHitBuf = [];
-    pttChunks = [];
-    pttRecording = false;
+    tableSessionActive = false;
     busy = false;
     vadBusy = false;
     clearIdleTimer();
@@ -646,56 +651,66 @@
     console.log('[voice] mic stopped');
   }
 
-  // PTT 핸들러 (table 모드 전용)
-  async function pttStart() {
+  // table 모드: 탭으로 음성 세션 시작/종료. kiosk 의 "wake → VAD 자동 대화" 흐름을
+  // 웨이크워드 대신 버튼 탭으로 트리거한다.
+  function setPttLabel(text) {
+    if (!pttBtn) return;
+    const label = pttBtn.querySelector('.ptt-label');
+    if (label) label.textContent = text;
+  }
+
+  function endTableSession() {
+    // voiceIdle 이 VAD pause + 상태/플래그/라벨 정리를 모두 담당.
+    if (typeof window.voiceIdle === 'function') window.voiceIdle();
+  }
+
+  async function startTableSession() {
     if (ttsSpeaking) return;
-    // 첫 누름에 마이크/AudioContext start (iOS Safari 는 사용자 제스처 안에서만 허용)
-    if (!audioCtx) {
-      try { await start(); } catch (e) { console.error('[voice] PTT start mic failed', e); return; }
+    // table 은 KWS 를 안 쓰므로 KWS 마이크/AudioWorklet(start()) 을 타지 않는다.
+    // VAD(MicVAD) 가 자체적으로 마이크를 잡는다 — 첫 탭(사용자 제스처) 안에서 로드.
+    // (start() 경로는 폰에서 'pcm-capture' worklet 미등록으로 실패하므로 table 은 우회한다.)
+    if (!vadInstance) {
+      try {
+        await loadVAD();
+      } catch (e) {
+        console.error('[voice] table 세션 VAD 로드 실패', e);
+        alert('마이크 시작 실패: ' + (e && e.message ? e.message : e));
+        return;
+      }
     }
-    if (!audioCtx) return;  // 권한 거부 등
-    pttChunks = [];
-    pttRecording = true;
-    vadBusy = true;
-    setState('listening');
+    tableSessionActive = true;
+    // table 은 KWS 가 없어 vadBusy 게이트가 불필요. false 로 둬야 무발화 30초 standby 타이머가
+    // onIdleTimeout 에서 defer 되지 않고 실제로 동작한다 (VAD 자체는 vadBusy 와 무관하게 돈다).
+    vadBusy = false;
+    turnCount = 0;
+    // standby 화면이면 메뉴로 진입 (kiosk wake 와 동일 경험).
+    if (typeof currentScreen !== 'undefined' && currentScreen === 'screen-standby' &&
+        typeof goToMenu === 'function') {
+      try { await goToMenu(); } catch (e) { console.warn('[voice] goToMenu 실패:', e); }
+    }
+    try {
+      vadInstance.start();
+      setState('listening');
+      armIdleTimer();
+    } catch (e) {
+      console.error('[voice] table 세션 VAD start 실패:', e);
+      endTableSession();
+      return;
+    }
+    setPttLabel('대화 중 · 탭하여 종료');
     if (pttBtn) pttBtn.classList.add('pressed');
+    console.log('[voice] table 음성 세션 시작 (VAD 자동 대화)');
   }
-
-  async function pttEnd() {
-    if (!pttRecording) {
-      if (pttBtn) pttBtn.classList.remove('pressed');
-      return;
-    }
-    pttRecording = false;
-    if (pttBtn) pttBtn.classList.remove('pressed');
-
-    let total = 0;
-    for (const c of pttChunks) total += c.length;
-    const audio = new Float32Array(total);
-    let off = 0;
-    for (const c of pttChunks) {
-      for (let i = 0; i < c.length; i++) audio[off + i] = c[i] / 32768;
-      off += c.length;
-    }
-    pttChunks = [];
-
-    if (audio.length < 16000 * 0.3) {
-      console.log(`[voice] PTT 너무 짧음 (${audio.length} samples) — 무시`);
-      setState('idle');
-      vadBusy = false;
-      return;
-    }
-    await processUtterance(audio);
-  }
-  window.pttStart = pttStart;
-  window.pttEnd = pttEnd;
+  window.startTableSession = startTableSession;
 
   if (IS_TABLE) {
-    // pointer 이벤트로 mouse/touch 통합 처리. pointerleave/cancel 도 end 로 처리해 누른 채 손가락이 벗어나도 발화 종료.
-    pttBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); pttStart(); });
-    pttBtn.addEventListener('pointerup',     (e) => { e.preventDefault(); pttEnd(); });
-    pttBtn.addEventListener('pointerleave',  () => { if (pttRecording) pttEnd(); });
-    pttBtn.addEventListener('pointercancel', () => { if (pttRecording) pttEnd(); });
+    // 탭 토글: 한 번 탭하면 음성 세션 시작(이후 VAD 자동 대화·멀티턴), 다시 탭하면 종료.
+    // click 은 사용자 제스처라 iOS Safari 의 getUserMedia 권한 요건도 충족.
+    pttBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (tableSessionActive) endTableSession();
+      else startTableSession();
+    });
     // iOS Safari 가 contextmenu 띄우는 것 차단
     pttBtn.addEventListener('contextmenu', (e) => e.preventDefault());
   } else {
