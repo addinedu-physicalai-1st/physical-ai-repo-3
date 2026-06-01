@@ -158,6 +158,12 @@ ManufacturingTarget parseManufacturingTask(const std::string & value)
   if (normalized == "case") {
     return ManufacturingTarget::Case;
   }
+  if (normalized == "coffee" || normalized == "cancoffee") {
+    return ManufacturingTarget::Coffee;
+  }
+  if (normalized == "coke" || normalized == "cola" || normalized == "cancoke") {
+    return ManufacturingTarget::Coke;
+  }
   if (normalized == "hotdog" || normalized == "newyorkhotdog") {
     return ManufacturingTarget::Hotdog;
   }
@@ -233,7 +239,9 @@ std::optional<ManufacturingStage> stageHintFromWaypointName(const std::string & 
     return ManufacturingStage::Pick;
   }
   if (normalized == "casepresent" || normalized == "aim" || normalized == "squeezestart" ||
-    normalized == "squeeze")
+    normalized == "squeeze" || normalized == "handoff" || normalized == "prereceive" ||
+    normalized == "receiveopen" || normalized == "receive" || normalized == "receiveclose" ||
+    normalized == "leftpullout" || normalized == "leftretreat")
   {
     return ManufacturingStage::Work;
   }
@@ -1391,6 +1399,8 @@ public:
     bread_target_model_ = declare_parameter<std::string>("bread_target_model", "bread");
     sausage_target_model_ = declare_parameter<std::string>("sausage_target_model", "sausage");
     ketchup_target_model_ = declare_parameter<std::string>("ketchup_target_model", "kachup");
+    coke_target_model_ = declare_parameter<std::string>("coke_target_model", "can_coke");
+    coffee_target_model_ = declare_parameter<std::string>("coffee_target_model", "can_coffee");
     play_to_stage_name_ = declare_parameter<std::string>("play_to_stage", "complete");
     start_from_waypoint_name_ = declare_parameter<std::string>("start_from_waypoint", "");
     play_to_waypoint_name_ = declare_parameter<std::string>("play_to_waypoint", "");
@@ -1598,6 +1608,16 @@ public:
       }
       return runKetchupSqueeze();
     }
+    if ((target_ == ManufacturingTarget::Coke || target_ == ManufacturingTarget::Coffee) &&
+      arm_ == ArmSide::Left)
+    {
+      if (play_to_stage_.has_value() &&
+        stageOrder(play_to_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
+      {
+        return runBeverageCanPick(target_);
+      }
+      return runBeverageCanServe(target_);
+    }
 
     RCLCPP_ERROR(
       get_logger(),
@@ -1778,6 +1798,32 @@ private:
   {
     return play_to_stage_.has_value() &&
            stageOrder(play_to_stage_.value()) <= stageOrder(stage);
+  }
+
+  bool shouldStopAtOrBeforeWaypointStage(ManufacturingStage stage) const
+  {
+    if (play_to_waypoint_.empty()) {
+      return false;
+    }
+
+    if (const auto waypoint_stage = stageHintFromWaypointName(play_to_waypoint_)) {
+      return stageOrder(waypoint_stage.value()) <= stageOrder(stage);
+    }
+
+    for (const auto candidate_stage : {
+        ManufacturingStage::Home,
+        ManufacturingStage::Pick,
+        ManufacturingStage::Work,
+        ManufacturingStage::Place,
+        ManufacturingStage::ReturnHome})
+    {
+      const std::string prefix = normalizeStageName(task_presets::stageName(candidate_stage));
+      if (play_to_waypoint_.rfind(prefix, 0) == 0) {
+        return stageOrder(candidate_stage) <= stageOrder(stage);
+      }
+    }
+
+    return false;
   }
 
   bool planAndExecuteReturnHome(
@@ -2120,7 +2166,11 @@ private:
           if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "target_align")) {
             return true;
           }
-        } else if (config.target == ManufacturingTarget::Ketchup) {
+        } else if (
+          config.target == ManufacturingTarget::Ketchup ||
+          config.target == ManufacturingTarget::Coke ||
+          config.target == ManufacturingTarget::Coffee)
+        {
           RCLCPP_INFO(
             get_logger(),
             "%s: skipping forced target alignment; cylindrical target uses planned grasp approach",
@@ -2667,6 +2717,568 @@ private:
         true},
       target,
       pick_plan);
+  }
+
+  std::string beverageTargetModel(ManufacturingTarget beverage_target) const
+  {
+    if (!target_model_.empty() && target_model_ != "auto") {
+      return target_model_;
+    }
+    if (beverage_target == ManufacturingTarget::Coffee) {
+      return coffee_target_model_;
+    }
+    return coke_target_model_;
+  }
+
+  double beveragePickupZoneYOffset(ManufacturingTarget beverage_target) const
+  {
+    if (beverage_target == ManufacturingTarget::Coffee) {
+      return task_presets::kCoffeePickupZoneYOffsetM;
+    }
+    return task_presets::kCokePickupZoneYOffsetM;
+  }
+
+  bool runBeverageCanPick(ManufacturingTarget beverage_target)
+  {
+    const std::string beverage_target_model = beverageTargetModel(beverage_target);
+    RCLCPP_INFO(
+      get_logger(),
+      "Beverage can pick started: task=%s, target_model=%s",
+      task_presets::targetName(beverage_target),
+      beverage_target_model.c_str());
+
+    TargetObject target;
+    if (!loadManufacturingTarget(beverage_target_model, target)) {
+      return false;
+    }
+
+    PickPlan pick_plan =
+      makeHorizontalPickPlan(
+        target,
+        Eigen::Vector3d::UnitY(),
+        Eigen::Vector3d::UnitX(),
+        ketchup_pre_grasp_distance_,
+        lift_height_,
+        task_presets::kLeftBeverageCanPickTuning.grasp_tcp_z_offset_m);
+    pick_plan.grasp_pose.position.z += task_presets::kLeftBeverageCanGraspWorldZOffsetM;
+    pick_plan.lift_pose.position.z += task_presets::kLeftBeverageCanGraspWorldZOffsetM;
+
+    return prepareAndRunPickMotion(
+      PickMotionConfig{
+        beverage_target,
+        ArmSide::Left,
+        std::string("Beverage ") + task_presets::targetName(beverage_target) + " pick",
+        std::string("Beverage ") + task_presets::targetName(beverage_target) + " pick completed",
+        left_arm_group_,
+        left_gripper_group_,
+        left_tcp_link_,
+        left_ready_pose_name_,
+        left_ready_joints_,
+        &task_presets::kLeftBeverageCanPickTuning,
+        true,
+        false,
+        false},
+      target,
+      pick_plan);
+  }
+
+  bool runBeverageCanServe(ManufacturingTarget beverage_target)
+  {
+    RCLCPP_INFO(
+      get_logger(),
+      "Beverage can serving started: task=%s",
+      task_presets::targetName(beverage_target));
+
+    if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
+      const auto requested_play_to_stage = play_to_stage_;
+      if (requested_play_to_stage.has_value() &&
+        stageOrder(requested_play_to_stage.value()) > stageOrder(ManufacturingStage::Pick))
+      {
+        play_to_stage_.reset();
+      }
+      const bool pick_ok = runBeverageCanPick(beverage_target);
+      play_to_stage_ = requested_play_to_stage;
+      if (!pick_ok) {
+        return false;
+      }
+      if (shouldStopAtOrBefore(ManufacturingStage::Pick) ||
+        shouldStopAtOrBeforeWaypointStage(ManufacturingStage::Pick))
+      {
+        return true;
+      }
+    }
+
+    if (dry_run_) {
+      RCLCPP_INFO(get_logger(), "Beverage serving dry run completed after pick planning");
+      return true;
+    }
+
+    const std::string beverage_target_model = beverageTargetModel(beverage_target);
+    TargetObject beverage_target_object;
+    TargetObject pickup_zone;
+    if (!loadManufacturingTarget(beverage_target_model, beverage_target_object) ||
+      !loadManufacturingTarget("pickup_zone", pickup_zone))
+    {
+      return false;
+    }
+
+    auto self = shared_from_this();
+    moveit::planning_interface::MoveGroupInterface left_arm(self, left_arm_group_);
+    moveit::planning_interface::MoveGroupInterface left_gripper(self, left_gripper_group_);
+    moveit::planning_interface::MoveGroupInterface right_arm(self, right_arm_group_);
+    moveit::planning_interface::MoveGroupInterface right_gripper(self, right_gripper_group_);
+
+    left_arm.setPlanningTime(planning_time_sec_);
+    left_arm.setNumPlanningAttempts(planning_attempts_);
+    left_arm.setMaxVelocityScalingFactor(velocity_scaling_);
+    left_arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
+    right_arm.setPlanningTime(planning_time_sec_);
+    right_arm.setNumPlanningAttempts(planning_attempts_);
+    right_arm.setMaxVelocityScalingFactor(velocity_scaling_);
+    right_arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
+    left_gripper.setMaxVelocityScalingFactor(gripper_velocity_scaling_);
+    left_gripper.setMaxAccelerationScalingFactor(gripper_acceleration_scaling_);
+    right_gripper.setMaxVelocityScalingFactor(gripper_velocity_scaling_);
+    right_gripper.setMaxAccelerationScalingFactor(gripper_acceleration_scaling_);
+
+    left_arm.setPoseReferenceFrame(left_arm.getPlanningFrame());
+    right_arm.setPoseReferenceFrame(right_arm.getPlanningFrame());
+    left_arm.setEndEffectorLink(left_tcp_link_);
+    right_arm.setEndEffectorLink(right_tcp_link_);
+
+    logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Beverage left initial");
+    logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Beverage right initial");
+
+    if (shouldRunStage(ManufacturingStage::Work)) {
+      geometry_msgs::msg::Pose left_handoff_pose = left_arm.getCurrentPose(left_tcp_link_).pose;
+      if (const auto * left_handoff_preset =
+          task_presets::findStageWaypointPosePreset(
+            beverage_target,
+            ArmSide::Left,
+            ManufacturingStage::Work,
+            "handoff"))
+      {
+        left_handoff_pose = makePoseFromPreset(left_handoff_preset->pose);
+        RCLCPP_INFO(get_logger(), "Beverage left handoff waypoint pose preset applied");
+      }
+
+      RCLCPP_INFO(get_logger(), "Beverage serving: moving left arm to handoff pose");
+      if (!planAndExecutePoseTarget(
+          get_logger(),
+          left_arm,
+          left_handoff_pose,
+          left_tcp_link_,
+          "beverage left handoff pose",
+          task_presets::kDefaultPlanExecuteMaxAttempts,
+          pose_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Beverage left handoff");
+      if (shouldStopAfterWaypoint(ManufacturingStage::Work, "handoff")) {
+        return true;
+      }
+
+      RCLCPP_INFO(
+        get_logger(),
+        "Beverage serving: using current right gripper opening for handoff receive");
+
+      if (!right_ready_joints_.empty()) {
+        right_arm.rememberJointValues(right_ready_pose_name_, right_ready_joints_);
+      }
+      RCLCPP_INFO(
+        get_logger(),
+        "Beverage serving: moving right arm to ready pose before receive");
+      right_arm.clearPoseTargets();
+      setBoundedStartState(right_arm);
+      right_arm.setNamedTarget(right_ready_pose_name_);
+      if (!planAndExecute(
+          get_logger(),
+          right_arm,
+          "beverage right ready before receive",
+          task_presets::kDefaultPlanExecuteMaxAttempts,
+          pose_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Beverage right ready");
+      if (shouldStopAfterWaypoint(ManufacturingStage::Work, "right_ready")) {
+        return true;
+      }
+
+      geometry_msgs::msg::Pose right_receive_pose = left_handoff_pose;
+      right_receive_pose.position.z += task_presets::kBeverageHandoffRightFromLeftZOffsetM;
+      PickPlan right_receive_plan =
+        makeHorizontalPickPlan(
+          TargetObject{
+            "beverage_handoff",
+            "",
+            Eigen::Vector3d(
+              right_receive_pose.position.x,
+              right_receive_pose.position.y,
+              right_receive_pose.position.z),
+            Eigen::Vector3d::Zero(),
+            Eigen::Vector3d::Zero(),
+            beverage_target_object.size},
+          -Eigen::Vector3d::UnitY(),
+          Eigen::Vector3d::UnitX(),
+          0.0,
+          0.0,
+          task_presets::kRightBeverageCanReceiveTuning.grasp_tcp_z_offset_m);
+      right_receive_pose.orientation = right_receive_plan.grasp_pose.orientation;
+
+      geometry_msgs::msg::Pose right_pre_receive_pose = right_receive_pose;
+      bool right_pre_receive_pose_preset_enabled = false;
+      if (const auto * right_pre_receive_preset =
+          task_presets::findStageWaypointPosePreset(
+            beverage_target,
+            ArmSide::Right,
+            ManufacturingStage::Work,
+            "pre_receive"))
+      {
+        right_pre_receive_pose = makePoseFromPreset(right_pre_receive_preset->pose);
+        right_pre_receive_pose_preset_enabled = true;
+        RCLCPP_INFO(get_logger(), "Beverage right pre-receive waypoint pose preset applied");
+      }
+
+      RCLCPP_INFO(get_logger(), "Beverage serving: moving right arm to pre-receive pose");
+      if (!planAndExecutePoseTarget(
+          get_logger(),
+          right_arm,
+          right_pre_receive_pose,
+          right_tcp_link_,
+          "beverage right pre-receive pose",
+          task_presets::kDefaultPlanExecuteMaxAttempts,
+          pose_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Beverage right pre-receive");
+      if (shouldStopAfterWaypoint(ManufacturingStage::Work, "pre_receive")) {
+        return true;
+      }
+
+      RCLCPP_INFO(get_logger(), "Beverage serving: opening right gripper before receive");
+      if (!openGripperForPickApproach(
+          get_logger(),
+          right_gripper,
+          "Beverage receive",
+          task_presets::kRightBeverageCanReceiveTuning,
+          gripper_open_target_))
+      {
+        return false;
+      }
+      rclcpp::sleep_for(300ms);
+      if (shouldStopAfterWaypoint(ManufacturingStage::Work, "receive_open")) {
+        return true;
+      }
+
+      if (right_pre_receive_pose_preset_enabled) {
+        right_receive_pose = right_pre_receive_pose;
+        right_receive_pose.position.x = left_handoff_pose.position.x;
+        right_receive_pose.position.y = left_handoff_pose.position.y;
+        right_receive_pose.position.z =
+          left_handoff_pose.position.z + task_presets::kBeverageHandoffRightFromLeftZOffsetM;
+        RCLCPP_INFO(
+          get_logger(),
+          "Beverage right receive pose centered on handoff can: xyz=[%.3f %.3f %.3f]",
+          right_receive_pose.position.x,
+          right_receive_pose.position.y,
+          right_receive_pose.position.z);
+      }
+
+      RCLCPP_INFO(get_logger(), "Beverage serving: planning right arm to receive grasp pose");
+      if (!planAndExecutePoseTarget(
+          get_logger(),
+          right_arm,
+          right_receive_pose,
+          right_tcp_link_,
+          "beverage right receive pose",
+          task_presets::kDefaultPlanExecuteMaxAttempts,
+          pose_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Beverage right receive");
+      if (shouldStopAfterWaypoint(ManufacturingStage::Work, "receive")) {
+        return true;
+      }
+
+      if (!closeGripperForPick(
+          get_logger(),
+          right_gripper,
+          "Beverage receive",
+          task_presets::kRightBeverageCanReceiveTuning,
+          gripper_grasp_target_))
+      {
+        return false;
+      }
+      rclcpp::sleep_for(300ms);
+      if (shouldStopAfterWaypoint(ManufacturingStage::Work, "receive_close")) {
+        return true;
+      }
+
+      RCLCPP_INFO(get_logger(), "Beverage serving: releasing left gripper after handoff");
+      if (!openGripperForPickApproach(
+          get_logger(),
+          left_gripper,
+          "Beverage handoff release",
+          task_presets::kLeftBeverageCanPickTuning,
+          gripper_open_target_))
+      {
+        return false;
+      }
+      rclcpp::sleep_for(300ms);
+
+      const auto * left_pull_out_preset =
+        task_presets::findStageWaypointPosePreset(
+          beverage_target,
+          ArmSide::Left,
+          ManufacturingStage::Work,
+          "left_pull_out");
+      if (left_pull_out_preset == nullptr || !left_pull_out_preset->pose.enabled) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "Beverage left_pull_out waypoint pose preset is disabled; "
+          "set work.left_pull_out before running past receive_close");
+        return false;
+      }
+
+      const auto left_pull_out_pose = makePoseFromPreset(left_pull_out_preset->pose);
+      RCLCPP_INFO(get_logger(), "Beverage left pull-out waypoint pose preset applied");
+      RCLCPP_INFO(get_logger(), "Beverage serving: Cartesian left-arm pull-out after handoff");
+      if (!executeCartesian(
+          get_logger(),
+          left_arm,
+          {left_pull_out_pose},
+          "beverage left handoff pull-out",
+          cartesian_eef_step_,
+          min_cartesian_fraction_,
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Beverage left pull-out");
+      if (shouldStopAfterWaypoint(ManufacturingStage::Work, "left_pull_out")) {
+        return true;
+      }
+
+      RCLCPP_INFO(get_logger(), "Beverage serving: moving left arm away after handoff");
+      if (!left_ready_joints_.empty()) {
+        left_arm.rememberJointValues(left_ready_pose_name_, left_ready_joints_);
+      }
+      left_arm.clearPoseTargets();
+      setBoundedStartState(left_arm);
+      left_arm.setNamedTarget(left_ready_pose_name_);
+      if (!planAndExecute(
+          get_logger(),
+          left_arm,
+          "beverage left retreat after handoff",
+          task_presets::kDefaultPlanExecuteMaxAttempts,
+          pose_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Beverage left retreat");
+      if (shouldStopAfterWaypoint(ManufacturingStage::Work, "left_retreat")) {
+        return true;
+      }
+
+      if (shouldStopAfter(ManufacturingStage::Work)) {
+        return true;
+      }
+    }
+
+    if (!shouldRunStage(ManufacturingStage::Place)) {
+      RCLCPP_INFO(get_logger(), "Beverage serving completed before place stage");
+      return true;
+    }
+
+    const Eigen::Matrix3d pickup_rotation = rotationFromRpy(pickup_zone.rpy);
+    const Eigen::Vector3d pickup_center =
+      pickup_zone.xyz + pickup_rotation * pickup_zone.local_center;
+    const double pickup_top_z = pickup_center.z() + pickup_zone.size.z() * 0.5;
+
+    geometry_msgs::msg::Pose release_pose = right_arm.getCurrentPose(right_tcp_link_).pose;
+    release_pose.position.x = pickup_center.x();
+    release_pose.position.y = pickup_center.y() + beveragePickupZoneYOffset(beverage_target);
+    release_pose.position.z =
+      pickup_top_z +
+      beverage_target_object.size.z() * 0.5 +
+      task_presets::kBeveragePickupPlaceClearanceM +
+      task_presets::kRightBeverageCanReceiveWorldZOffsetM;
+
+    const auto * approach_preset =
+      task_presets::findStageWaypointPosePreset(
+        beverage_target,
+        ArmSide::Right,
+        ManufacturingStage::Place,
+        "approach");
+    const bool approach_preset_enabled =
+      approach_preset != nullptr && approach_preset->pose.enabled;
+
+    const auto * release_preset =
+      task_presets::findStageWaypointPosePreset(
+        beverage_target,
+        ArmSide::Right,
+        ManufacturingStage::Place,
+        "release_pose");
+    const bool release_preset_enabled =
+      release_preset != nullptr && release_preset->pose.enabled;
+    if (release_preset_enabled)
+    {
+      release_pose = makePoseFromPreset(release_preset->pose);
+      RCLCPP_INFO(get_logger(), "Beverage pickup release_pose waypoint pose preset applied");
+    } else if (approach_preset_enabled) {
+      const auto guide_pose = makePoseFromPreset(approach_preset->pose);
+      release_pose.position.x = guide_pose.position.x;
+      release_pose.position.y = guide_pose.position.y;
+      release_pose.orientation = guide_pose.orientation;
+      RCLCPP_INFO(
+        get_logger(),
+        "Beverage pickup release_pose uses approach waypoint xy/orientation with computed z");
+    } else {
+      PickPlan place_plan =
+        makeHorizontalPickPlan(
+          TargetObject{
+            "beverage_pickup_place",
+            "",
+            Eigen::Vector3d(
+              release_pose.position.x,
+              release_pose.position.y,
+              release_pose.position.z),
+            Eigen::Vector3d::Zero(),
+            Eigen::Vector3d::Zero(),
+            beverage_target_object.size},
+          -Eigen::Vector3d::UnitY(),
+          Eigen::Vector3d::UnitX(),
+          0.0,
+          0.0,
+          task_presets::kRightBeverageCanReceiveTuning.grasp_tcp_z_offset_m);
+      release_pose.orientation = place_plan.grasp_pose.orientation;
+    }
+
+    geometry_msgs::msg::Pose approach_pose = release_pose;
+    approach_pose.position.z += task_presets::kBeveragePickupApproachHeightM;
+    if (approach_preset_enabled)
+    {
+      approach_pose = makePoseFromPreset(approach_preset->pose);
+      RCLCPP_INFO(get_logger(), "Beverage pickup approach waypoint pose preset applied");
+    }
+
+    RCLCPP_INFO(get_logger(), "Beverage serving: moving right arm to pickup approach");
+    if (!planAndExecutePoseTarget(
+        get_logger(),
+        right_arm,
+        approach_pose,
+        right_tcp_link_,
+        "beverage pickup approach",
+        task_presets::kDefaultPlanExecuteMaxAttempts,
+        pose_min_duration_sec_))
+    {
+      return false;
+    }
+    logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Beverage pickup approach");
+    if (shouldStopAfterWaypoint(ManufacturingStage::Place, "approach")) {
+      return true;
+    }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Beverage serving: moving right arm to pickup release xyz=[%.3f %.3f %.3f]",
+      release_pose.position.x,
+      release_pose.position.y,
+      release_pose.position.z);
+    if (approach_preset_enabled && !release_preset_enabled) {
+      if (!executeCartesian(
+          get_logger(),
+          right_arm,
+          {release_pose},
+          "beverage pickup release",
+          cartesian_eef_step_,
+          min_cartesian_fraction_,
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
+      {
+        return false;
+      }
+    } else if (!planAndExecutePoseTarget(
+        get_logger(),
+        right_arm,
+        release_pose,
+        right_tcp_link_,
+        "beverage pickup release",
+        task_presets::kDefaultPlanExecuteMaxAttempts,
+        pose_min_duration_sec_))
+    {
+      return false;
+    }
+    logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Beverage pickup release");
+    if (shouldStopAfterWaypoint(ManufacturingStage::Place, "release_pose")) {
+      return true;
+    }
+
+    RCLCPP_INFO(get_logger(), "Beverage serving: opening right gripper");
+    if (!openGripperForPickApproach(
+        get_logger(),
+        right_gripper,
+        "Beverage place",
+        task_presets::kRightBeverageCanReceiveTuning,
+        gripper_open_target_))
+    {
+      return false;
+    }
+    rclcpp::sleep_for(300ms);
+    if (shouldStopAfterWaypoint(ManufacturingStage::Place, "release")) {
+      return true;
+    }
+
+    if (shouldRunStage(ManufacturingStage::ReturnHome)) {
+      RCLCPP_INFO(get_logger(), "Beverage serving: Cartesian right-arm retreat");
+      if (!executeCartesian(
+          get_logger(),
+          right_arm,
+          {approach_pose},
+          "beverage pickup retreat",
+          cartesian_eef_step_,
+          min_cartesian_fraction_,
+          cartesian_avoid_collisions_,
+          velocity_scaling_,
+          acceleration_scaling_,
+          cartesian_min_duration_sec_))
+      {
+        return false;
+      }
+      if (!planAndExecuteReturnHome(
+          right_arm,
+          beverage_target,
+          ArmSide::Right,
+          right_tcp_link_,
+          "Beverage right arm"))
+      {
+        return false;
+      }
+      if (!planAndExecuteReturnHome(
+          left_arm,
+          beverage_target,
+          ArmSide::Left,
+          left_tcp_link_,
+          "Beverage left arm"))
+      {
+        return false;
+      }
+    }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Beverage %s serving completed",
+      task_presets::targetName(beverage_target));
+    return true;
   }
 
   bool runKetchupPick()
@@ -3813,6 +4425,8 @@ private:
   std::string bread_target_model_;
   std::string sausage_target_model_;
   std::string ketchup_target_model_;
+  std::string coke_target_model_;
+  std::string coffee_target_model_;
   ManufacturingStage start_stage_{ManufacturingStage::Home};
   std::string play_to_stage_name_;
   std::string start_from_waypoint_name_;
