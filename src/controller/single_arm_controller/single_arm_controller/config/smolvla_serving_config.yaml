@@ -2,12 +2,13 @@
 
 # ── 환경 ────────────────────────────────────────────────────────────────────
 env:
-  venv_path: /home/jr/ws/physical-ai-repo-3/.venv
+  venv_path:            /home/jr/ws/physical-ai-repo-3/.venv
+  mediapipe_model_path: /home/jr/ws/physical-ai-repo-3/models/hand_landmarker.task
 
 # ── 모델 ────────────────────────────────────────────────────────────────────
 model:
-  pickup_path:  /home/jr/ws/lerobot/outputs/smolvla_pickup/pretrained_model
-  serving_path: /home/jr/ws/lerobot/outputs/smolvla_serving/pretrained_model
+  pickup_path:  /home/jr/ws/lerobot/outputs/smolvla_serving_with_palm/075000/pretrained_model
+  serving_path: /home/jr/ws/lerobot/outputs/smolvla_serving_with_palm/075000/pretrained_model
   device:       cuda
   robot_type:   omx_follower
 
