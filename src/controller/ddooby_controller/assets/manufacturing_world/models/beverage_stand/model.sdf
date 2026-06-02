@@ -20,11 +20,6 @@
             <uri>meshes/beverage_stand.obj</uri>
           </mesh>
         </geometry>
-        <material>
-          <ambient>0.112500 0.112500 0.105000 1.000000</ambient>
-          <diffuse>0.450000 0.450000 0.420000 1.000000</diffuse>
-          <specular>0.120000 0.120000 0.120000 1.000000</specular>
-        </material>
       </visual>
       <collision name="beverage_stand_beverage_stand_base_collision">
         <pose>-0.025909603 0.149219140 -0.054576635 0 0 0</pose>

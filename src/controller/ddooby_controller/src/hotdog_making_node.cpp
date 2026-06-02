@@ -7,6 +7,7 @@
 #include <future>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -31,6 +32,7 @@
 #include <moveit_msgs/srv/get_planning_scene.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
+#include <vision_msgs/msg/detection3_d_array.hpp>
 
 #include "ddooby_controller/manufacturing_task_presets.hpp"
 
@@ -77,6 +79,17 @@ struct TargetObject
   Eigen::Vector3d xyz{Eigen::Vector3d::Zero()};
   Eigen::Vector3d rpy{Eigen::Vector3d::Zero()};
   Eigen::Vector3d local_center{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d size{Eigen::Vector3d::Zero()};
+  bool pose_from_vision{false};
+};
+
+struct VisionPickDetection
+{
+  std::string class_id;
+  double score{0.0};
+  rclcpp::Time stamp;
+  std::string frame_id;
+  geometry_msgs::msg::Pose pose;
   Eigen::Vector3d size{Eigen::Vector3d::Zero()};
 };
 
@@ -537,6 +550,94 @@ Eigen::Quaterniond poseOrientation(const geometry_msgs::msg::Pose & pose)
   return orientation;
 }
 
+Eigen::Vector3d rpyFromRotation(const Eigen::Matrix3d & rotation)
+{
+  const double pitch = std::asin(std::clamp(-rotation(2, 0), -1.0, 1.0));
+  const double cos_pitch = std::cos(pitch);
+  double roll = 0.0;
+  double yaw = 0.0;
+  if (std::abs(cos_pitch) > 1e-6) {
+    roll = std::atan2(rotation(2, 1), rotation(2, 2));
+    yaw = std::atan2(rotation(1, 0), rotation(0, 0));
+  } else {
+    roll = std::atan2(-rotation(1, 2), rotation(1, 1));
+    yaw = 0.0;
+  }
+  return Eigen::Vector3d(roll, pitch, yaw);
+}
+
+Eigen::Vector3d objectWorldCenter(const TargetObject & target)
+{
+  return target.xyz + rotationFromRpy(target.rpy) * target.local_center;
+}
+
+std::vector<std::string> visionClassAliases(
+  ManufacturingTarget target,
+  const std::string & target_model)
+{
+  std::vector<std::string> aliases{
+    normalizeStageName(target_model),
+    normalizeStageName(task_presets::targetName(target)),
+  };
+
+  switch (target) {
+    case ManufacturingTarget::Bread:
+      aliases.insert(aliases.end(), {"bread", "bun", "hotdogbun"});
+      break;
+    case ManufacturingTarget::Case:
+      aliases.insert(aliases.end(), {"case", "tray", "box", "hotdogcase"});
+      break;
+    case ManufacturingTarget::Coffee:
+      aliases.insert(aliases.end(), {"coffee", "can", "cancoffee", "cup"});
+      break;
+    case ManufacturingTarget::Coke:
+      aliases.insert(aliases.end(), {"coke", "cola", "can", "cancoke"});
+      break;
+    case ManufacturingTarget::Ketchup:
+      aliases.insert(aliases.end(), {"ketchup", "kachup", "bottle"});
+      break;
+    case ManufacturingTarget::Sausage:
+      aliases.insert(aliases.end(), {"sausage", "hotdogsausage"});
+      break;
+    case ManufacturingTarget::Hotdog:
+      aliases.insert(aliases.end(), {"hotdog", "newyorkhotdog"});
+      break;
+  }
+
+  std::sort(aliases.begin(), aliases.end());
+  aliases.erase(std::remove_if(
+      aliases.begin(),
+      aliases.end(),
+      [](const std::string & alias) {return alias.empty();}),
+    aliases.end());
+  aliases.erase(std::unique(aliases.begin(), aliases.end()), aliases.end());
+  return aliases;
+}
+
+bool visionClassMatches(
+  const std::string & class_id,
+  ManufacturingTarget target,
+  const std::string & target_model)
+{
+  const std::string normalized_class = normalizeStageName(class_id);
+  for (const std::string & alias : visionClassAliases(target, target_model)) {
+    if (normalized_class == alias) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool poseHasValidOrientation(const geometry_msgs::msg::Pose & pose)
+{
+  const double norm_squared =
+    pose.orientation.x * pose.orientation.x +
+    pose.orientation.y * pose.orientation.y +
+    pose.orientation.z * pose.orientation.z +
+    pose.orientation.w * pose.orientation.w;
+  return norm_squared > 1e-8;
+}
+
 Eigen::Vector3d heldCaseCenterFromTcpPose(const geometry_msgs::msg::Pose & right_tcp_pose)
 {
   const Eigen::Matrix3d right_tcp_rotation = poseOrientation(right_tcp_pose).toRotationMatrix();
@@ -576,20 +677,17 @@ void applyStageWaypointPosePreset(
   ArmSide arm,
   task_presets::ManufacturingStage stage,
   const char * waypoint,
-  geometry_msgs::msg::Pose & pose)
+  geometry_msgs::msg::Pose & pose,
+  const PoseAxisReferenceValues & references = PoseAxisReferenceValues{})
 {
   const auto * preset = task_presets::findStageWaypointPosePreset(target, arm, stage, waypoint);
   if (preset == nullptr) {
     return;
   }
 
-  pose = makePoseFromPreset(preset->pose);
-
-  RCLCPP_INFO(
-    logger,
-    "Stage waypoint pose preset applied: %s.%s full_pose=override",
-    task_presets::stageName(stage),
-    waypoint);
+  const std::string label =
+    std::string(task_presets::stageName(stage)) + "." + waypoint;
+  pose = makePoseFromWaypointPreset(logger, *preset, references, label.c_str());
 }
 
 bool hasStageWaypointPosePreset(
@@ -719,6 +817,55 @@ moveit_msgs::msg::CollisionObject makeCollisionObjectFromSdf(
 
     const Eigen::Vector3d global_center =
       model_xyz + model_rotation * primitive_spec.center;
+    const Eigen::Matrix3d global_rotation =
+      model_rotation * rotationFromRpy(primitive_spec.rpy);
+
+    object.primitives.push_back(primitive);
+    object.primitive_poses.push_back(makePose(global_center, Eigen::Quaterniond(global_rotation)));
+  }
+
+  return object;
+}
+
+moveit_msgs::msg::CollisionObject makeCollisionObjectFromTargetObject(
+  const std::string & package_share_directory,
+  const TargetObject & target,
+  const std::string & frame_id)
+{
+  const std::string sdf_path =
+    joinPath(joinPath(package_share_directory, "assets"), joinPath(target.model_dir, "model.sdf"));
+  const std::vector<CollisionPrimitiveSpec> primitives =
+    parseCollisionPrimitives(readTextFile(sdf_path));
+  if (primitives.empty()) {
+    throw std::runtime_error("target model '" + target.name + "' has no supported collision geometry");
+  }
+
+  const Eigen::Matrix3d model_rotation = rotationFromRpy(target.rpy);
+
+  moveit_msgs::msg::CollisionObject object;
+  object.header.frame_id = frame_id;
+  object.id = target.name;
+  object.operation = moveit_msgs::msg::CollisionObject::ADD;
+
+  for (const CollisionPrimitiveSpec & primitive_spec : primitives) {
+    shape_msgs::msg::SolidPrimitive primitive;
+    if (primitive_spec.type == CollisionPrimitiveSpec::Type::Cylinder) {
+      primitive.type = shape_msgs::msg::SolidPrimitive::CYLINDER;
+      primitive.dimensions.resize(2);
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_HEIGHT] =
+        primitive_spec.length;
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_RADIUS] =
+        primitive_spec.radius;
+    } else {
+      primitive.type = shape_msgs::msg::SolidPrimitive::BOX;
+      primitive.dimensions.resize(3);
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_X] = primitive_spec.size.x();
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Y] = primitive_spec.size.y();
+      primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z] = primitive_spec.size.z();
+    }
+
+    const Eigen::Vector3d global_center =
+      target.xyz + model_rotation * primitive_spec.center;
     const Eigen::Matrix3d global_rotation =
       model_rotation * rotationFromRpy(primitive_spec.rpy);
 
@@ -1725,6 +1872,35 @@ public:
       "max_pre_grasp_xy_error",
       task_presets::kDefaultMaxPreGraspXyError);
     dry_run_ = declare_parameter<bool>("dry_run", false);
+    enable_vision_pick_ = declare_parameter<bool>("enable_vision_pick", false);
+    vision_detections_topic_ =
+      declare_parameter<std::string>("vision_detections_topic", "/manufacturing_vision/detections");
+    vision_pick_timeout_sec_ = declare_parameter<double>("vision_pick_timeout_sec", 2.0);
+    vision_pick_max_age_sec_ = declare_parameter<double>("vision_pick_max_age_sec", 2.0);
+    vision_pick_max_distance_m_ = declare_parameter<double>("vision_pick_max_distance_m", 0.15);
+    vision_pick_min_score_ = declare_parameter<double>("vision_pick_min_score", 0.25);
+    vision_pick_required_ = declare_parameter<bool>("vision_pick_required", false);
+    vision_pick_use_orientation_ = declare_parameter<bool>("vision_pick_use_orientation", false);
+    vision_pick_use_size_ = declare_parameter<bool>("vision_pick_use_size", false);
+
+    if (enable_vision_pick_) {
+      vision_detection_sub_ =
+        create_subscription<vision_msgs::msg::Detection3DArray>(
+        vision_detections_topic_,
+        rclcpp::QoS(10),
+        [this](vision_msgs::msg::Detection3DArray::SharedPtr msg) {
+          handleVisionDetections(msg);
+        });
+      RCLCPP_INFO(
+        get_logger(),
+        "Vision pick enabled: topic=%s timeout=%.2fs max_age=%.2fs max_distance=%.3fm min_score=%.2f required=%s",
+        vision_detections_topic_.c_str(),
+        vision_pick_timeout_sec_,
+        vision_pick_max_age_sec_,
+        vision_pick_max_distance_m_,
+        vision_pick_min_score_,
+        vision_pick_required_ ? "true" : "false");
+    }
 
     try {
       start_stage_ = ManufacturingStage::Home;
@@ -2122,6 +2298,8 @@ private:
       hasStageWaypointPosePreset(config.target, config.arm, ManufacturingStage::Pick, "pre_grasp");
     const bool pick_pose_configured =
       hasStageWaypointPosePreset(config.target, config.arm, ManufacturingStage::Pick, "grasp");
+    PoseAxisReferenceValues pick_axis_references;
+    pick_axis_references.target_position = objectWorldCenter(target);
     if (pre_grasp_pose_configured) {
       applyStageWaypointPosePreset(
         get_logger(),
@@ -2129,7 +2307,8 @@ private:
         config.arm,
         task_presets::ManufacturingStage::Pick,
         "pre_grasp",
-        pick_plan.pre_grasp_pose);
+        pick_plan.pre_grasp_pose,
+        pick_axis_references);
     }
     if (pick_pose_configured) {
       applyStageWaypointPosePreset(
@@ -2138,7 +2317,8 @@ private:
         config.arm,
         task_presets::ManufacturingStage::Pick,
         "grasp",
-        pick_plan.grasp_pose);
+        pick_plan.grasp_pose,
+        pick_axis_references);
     }
     if (!pre_grasp_pose_configured && pick_pose_configured) {
       pick_plan.pre_grasp_pose.position = pick_plan.grasp_pose.position;
@@ -2201,6 +2381,9 @@ private:
     moveit::planning_interface::MoveGroupInterface arm(self, config.arm_group);
     moveit::planning_interface::MoveGroupInterface gripper(self, config.gripper_group);
     moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+    if (!applyVisionCollisionObjectIfNeeded(planning_scene_interface, target, config.log_label)) {
+      return false;
+    }
 
     arm.setPlanningTime(planning_time_sec_);
     arm.setNumPlanningAttempts(planning_attempts_);
@@ -2781,6 +2964,9 @@ private:
       RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", bread_target_model.c_str(), error.what());
       return false;
     }
+    if (!applyVisionPickTarget(ManufacturingTarget::Bread, bread_target_model, target)) {
+      return false;
+    }
 
     PickPlan pick_plan =
       makeTopDownPickPlan(
@@ -2827,6 +3013,237 @@ private:
       RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", target_model.c_str(), error.what());
       return false;
     }
+    return true;
+  }
+
+  void handleVisionDetections(const vision_msgs::msg::Detection3DArray::SharedPtr msg)
+  {
+    std::vector<VisionPickDetection> detections;
+    detections.reserve(msg->detections.size());
+
+    rclcpp::Time stamp(msg->header.stamp);
+    if (stamp.nanoseconds() == 0) {
+      stamp = get_clock()->now();
+    }
+
+    for (const auto & detection : msg->detections) {
+      if (detection.results.empty()) {
+        continue;
+      }
+
+      const auto best_result = std::max_element(
+        detection.results.begin(),
+        detection.results.end(),
+        [](const auto & left, const auto & right) {
+          return left.hypothesis.score < right.hypothesis.score;
+        });
+      if (best_result == detection.results.end()) {
+        continue;
+      }
+
+      VisionPickDetection stored_detection;
+      stored_detection.class_id = best_result->hypothesis.class_id;
+      stored_detection.score = best_result->hypothesis.score;
+      stored_detection.stamp = stamp;
+      stored_detection.frame_id = msg->header.frame_id;
+      stored_detection.pose = detection.bbox.center;
+      stored_detection.size =
+        Eigen::Vector3d(detection.bbox.size.x, detection.bbox.size.y, detection.bbox.size.z);
+      detections.push_back(stored_detection);
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(vision_detections_mutex_);
+      latest_vision_detections_ = std::move(detections);
+      latest_vision_detection_stamp_ = stamp;
+    }
+  }
+
+  std::optional<VisionPickDetection> findVisionPickDetection(
+    ManufacturingTarget target_kind,
+    const std::string & target_model,
+    const TargetObject & target)
+  {
+    std::vector<VisionPickDetection> detections;
+    {
+      std::lock_guard<std::mutex> lock(vision_detections_mutex_);
+      detections = latest_vision_detections_;
+    }
+
+    if (detections.empty()) {
+      return std::nullopt;
+    }
+
+    const rclcpp::Time now = get_clock()->now();
+    const Eigen::Vector3d expected_center = objectWorldCenter(target);
+    double best_distance = std::numeric_limits<double>::infinity();
+    std::optional<VisionPickDetection> best_detection;
+
+    for (const auto & detection : detections) {
+      if (detection.score < vision_pick_min_score_) {
+        continue;
+      }
+      if (!detection.frame_id.empty() && detection.frame_id != "world") {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(),
+          *get_clock(),
+          2000,
+          "Vision pick ignores detection '%s' in frame '%s'; expected world frame",
+          detection.class_id.c_str(),
+          detection.frame_id.c_str());
+        continue;
+      }
+      if (!visionClassMatches(detection.class_id, target_kind, target_model)) {
+        continue;
+      }
+
+      const double age_sec = (now - detection.stamp).seconds();
+      if (std::isfinite(age_sec) && std::abs(age_sec) > vision_pick_max_age_sec_) {
+        continue;
+      }
+
+      const Eigen::Vector3d detection_center = posePosition(detection.pose);
+      const double distance = (detection_center - expected_center).norm();
+      if (vision_pick_max_distance_m_ > 0.0 && distance > vision_pick_max_distance_m_) {
+        continue;
+      }
+      if (distance < best_distance) {
+        best_distance = distance;
+        best_detection = detection;
+      }
+    }
+
+    return best_detection;
+  }
+
+  std::optional<VisionPickDetection> waitForVisionPickDetection(
+    ManufacturingTarget target_kind,
+    const std::string & target_model,
+    const TargetObject & target)
+  {
+    const rclcpp::Time deadline =
+      get_clock()->now() + rclcpp::Duration::from_seconds(vision_pick_timeout_sec_);
+
+    while (rclcpp::ok() && get_clock()->now() < deadline) {
+      if (const auto detection = findVisionPickDetection(target_kind, target_model, target)) {
+        return detection;
+      }
+      rclcpp::sleep_for(100ms);
+    }
+
+    return findVisionPickDetection(target_kind, target_model, target);
+  }
+
+  bool applyVisionPickTarget(
+    ManufacturingTarget target_kind,
+    const std::string & target_model,
+    TargetObject & target)
+  {
+    if (!enable_vision_pick_ || !shouldRunStage(ManufacturingStage::Pick)) {
+      return true;
+    }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Vision pick: waiting up to %.2fs for %s/%s detection",
+      vision_pick_timeout_sec_,
+      task_presets::targetName(target_kind),
+      target_model.c_str());
+    const auto detection = waitForVisionPickDetection(target_kind, target_model, target);
+    if (!detection.has_value()) {
+      if (vision_pick_required_) {
+        const std::string message =
+          "Vision pick: no matching detection for " +
+          std::string(task_presets::targetName(target_kind)) +
+          "/" + target_model + "; aborting";
+        RCLCPP_ERROR(get_logger(), "%s", message.c_str());
+        return false;
+      }
+      const std::string message =
+        "Vision pick: no matching detection for " +
+        std::string(task_presets::targetName(target_kind)) +
+        "/" + target_model + "; using layout target";
+      RCLCPP_WARN(get_logger(), "%s", message.c_str());
+      return true;
+    }
+
+    const Eigen::Vector3d previous_center = objectWorldCenter(target);
+    const Eigen::Vector3d detection_center = posePosition(detection->pose);
+
+    if (vision_pick_use_orientation_ && poseHasValidOrientation(detection->pose)) {
+      const Eigen::Matrix3d detection_rotation = poseOrientation(detection->pose).toRotationMatrix();
+      const Eigen::Vector3d horizontal_x(
+        detection_rotation(0, 0),
+        detection_rotation(1, 0),
+        0.0);
+      if (horizontal_x.norm() > 1e-6) {
+        target.rpy.z() = std::atan2(horizontal_x.y(), horizontal_x.x());
+      }
+    }
+
+    if (vision_pick_use_size_ &&
+      detection->size.x() > 0.005 &&
+      detection->size.y() > 0.005 &&
+      detection->size.z() > 0.005)
+    {
+      target.size = detection->size;
+    }
+
+    target.xyz = detection_center - rotationFromRpy(target.rpy) * target.local_center;
+    target.pose_from_vision = true;
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Vision pick target '%s': class=%s score=%.3f center [%.3f %.3f %.3f] -> [%.3f %.3f %.3f], xyz=[%.3f %.3f %.3f]",
+      target.name.c_str(),
+      detection->class_id.c_str(),
+      detection->score,
+      previous_center.x(),
+      previous_center.y(),
+      previous_center.z(),
+      detection_center.x(),
+      detection_center.y(),
+      detection_center.z(),
+      target.xyz.x(),
+      target.xyz.y(),
+      target.xyz.z());
+    return true;
+  }
+
+  bool applyVisionCollisionObjectIfNeeded(
+    moveit::planning_interface::PlanningSceneInterface & planning_scene_interface,
+    const TargetObject & target,
+    const std::string & log_label)
+  {
+    if (!target.pose_from_vision) {
+      return true;
+    }
+
+    std::string package_share_directory;
+    try {
+      package_share_directory = ament_index_cpp::get_package_share_directory("ddooby_controller");
+      auto collision_object =
+        makeCollisionObjectFromTargetObject(package_share_directory, target, "world");
+      RCLCPP_INFO(
+        get_logger(),
+        "%s: updating collision object '%s' from vision target with %zu primitive(s)",
+        log_label.c_str(),
+        collision_object.id.c_str(),
+        collision_object.primitives.size());
+      planning_scene_interface.applyCollisionObject(collision_object);
+      if (collision_scene_settle_ms_ > 0) {
+        rclcpp::sleep_for(std::chrono::milliseconds(collision_scene_settle_ms_));
+      }
+    } catch (const std::exception & error) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "%s: failed to update vision collision object '%s': %s",
+        log_label.c_str(),
+        target.name.c_str(),
+        error.what());
+      return false;
+    }
+
     return true;
   }
 
@@ -3003,6 +3420,9 @@ private:
       RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", case_target_model.c_str(), error.what());
       return false;
     }
+    if (!applyVisionPickTarget(ManufacturingTarget::Case, case_target_model, target)) {
+      return false;
+    }
 
     PickPlan pick_plan =
       makeHorizontalPickPlan(
@@ -3062,6 +3482,9 @@ private:
       RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", sausage_target_model.c_str(), error.what());
       return false;
     }
+    if (!applyVisionPickTarget(ManufacturingTarget::Sausage, sausage_target_model, target)) {
+      return false;
+    }
 
     PickPlan pick_plan =
       makeTopDownPickPlan(
@@ -3118,6 +3541,9 @@ private:
 
     TargetObject target;
     if (!loadManufacturingTarget(beverage_target_model, target)) {
+      return false;
+    }
+    if (!applyVisionPickTarget(beverage_target, beverage_target_model, target)) {
       return false;
     }
 
@@ -3692,6 +4118,9 @@ private:
       target = loadTargetObject(package_share_directory, layout_path, ketchup_target_model);
     } catch (const std::exception & error) {
       RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", ketchup_target_model.c_str(), error.what());
+      return false;
+    }
+    if (!applyVisionPickTarget(ManufacturingTarget::Ketchup, ketchup_target_model, target)) {
       return false;
     }
 
@@ -4921,6 +5350,19 @@ private:
   std::set<std::string> attached_collision_objects_;
   double max_pre_grasp_xy_error_{task_presets::kDefaultMaxPreGraspXyError};
   bool dry_run_{false};
+  bool enable_vision_pick_{false};
+  std::string vision_detections_topic_;
+  double vision_pick_timeout_sec_{2.0};
+  double vision_pick_max_age_sec_{2.0};
+  double vision_pick_max_distance_m_{0.15};
+  double vision_pick_min_score_{0.25};
+  bool vision_pick_required_{false};
+  bool vision_pick_use_orientation_{false};
+  bool vision_pick_use_size_{false};
+  rclcpp::Subscription<vision_msgs::msg::Detection3DArray>::SharedPtr vision_detection_sub_;
+  std::mutex vision_detections_mutex_;
+  std::vector<VisionPickDetection> latest_vision_detections_;
+  rclcpp::Time latest_vision_detection_stamp_;
 };
 }  // namespace
 

@@ -7,10 +7,14 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(custom_msg REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
+find_package(moveit_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(shape_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(vision_msgs REQUIRED)
 find_package(gz-msgs10 REQUIRED)
 find_package(gz-transport13 REQUIRED)
 find_package(ros_gz_interfaces REQUIRED)
@@ -29,8 +33,12 @@ target_include_directories(hotdog_making_node PRIVATE
 )
 ament_target_dependencies(hotdog_making_node
   ament_index_cpp
+  geometry_msgs
   moveit_ros_planning_interface
+  moveit_msgs
   rclcpp
+  shape_msgs
+  vision_msgs
 )
 
 add_executable(drink_serving_node src/drink_serving_node.cpp)
@@ -70,6 +78,7 @@ install(TARGETS
 )
 
 install(PROGRAMS
+  scripts/gazebo_yolo_pose_node.py
   scripts/sync_planning_scene_from_layout.py
   DESTINATION lib/${PROJECT_NAME}
 )

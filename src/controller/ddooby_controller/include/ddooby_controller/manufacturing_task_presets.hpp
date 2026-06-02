@@ -485,7 +485,13 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Pick,
     "pre_grasp",
-    {true, 0.391, 0.077, 0.401, 1.000, -0.001, -0.003, 0.000}
+    {true, 0.391, 0.077, 0.401, 1.000, -0.001, -0.003, 0.000},
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::Preset,
+    0.009,
+    -0.045,
+    0.0
   },
   // 빵 pick stage: 빵 집기 pose. 비활성화 시 자동 계산.
   {
@@ -509,7 +515,13 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Pick,
     "pre_grasp",
-    {true, 0.324, -0.201, 0.398, 0.721, 0.000, 0.693, -0.000}
+    {true, 0.324, -0.201, 0.398, 0.721, 0.000, 0.693, -0.000},
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::Preset,
+    -0.160,
+    -0.076,
+    0.0
   },
   // 케이스 pick stage: 케이스 집기 pose. 비활성화 시 자동 계산.
   {
@@ -533,7 +545,13 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Pick,
     "pre_grasp",
-    {true, 0.391, 0.259, 0.401, 1.000, -0.001, -0.003, -0.000}
+    {true, 0.391, 0.259, 0.401, 1.000, -0.001, -0.003, -0.000},
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::Preset,
+    0.005,
+    -0.057,
+    0.0
   },
   // 소시지 pick stage: 소시지 집기 pose. 비활성화 시 자동 계산.
   {
@@ -557,7 +575,13 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Pick,
     "pre_grasp",
-    {true, 0.438, 0.205, 0.600, 0.711, 0.036, 0.701, 0.035}
+    {true, 0.438, 0.205, 0.600, 0.711, 0.036, 0.701, 0.035},
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::Preset,
+    -0.098,
+    -0.002,
+    0.0
   },
   // 케첩 pick stage: 케첩 집기 pose. 비활성화 시 자동 계산.
   {
@@ -605,7 +629,13 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Pick,
     "pre_grasp",
-    {true, 0.438, 0.241, 0.520, 0.711, 0.036, 0.701, 0.035}
+    {true, 0.438, 0.241, 0.520, 0.711, 0.036, 0.701, 0.035},
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::Preset,
+    -0.103,
+    0.0,
+    0.0
   },
   // 콜라 work stage: 왼팔이 오른팔에 캔을 넘겨주는 pose.
   {
@@ -669,7 +699,13 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Pick,
     "pre_grasp",
-    {true, 0.438, 0.086, 0.520, 0.711, 0.036, 0.701, 0.035}
+    {true, 0.438, 0.086, 0.520, 0.711, 0.036, 0.701, 0.035},
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::TargetObject,
+    PoseAxisSource::Preset,
+    -0.103,
+    0.0,
+    0.0
   },
   // 커피 work stage: 왼팔이 오른팔에 캔을 넘겨주는 pose.
   {

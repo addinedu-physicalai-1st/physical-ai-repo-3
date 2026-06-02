@@ -37,6 +37,73 @@
       kinematics="${body_kinematics}"
       kinematics_link="${body_kinematics_link}"/>
 
+    <link name="realsense_d435_link">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="0.072"/>
+        <inertia ixx="0.00002" ixy="0.0" ixz="0.0"
+                 iyy="0.00002" iyz="0.0"
+                 izz="0.00002"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.025 0.090 0.025"/>
+        </geometry>
+        <material name="realsense_d435_dark_gray">
+          <color rgba="0.08 0.08 0.08 1.0"/>
+        </material>
+      </visual>
+    </link>
+
+    <joint name="realsense_d435_mount_joint" type="fixed">
+      <parent link="openarm_body_link0"/>
+      <child link="realsense_d435_link"/>
+      <origin xyz="0.120 0 0.845" rpy="0 0.75 0"/>
+    </joint>
+
+    <link name="realsense_d435_color_optical_frame"/>
+    <joint name="realsense_d435_color_optical_joint" type="fixed">
+      <parent link="realsense_d435_link"/>
+      <child link="realsense_d435_color_optical_frame"/>
+      <origin xyz="0 0 0" rpy="-1.57079632679 0 -1.57079632679"/>
+    </joint>
+
+    <link name="realsense_d435_depth_optical_frame"/>
+    <joint name="realsense_d435_depth_optical_joint" type="fixed">
+      <parent link="realsense_d435_color_optical_frame"/>
+      <child link="realsense_d435_depth_optical_frame"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <gazebo reference="realsense_d435_link">
+      <sensor name="realsense_d435_rgbd" type="rgbd_camera">
+        <always_on>true</always_on>
+        <visualize>true</visualize>
+        <update_rate>15</update_rate>
+        <topic>/realsense_d435</topic>
+        <gz_frame_id>realsense_d435_color_optical_frame</gz_frame_id>
+        <camera name="realsense_d435">
+          <camera_info_topic>/realsense_d435/camera_info</camera_info_topic>
+          <horizontal_fov>1.2112585</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>3.0</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.002</stddev>
+          </noise>
+        </camera>
+      </sensor>
+    </gazebo>
+
     <xacro:openarm_arm
       arm_type="${arm_type}"
       arm_prefix="left_"

@@ -21,8 +21,8 @@
           </mesh>
         </geometry>
         <material>
-          <ambient>0.112500 0.112500 0.105000 1.000000</ambient>
-          <diffuse>0.450000 0.450000 0.420000 1.000000</diffuse>
+          <ambient>0.000000 0.000000 0.000000 1.000000</ambient>
+          <diffuse>0.000000 0.000000 0.000000 1.000000</diffuse>
           <specular>0.120000 0.120000 0.120000 1.000000</specular>
         </material>
       </visual>

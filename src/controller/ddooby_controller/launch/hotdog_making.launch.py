@@ -20,6 +20,15 @@ def generate_launch_description():
     play_to_waypoint = LaunchConfiguration("play_to_waypoint")
     gripper_grasp_target = LaunchConfiguration("gripper_grasp_target")
     dry_run = LaunchConfiguration("dry_run")
+    enable_vision_pick = LaunchConfiguration("enable_vision_pick")
+    vision_detections_topic = LaunchConfiguration("vision_detections_topic")
+    vision_pick_timeout_sec = LaunchConfiguration("vision_pick_timeout_sec")
+    vision_pick_max_age_sec = LaunchConfiguration("vision_pick_max_age_sec")
+    vision_pick_max_distance_m = LaunchConfiguration("vision_pick_max_distance_m")
+    vision_pick_min_score = LaunchConfiguration("vision_pick_min_score")
+    vision_pick_required = LaunchConfiguration("vision_pick_required")
+    vision_pick_use_orientation = LaunchConfiguration("vision_pick_use_orientation")
+    vision_pick_use_size = LaunchConfiguration("vision_pick_use_size")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
     task_arg = DeclareLaunchArgument(
@@ -97,6 +106,55 @@ def generate_launch_description():
         choices=["true", "false"],
         description="Compute the target grasp plan without constructing MoveIt interfaces.",
     )
+    enable_vision_pick_arg = DeclareLaunchArgument(
+        "enable_vision_pick",
+        default_value="false",
+        choices=["true", "false"],
+        description="Update pick target positions from manufacturing vision detections.",
+    )
+    vision_detections_topic_arg = DeclareLaunchArgument(
+        "vision_detections_topic",
+        default_value="/manufacturing_vision/detections",
+        description="vision_msgs/Detection3DArray topic used for vision-based pick target updates.",
+    )
+    vision_pick_timeout_sec_arg = DeclareLaunchArgument(
+        "vision_pick_timeout_sec",
+        default_value="2.0",
+        description="Seconds to wait for a matching vision detection before pick planning.",
+    )
+    vision_pick_max_age_sec_arg = DeclareLaunchArgument(
+        "vision_pick_max_age_sec",
+        default_value="2.0",
+        description="Maximum accepted age in seconds for vision detections.",
+    )
+    vision_pick_max_distance_m_arg = DeclareLaunchArgument(
+        "vision_pick_max_distance_m",
+        default_value="0.15",
+        description="Maximum distance from the layout target center for accepting a vision detection. Use <=0 to disable.",
+    )
+    vision_pick_min_score_arg = DeclareLaunchArgument(
+        "vision_pick_min_score",
+        default_value="0.25",
+        description="Minimum detection confidence for vision-based pick target updates.",
+    )
+    vision_pick_required_arg = DeclareLaunchArgument(
+        "vision_pick_required",
+        default_value="false",
+        choices=["true", "false"],
+        description="Fail the task when no matching vision detection is available.",
+    )
+    vision_pick_use_orientation_arg = DeclareLaunchArgument(
+        "vision_pick_use_orientation",
+        default_value="false",
+        choices=["true", "false"],
+        description="Use detected object yaw for pick target orientation. Existing preset orientation remains default.",
+    )
+    vision_pick_use_size_arg = DeclareLaunchArgument(
+        "vision_pick_use_size",
+        default_value="false",
+        choices=["true", "false"],
+        description="Use detected 3D box size for pick target geometry.",
+    )
     use_sim_time_arg = DeclareLaunchArgument(
         "use_sim_time",
         default_value="true",
@@ -131,6 +189,15 @@ def generate_launch_description():
                 "play_to_waypoint": play_to_waypoint,
                 "gripper_grasp_target": gripper_grasp_target,
                 "dry_run": dry_run,
+                "enable_vision_pick": enable_vision_pick,
+                "vision_detections_topic": vision_detections_topic,
+                "vision_pick_timeout_sec": vision_pick_timeout_sec,
+                "vision_pick_max_age_sec": vision_pick_max_age_sec,
+                "vision_pick_max_distance_m": vision_pick_max_distance_m,
+                "vision_pick_min_score": vision_pick_min_score,
+                "vision_pick_required": vision_pick_required,
+                "vision_pick_use_orientation": vision_pick_use_orientation,
+                "vision_pick_use_size": vision_pick_use_size,
                 "enable_ketchup_squeeze_gripper": PythonExpression(
                     ["'true' if '", use_sim_time, "' == 'false' else 'false'"]
                 ),
@@ -153,6 +220,15 @@ def generate_launch_description():
         play_to_waypoint_arg,
         gripper_grasp_target_arg,
         dry_run_arg,
+        enable_vision_pick_arg,
+        vision_detections_topic_arg,
+        vision_pick_timeout_sec_arg,
+        vision_pick_max_age_sec_arg,
+        vision_pick_max_distance_m_arg,
+        vision_pick_min_score_arg,
+        vision_pick_required_arg,
+        vision_pick_use_orientation_arg,
+        vision_pick_use_size_arg,
         use_sim_time_arg,
         hotdog_making_node,
     ])
