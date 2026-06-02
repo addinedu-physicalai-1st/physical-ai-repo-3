@@ -461,7 +461,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Place,
     "release_pose",
-    {true, 0.012, -0.572, 0.318, 0.510, -0.483, 0.502, 0.504}
+    {true, 0.052, -0.572, 0.318, 0.510, -0.483, 0.502, 0.504}
   },
   // 완성 핫도그 place stage: gripper open 이후 release waypoint. pose preset으로는 사용하지 않음.
   {
@@ -613,7 +613,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Work,
     "handoff",
-    {true, 0.186, 0.028, 0.553, 0.503, -0.504, 0.480, 0.512}
+    {true, 0.186, 0.028, 0.436, 0.503, -0.504, 0.480, 0.512}
   },
   // 콜라 work stage: 오른팔이 캔을 넘겨받기 전 진입 가이드 pose.
   {
@@ -621,7 +621,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Work,
     "pre_receive",
-    {true, 0.170, -0.101, 0.436, 0.511, 0.490, 0.503, -0.495}
+    {true, 0.170, -0.101, 0.553, 0.511, 0.490, 0.503, -0.495}
   },
   // 콜라 work stage: 오른팔 인계 후 왼팔이 캔을 치지 않고 빠지는 pose.
   {
@@ -629,7 +629,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Work,
     "left_pull_out",
-    {true, 0.187, 0.060, 0.553, 0.503, -0.504, 0.480, 0.512}
+    {true, 0.187, 0.060, 0.436, 0.503, -0.504, 0.480, 0.512}
   },
   // 콜라 place stage: pickup zone release pose로 가기 전 오른팔 중간 경유 pose.
   {
@@ -637,7 +637,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Place,
     "approach",
-    {true, -0.009, -0.613, 0.507, 0.499, -0.499, 0.494, 0.507}
+    {true, -0.03, -0.613, 0.507, 0.499, -0.499, 0.494, 0.507}
   },
   // 콜라 place stage: pickup zone에 놓기 직전 pose. 비활성화 시 pickup zone 기준 자동 계산.
   {
@@ -772,12 +772,12 @@ inline constexpr PickTuningPreset kRightBeverageCanReceiveTuning{
 
 // 음료 캔은 왼손이 캔 중심보다 위를 잡고, 오른손이 캔 중심보다 아래를 잡는다.
 // horizontal pick에서 grasp_tcp_z_offset_m은 world z가 아니므로, 음료 전용 world z offset을 별도로 둔다.
-inline constexpr double kLeftBeverageCanGraspWorldZOffsetM = 0.025;
-inline constexpr double kRightBeverageCanReceiveWorldZOffsetM = -0.025;
+inline constexpr double kLeftBeverageCanGraspWorldZOffsetM = -0.025;
+inline constexpr double kRightBeverageCanReceiveWorldZOffsetM = 0.035;
 inline constexpr double kBeverageHandoffRightFromLeftZOffsetM =
   kRightBeverageCanReceiveWorldZOffsetM - kLeftBeverageCanGraspWorldZOffsetM;
 // 왼손이 캔을 놓은 뒤 오른손과 캔을 건드리지 않도록 수평으로 빠지는 거리.
-inline constexpr double kBeverageLeftHandoffRetreatDistanceM = 0.120;
+inline constexpr double kBeverageLeftHandoffRetreatDistanceM = 0.150;
 
 // 음료 캔 pickup zone 배치 높이와 품목별 y offset.
 inline constexpr double kBeveragePickupApproachHeightM = 0.100;
