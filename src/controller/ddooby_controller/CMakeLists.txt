@@ -79,6 +79,7 @@ install(TARGETS
 
 install(PROGRAMS
   scripts/gazebo_yolo_pose_node.py
+  scripts/realsense_hsv_preview.py
   scripts/sync_planning_scene_from_layout.py
   DESTINATION lib/${PROJECT_NAME}
 )

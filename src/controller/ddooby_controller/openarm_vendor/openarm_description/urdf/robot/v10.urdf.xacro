@@ -53,6 +53,8 @@
   <xacro:arg name="hold_current_on_activate" default="true" />
   <xacro:arg name="enable_gravity_comp" default="true" />
   <xacro:arg name="enable_coriolis_comp" default="false" />
+  <xacro:arg name="left_command_enabled" default="true" />
+  <xacro:arg name="right_command_enabled" default="true" />
 
   <xacro:openarm_robot
   arm_type="v10"
@@ -93,6 +95,8 @@
   hold_current_on_activate="$(arg hold_current_on_activate)"
   enable_gravity_comp="$(arg enable_gravity_comp)"
   enable_coriolis_comp="$(arg enable_coriolis_comp)"
+  left_command_enabled="$(arg left_command_enabled)"
+  right_command_enabled="$(arg right_command_enabled)"
   />
 
 </robot>

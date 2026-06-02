@@ -19,6 +19,8 @@ def generate_launch_description():
     hold_current_on_activate = LaunchConfiguration("hold_current_on_activate")
     enable_gravity_comp = LaunchConfiguration("enable_gravity_comp")
     enable_coriolis_comp = LaunchConfiguration("enable_coriolis_comp")
+    left_command_enabled = LaunchConfiguration("left_command_enabled")
+    right_command_enabled = LaunchConfiguration("right_command_enabled")
     robot_controller = LaunchConfiguration("robot_controller")
     scene_wait_timeout_sec = LaunchConfiguration("scene_wait_timeout_sec")
     frame_id = LaunchConfiguration("frame_id")
@@ -88,6 +90,18 @@ def generate_launch_description():
         choices=["true", "false"],
         description="Enable KDL Coriolis compensation in the OpenArm hardware interface.",
     )
+    left_command_enabled_arg = DeclareLaunchArgument(
+        "left_command_enabled",
+        default_value="true",
+        choices=["true", "false"],
+        description="Enable physical command/controller spawning for the left arm.",
+    )
+    right_command_enabled_arg = DeclareLaunchArgument(
+        "right_command_enabled",
+        default_value="true",
+        choices=["true", "false"],
+        description="Enable physical command/controller spawning for the right arm. Set false when right arm hardware is disconnected.",
+    )
     robot_controller_arg = DeclareLaunchArgument(
         "robot_controller",
         default_value="forward_position_controller",
@@ -123,6 +137,8 @@ def generate_launch_description():
             "hold_current_on_activate": hold_current_on_activate,
             "enable_gravity_comp": enable_gravity_comp,
             "enable_coriolis_comp": enable_coriolis_comp,
+            "left_command_enabled": left_command_enabled,
+            "right_command_enabled": right_command_enabled,
             "robot_controller": robot_controller,
         }.items(),
         condition=IfCondition(start_moveit),
@@ -160,6 +176,20 @@ def generate_launch_description():
         robot_controller,
         "' == 'forward_position_controller'",
     ]))
+    left_forward_trajectory_bridge_condition = IfCondition(PythonExpression([
+        "'", start_moveit, "' == 'true' and '",
+        robot_controller,
+        "' == 'forward_position_controller' and '",
+        left_command_enabled,
+        "' == 'true'",
+    ]))
+    right_forward_trajectory_bridge_condition = IfCondition(PythonExpression([
+        "'", start_moveit, "' == 'true' and '",
+        robot_controller,
+        "' == 'forward_position_controller' and '",
+        right_command_enabled,
+        "' == 'true'",
+    ]))
 
     left_forward_trajectory_bridge = Node(
         package="ddooby_controller",
@@ -193,7 +223,7 @@ def generate_launch_description():
                 "goal_settle_required_sec": 0.20,
             }
         ],
-        condition=forward_trajectory_bridge_condition,
+        condition=left_forward_trajectory_bridge_condition,
     )
 
     right_forward_trajectory_bridge = Node(
@@ -228,7 +258,7 @@ def generate_launch_description():
                 "goal_settle_required_sec": 0.20,
             }
         ],
-        condition=forward_trajectory_bridge_condition,
+        condition=right_forward_trajectory_bridge_condition,
     )
 
     delayed_forward_trajectory_bridges = TimerAction(
@@ -249,6 +279,8 @@ def generate_launch_description():
         hold_current_on_activate_arg,
         enable_gravity_comp_arg,
         enable_coriolis_comp_arg,
+        left_command_enabled_arg,
+        right_command_enabled_arg,
         robot_controller_arg,
         scene_wait_timeout_arg,
         frame_id_arg,

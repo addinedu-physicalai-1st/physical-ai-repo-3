@@ -16,18 +16,20 @@
              return_to_zero_on_activate:=^|false
              hold_current_on_activate:=^|true
              enable_gravity_comp:=^|true
-             enable_coriolis_comp:=^|false">
+             enable_coriolis_comp:=^|false
+             left_command_enabled:=^|true
+             right_command_enabled:=^|true">
 
     <!-- Left Arm Hardware Interface -->
     <ros2_control name="openarm_left_hardware_interface" type="system">
         <hardware>
           <param name="arm_type">${arm_type}</param>
-          <xacro:if value="${use_fake_hardware}">
+          <xacro:if value="${use_fake_hardware or not left_command_enabled}">
             <plugin>mock_components/GenericSystem</plugin>
             <param name="fake_sensor_commands">${fake_sensor_commands}</param>
             <param name="state_following_offset">0.0</param>
           </xacro:if>
-          <xacro:unless value="${use_fake_hardware}">
+          <xacro:unless value="${use_fake_hardware or not left_command_enabled}">
             <plugin>${hardware_plugin}</plugin>
             <param name="can_interface">${left_can_interface}</param>
             <param name="arm_prefix">${left_arm_prefix}</param>
@@ -109,12 +111,12 @@
     <ros2_control name="openarm_right_hardware_interface" type="system">
         <hardware>
           <param name="arm_type">${arm_type}</param>
-          <xacro:if value="${use_fake_hardware}">
+          <xacro:if value="${use_fake_hardware or not right_command_enabled}">
             <plugin>mock_components/GenericSystem</plugin>
             <param name="fake_sensor_commands">${fake_sensor_commands}</param>
             <param name="state_following_offset">0.0</param>
           </xacro:if>
-          <xacro:unless value="${use_fake_hardware}">
+          <xacro:unless value="${use_fake_hardware or not right_command_enabled}">
             <plugin>${hardware_plugin}</plugin>
             <param name="can_interface">${right_can_interface}</param>
             <param name="arm_prefix">${right_arm_prefix}</param>

@@ -92,6 +92,12 @@ def generate_launch_description():
         choices=["hsv", "yolo"],
         description="Object detector backend for Gazebo vision. Use hsv for color-coded Gazebo objects.",
     )
+    vision_detector_profile_arg = DeclareLaunchArgument(
+        "vision_detector_profile",
+        default_value="gazebo",
+        choices=["gazebo", "realsense"],
+        description="HSV threshold profile name. Gazebo world runs with gazebo.",
+    )
     vision_model_path_arg = DeclareLaunchArgument(
         "vision_model_path",
         default_value="yolo11n.pt",
@@ -208,6 +214,7 @@ def generate_launch_description():
         with_rviz_arg,
         with_vision_arg,
         vision_detector_backend_arg,
+        vision_detector_profile_arg,
         vision_model_path_arg,
         show_vision_view_arg,
         vision_process_every_n_arg,

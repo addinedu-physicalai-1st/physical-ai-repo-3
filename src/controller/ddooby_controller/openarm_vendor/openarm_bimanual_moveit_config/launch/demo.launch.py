@@ -45,6 +45,8 @@ def generate_robot_description(
     hold_current_on_activate,
     enable_gravity_comp,
     enable_coriolis_comp,
+    left_command_enabled,
+    right_command_enabled,
 ):
     """Render Xacro and return XML string."""
     description_package_str = context.perform_substitution(description_package)
@@ -58,6 +60,8 @@ def generate_robot_description(
     hold_current_on_activate_str = context.perform_substitution(hold_current_on_activate)
     enable_gravity_comp_str = context.perform_substitution(enable_gravity_comp)
     enable_coriolis_comp_str = context.perform_substitution(enable_coriolis_comp)
+    left_command_enabled_str = context.perform_substitution(left_command_enabled)
+    right_command_enabled_str = context.perform_substitution(right_command_enabled)
 
     xacro_path = os.path.join(
         get_package_share_directory(description_package_str),
@@ -80,6 +84,8 @@ def generate_robot_description(
             "hold_current_on_activate": hold_current_on_activate_str,
             "enable_gravity_comp": enable_gravity_comp_str,
             "enable_coriolis_comp": enable_coriolis_comp_str,
+            "left_command_enabled": left_command_enabled_str,
+            "right_command_enabled": right_command_enabled_str,
         },
     ).toprettyxml(indent="  ")
 
@@ -100,6 +106,8 @@ def robot_nodes_spawner(
     hold_current_on_activate,
     enable_gravity_comp,
     enable_coriolis_comp,
+    left_command_enabled,
+    right_command_enabled,
 ):
     robot_description = generate_robot_description(
         context,
@@ -114,6 +122,8 @@ def robot_nodes_spawner(
         hold_current_on_activate,
         enable_gravity_comp,
         enable_coriolis_comp,
+        left_command_enabled,
+        right_command_enabled,
     )
 
     controllers_file_str = context.perform_substitution(controllers_file)
@@ -139,7 +149,11 @@ def robot_nodes_spawner(
     return [robot_state_pub_node, control_node]
 
 
-def controller_spawner(context: LaunchContext, robot_controller):
+def launch_bool(context: LaunchContext, value) -> bool:
+    return context.perform_substitution(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def controller_spawner(context: LaunchContext, robot_controller, left_command_enabled, right_command_enabled):
     robot_controller_str = context.perform_substitution(robot_controller)
 
     if robot_controller_str == "forward_position_controller":
@@ -151,11 +165,37 @@ def controller_spawner(context: LaunchContext, robot_controller):
     else:
         raise ValueError(f"Unknown robot_controller: {robot_controller_str}")
 
+    controllers = []
+    if launch_bool(context, left_command_enabled):
+        controllers.append(left)
+    if launch_bool(context, right_command_enabled):
+        controllers.append(right)
+    if not controllers:
+        return []
+
     return [
         Node(
             package="controller_manager",
             executable="spawner",
-            arguments=[left, right, "-c", "/controller_manager"],
+            arguments=[*controllers, "-c", "/controller_manager"],
+        )
+    ]
+
+
+def gripper_spawner(context: LaunchContext, left_command_enabled, right_command_enabled):
+    controllers = []
+    if launch_bool(context, left_command_enabled):
+        controllers.append("left_gripper_controller")
+    if launch_bool(context, right_command_enabled):
+        controllers.append("right_gripper_controller")
+    if not controllers:
+        return []
+
+    return [
+        Node(
+            package="controller_manager",
+            executable="spawner",
+            arguments=[*controllers, "-c", "/controller_manager"],
         )
     ]
 
@@ -195,6 +235,8 @@ def generate_launch_description():
         DeclareLaunchArgument("hold_current_on_activate", default_value="true"),
         DeclareLaunchArgument("enable_gravity_comp", default_value="true"),
         DeclareLaunchArgument("enable_coriolis_comp", default_value="false"),
+        DeclareLaunchArgument("left_command_enabled", default_value="true"),
+        DeclareLaunchArgument("right_command_enabled", default_value="true"),
         DeclareLaunchArgument(
             "controllers_file",
             default_value="openarm_v10_bimanual_controllers.yaml",
@@ -215,6 +257,8 @@ def generate_launch_description():
     hold_current_on_activate = LaunchConfiguration("hold_current_on_activate")
     enable_gravity_comp = LaunchConfiguration("enable_gravity_comp")
     enable_coriolis_comp = LaunchConfiguration("enable_coriolis_comp")
+    left_command_enabled = LaunchConfiguration("left_command_enabled")
+    right_command_enabled = LaunchConfiguration("right_command_enabled")
 
     controllers_file = PathJoinSubstitution(
         [FindPackageShare(runtime_config_package), "config",
@@ -236,6 +280,8 @@ def generate_launch_description():
             hold_current_on_activate,
             enable_gravity_comp,
             enable_coriolis_comp,
+            left_command_enabled,
+            right_command_enabled,
         ],
     )
 
@@ -247,18 +293,18 @@ def generate_launch_description():
     )
 
     controller_spawner_func = OpaqueFunction(
-        function=controller_spawner, args=[robot_controller])
+        function=controller_spawner,
+        args=[robot_controller, left_command_enabled, right_command_enabled],
+    )
 
-    gripper_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["left_gripper_controller",
-                   "right_gripper_controller", "-c", "/controller_manager"],
+    gripper_spawner_func = OpaqueFunction(
+        function=gripper_spawner,
+        args=[left_command_enabled, right_command_enabled],
     )
 
     delayed_jsb = TimerAction(period=1.0, actions=[jsb_spawner])
     delayed_arm_ctrl = TimerAction(period=2.5, actions=[controller_spawner_func])
-    delayed_gripper = TimerAction(period=4.0, actions=[gripper_spawner])
+    delayed_gripper = TimerAction(period=4.0, actions=[gripper_spawner_func])
 
     moveit_config = MoveItConfigsBuilder(
         "openarm", package_name="openarm_bimanual_moveit_config"

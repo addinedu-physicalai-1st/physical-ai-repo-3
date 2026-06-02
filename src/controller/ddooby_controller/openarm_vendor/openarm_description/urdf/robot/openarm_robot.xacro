@@ -42,6 +42,8 @@
             hold_current_on_activate:='true'
             enable_gravity_comp:='true'
             enable_coriolis_comp:='false'
+            left_command_enabled:='true'
+            right_command_enabled:='true'
             "
             >
 
@@ -121,7 +123,9 @@
             return_to_zero_on_activate="${return_to_zero_on_activate}"
             hold_current_on_activate="${hold_current_on_activate}"
             enable_gravity_comp="${enable_gravity_comp}"
-            enable_coriolis_comp="${enable_coriolis_comp}"/>
+            enable_coriolis_comp="${enable_coriolis_comp}"
+            left_command_enabled="${left_command_enabled}"
+            right_command_enabled="${right_command_enabled}"/>
         </xacro:if>
 
         <xacro:if value="$(eval hand and ee_type == 'openarm_hand')">
