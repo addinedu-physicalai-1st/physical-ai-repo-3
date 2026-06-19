@@ -31,6 +31,7 @@
 #include <moveit_msgs/msg/robot_trajectory.hpp>
 #include <moveit_msgs/srv/get_planning_scene.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/wait_for_message.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
 #include <vision_msgs/msg/detection3_d_array.hpp>
 
@@ -86,6 +87,7 @@ struct TargetObject
 struct VisionPickDetection
 {
   std::string class_id;
+  std::string object_id;
   double score{0.0};
   rclcpp::Time stamp;
   std::string frame_id;
@@ -611,22 +613,22 @@ std::vector<std::string> visionClassAliases(
 
   switch (target) {
     case ManufacturingTarget::Bread:
-      aliases.insert(aliases.end(), {"bread", "bun", "hotdogbun"});
+      aliases.insert(aliases.end(), {"bread", "bread1", "bread2", "bun", "hotdogbun"});
       break;
     case ManufacturingTarget::Case:
-      aliases.insert(aliases.end(), {"case", "tray", "box", "hotdogcase"});
+      aliases.insert(aliases.end(), {"case", "case1", "case2", "tray", "box", "hotdogcase"});
       break;
     case ManufacturingTarget::Coffee:
-      aliases.insert(aliases.end(), {"coffee", "can", "cancoffee", "cup"});
+      aliases.insert(aliases.end(), {"coffee", "cancoffee", "concoffee", "cup"});
       break;
     case ManufacturingTarget::Coke:
-      aliases.insert(aliases.end(), {"coke", "cola", "can", "cancoke"});
+      aliases.insert(aliases.end(), {"coke", "cola", "cancoke", "concoke"});
       break;
     case ManufacturingTarget::Ketchup:
       aliases.insert(aliases.end(), {"ketchup", "kachup", "bottle"});
       break;
     case ManufacturingTarget::Sausage:
-      aliases.insert(aliases.end(), {"sausage", "hotdogsausage"});
+      aliases.insert(aliases.end(), {"sausage", "sausage1", "sausage2", "hotdogsausage"});
       break;
     case ManufacturingTarget::Hotdog:
       aliases.insert(aliases.end(), {"hotdog", "newyorkhotdog"});
@@ -643,15 +645,46 @@ std::vector<std::string> visionClassAliases(
   return aliases;
 }
 
+bool visionClassTokenMatchesAlias(const std::string & normalized_class, const std::string & alias)
+{
+  if (normalized_class == alias) {
+    return true;
+  }
+  if (alias.size() >= 4 && normalized_class.rfind(alias, 0) == 0) {
+    const std::string suffix = normalized_class.substr(alias.size());
+    return !suffix.empty() && std::all_of(
+      suffix.begin(),
+      suffix.end(),
+      [](char character) {return std::isdigit(static_cast<unsigned char>(character));});
+  }
+  return false;
+}
+
 bool visionClassMatches(
   const std::string & class_id,
   ManufacturingTarget target,
   const std::string & target_model)
 {
-  const std::string normalized_class = normalizeStageName(class_id);
-  for (const std::string & alias : visionClassAliases(target, target_model)) {
-    if (normalized_class == alias) {
-      return true;
+  std::vector<std::string> normalized_classes;
+  std::string token;
+  for (char character : class_id) {
+    if (character == '|') {
+      normalized_classes.push_back(normalizeStageName(token));
+      token.clear();
+      continue;
+    }
+    token.push_back(character);
+  }
+  normalized_classes.push_back(normalizeStageName(token));
+
+  for (const std::string & normalized_class : normalized_classes) {
+    if (normalized_class.empty()) {
+      continue;
+    }
+    for (const std::string & alias : visionClassAliases(target, target_model)) {
+      if (visionClassTokenMatchesAlias(normalized_class, alias)) {
+        return true;
+      }
     }
   }
   return false;
@@ -665,14 +698,6 @@ bool poseHasValidOrientation(const geometry_msgs::msg::Pose & pose)
     pose.orientation.z * pose.orientation.z +
     pose.orientation.w * pose.orientation.w;
   return norm_squared > 1e-8;
-}
-
-double visionPrincipalAxisExtentRatio(const Eigen::Vector3d & size)
-{
-  if (size.x() <= 0.005 || size.y() <= 0.005) {
-    return 0.0;
-  }
-  return size.x() / std::max(size.y(), 1e-6);
 }
 
 Eigen::Vector3d heldCaseCenterFromTcpPose(const geometry_msgs::msg::Pose & right_tcp_pose)
@@ -1916,11 +1941,7 @@ public:
     vision_pick_max_age_sec_ = declare_parameter<double>("vision_pick_max_age_sec", 2.0);
     vision_pick_max_distance_m_ = declare_parameter<double>("vision_pick_max_distance_m", 0.15);
     vision_pick_min_score_ = declare_parameter<double>("vision_pick_min_score", 0.25);
-    vision_pick_required_ = declare_parameter<bool>("vision_pick_required", false);
-    vision_pick_use_orientation_ = declare_parameter<bool>("vision_pick_use_orientation", true);
     vision_pick_use_size_ = declare_parameter<bool>("vision_pick_use_size", false);
-    vision_pick_min_orientation_extent_ratio_ =
-      declare_parameter<double>("vision_pick_min_orientation_extent_ratio", 1.35);
 
     if (enable_vision_pick_) {
       vision_detection_sub_ =
@@ -1932,15 +1953,12 @@ public:
         });
       RCLCPP_INFO(
         get_logger(),
-        "Vision pick enabled: topic=%s timeout=%.2fs max_age=%.2fs max_distance=%.3fm min_score=%.2f required=%s use_orientation=%s min_axis_ratio=%.2f",
+        "Vision pick enabled: topic=%s timeout=%.2fs max_age=%.2fs max_distance=%.3fm min_score=%.2f method=yolo-seg+pca",
         vision_detections_topic_.c_str(),
         vision_pick_timeout_sec_,
         vision_pick_max_age_sec_,
         vision_pick_max_distance_m_,
-        vision_pick_min_score_,
-        vision_pick_required_ ? "true" : "false",
-        vision_pick_use_orientation_ ? "true" : "false",
-        vision_pick_min_orientation_extent_ratio_);
+        vision_pick_min_score_);
     }
 
     try {
@@ -3064,10 +3082,7 @@ private:
     std::vector<VisionPickDetection> detections;
     detections.reserve(msg->detections.size());
 
-    rclcpp::Time stamp(msg->header.stamp);
-    if (stamp.nanoseconds() == 0) {
-      stamp = get_clock()->now();
-    }
+    const rclcpp::Time received_stamp = get_clock()->now();
 
     for (const auto & detection : msg->detections) {
       if (detection.results.empty()) {
@@ -3086,8 +3101,9 @@ private:
 
       VisionPickDetection stored_detection;
       stored_detection.class_id = best_result->hypothesis.class_id;
+      stored_detection.object_id = detection.id;
       stored_detection.score = best_result->hypothesis.score;
-      stored_detection.stamp = stamp;
+      stored_detection.stamp = received_stamp;
       stored_detection.frame_id = msg->header.frame_id;
       stored_detection.pose = detection.bbox.center;
       stored_detection.size =
@@ -3098,8 +3114,9 @@ private:
     {
       std::lock_guard<std::mutex> lock(vision_detections_mutex_);
       latest_vision_detections_ = std::move(detections);
-      latest_vision_detection_stamp_ = stamp;
+      latest_vision_detection_stamp_ = received_stamp;
     }
+    RCLCPP_DEBUG(get_logger(), "Vision pick received %zu detections", msg->detections.size());
   }
 
   std::optional<VisionPickDetection> findVisionPickDetection(
@@ -3114,6 +3131,11 @@ private:
     }
 
     if (detections.empty()) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "Vision pick has no received detections yet");
       return std::nullopt;
     }
 
@@ -3136,18 +3158,39 @@ private:
           detection.frame_id.c_str());
         continue;
       }
-      if (!visionClassMatches(detection.class_id, target_kind, target_model)) {
+      const bool object_id_matches =
+        !detection.object_id.empty() && visionClassMatches(detection.object_id, target_kind, target_model);
+      if (!object_id_matches && !visionClassMatches(detection.class_id, target_kind, target_model)) {
+        RCLCPP_DEBUG(
+          get_logger(),
+          "Vision pick skip class=%s id=%s for target=%s/%s",
+          detection.class_id.c_str(),
+          detection.object_id.c_str(),
+          task_presets::targetName(target_kind),
+          target_model.c_str());
         continue;
       }
 
       const double age_sec = (now - detection.stamp).seconds();
       if (std::isfinite(age_sec) && std::abs(age_sec) > vision_pick_max_age_sec_) {
+        RCLCPP_DEBUG(
+          get_logger(),
+          "Vision pick skip stale class=%s id=%s age=%.3f",
+          detection.class_id.c_str(),
+          detection.object_id.c_str(),
+          age_sec);
         continue;
       }
 
       const Eigen::Vector3d detection_center = posePosition(detection.pose);
       const double distance = (detection_center - expected_center).norm();
-      if (vision_pick_max_distance_m_ > 0.0 && distance > vision_pick_max_distance_m_) {
+      if (!object_id_matches && vision_pick_max_distance_m_ > 0.0 && distance > vision_pick_max_distance_m_) {
+        RCLCPP_DEBUG(
+          get_logger(),
+          "Vision pick skip far class=%s id=%s distance=%.3f",
+          detection.class_id.c_str(),
+          detection.object_id.c_str(),
+          distance);
         continue;
       }
       if (distance < best_distance) {
@@ -3159,19 +3202,83 @@ private:
     return best_detection;
   }
 
+
+  std::string summarizeVisionPickCandidates(
+    ManufacturingTarget target_kind,
+    const std::string & target_model,
+    const TargetObject & target)
+  {
+    std::vector<VisionPickDetection> detections;
+    {
+      std::lock_guard<std::mutex> lock(vision_detections_mutex_);
+      detections = latest_vision_detections_;
+    }
+
+    std::ostringstream stream;
+    stream << "Vision pick candidates for " << task_presets::targetName(target_kind) << "/" << target_model
+           << ": count=" << detections.size();
+    const rclcpp::Time now = get_clock()->now();
+    const Eigen::Vector3d expected_center = objectWorldCenter(target);
+    std::size_t count = 0;
+    for (const auto & detection : detections) {
+      if (count++ >= 12) {
+        stream << " ...";
+        break;
+      }
+      const bool object_id_matches =
+        !detection.object_id.empty() && visionClassMatches(detection.object_id, target_kind, target_model);
+      const bool class_matches = visionClassMatches(detection.class_id, target_kind, target_model);
+      const double age_sec = (now - detection.stamp).seconds();
+      const Eigen::Vector3d detection_center = posePosition(detection.pose);
+      const double distance = (detection_center - expected_center).norm();
+      stream << " [class=" << detection.class_id
+             << " id=" << detection.object_id
+             << " score=" << detection.score
+             << " class_match=" << (class_matches ? "Y" : "N")
+             << " id_match=" << (object_id_matches ? "Y" : "N")
+             << " age=" << age_sec
+             << " dist=" << distance
+             << "]";
+    }
+    return stream.str();
+  }
+
   std::optional<VisionPickDetection> waitForVisionPickDetection(
     ManufacturingTarget target_kind,
     const std::string & target_model,
     const TargetObject & target)
   {
-    const rclcpp::Time deadline =
-      get_clock()->now() + rclcpp::Duration::from_seconds(vision_pick_timeout_sec_);
+    const auto deadline = std::chrono::steady_clock::now() +
+      std::chrono::duration<double>(vision_pick_timeout_sec_);
 
-    while (rclcpp::ok() && get_clock()->now() < deadline) {
+    rclcpp::NodeOptions waiter_options;
+    waiter_options.context(get_node_options().context());
+    waiter_options.start_parameter_services(false);
+    waiter_options.start_parameter_event_publisher(false);
+    waiter_options.enable_rosout(false);
+    auto waiter_node = std::make_shared<rclcpp::Node>("ddooby_vision_pick_waiter", waiter_options);
+    auto waiter_subscription = waiter_node->create_subscription<vision_msgs::msg::Detection3DArray>(
+      vision_detections_topic_,
+      rclcpp::QoS(10),
+      [](vision_msgs::msg::Detection3DArray::ConstSharedPtr) {});
+
+    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
       if (const auto detection = findVisionPickDetection(target_kind, target_model, target)) {
         return detection;
       }
-      rclcpp::sleep_for(100ms);
+
+      vision_msgs::msg::Detection3DArray msg;
+      if (rclcpp::wait_for_message(
+          msg,
+          waiter_subscription,
+          get_node_options().context(),
+          100ms))
+      {
+        handleVisionDetections(std::make_shared<vision_msgs::msg::Detection3DArray>(std::move(msg)));
+        if (const auto detection = findVisionPickDetection(target_kind, target_model, target)) {
+          return detection;
+        }
+      }
     }
 
     return findVisionPickDetection(target_kind, target_model, target);
@@ -3194,40 +3301,41 @@ private:
       target_model.c_str());
     const auto detection = waitForVisionPickDetection(target_kind, target_model, target);
     if (!detection.has_value()) {
-      if (vision_pick_required_) {
-        const std::string message =
-          "Vision pick: no matching detection for " +
-          std::string(task_presets::targetName(target_kind)) +
-          "/" + target_model + "; aborting";
-        RCLCPP_ERROR(get_logger(), "%s", message.c_str());
-        return false;
-      }
       const std::string message =
         "Vision pick: no matching detection for " +
         std::string(task_presets::targetName(target_kind)) +
-        "/" + target_model + "; using layout target";
-      RCLCPP_WARN(get_logger(), "%s", message.c_str());
-      return true;
+        "/" + target_model + "; aborting";
+      RCLCPP_ERROR(get_logger(), "%s", message.c_str());
+      RCLCPP_ERROR(get_logger(), "%s", summarizeVisionPickCandidates(target_kind, target_model, target).c_str());
+      return false;
     }
 
     const Eigen::Vector3d previous_center = objectWorldCenter(target);
     const Eigen::Vector3d detection_center = posePosition(detection->pose);
 
-    bool applied_vision_orientation = false;
-    double vision_axis_ratio = visionPrincipalAxisExtentRatio(detection->size);
-    if (vision_pick_use_orientation_ && poseHasValidOrientation(detection->pose)) {
-      const Eigen::Matrix3d detection_rotation = poseOrientation(detection->pose).toRotationMatrix();
-      const Eigen::Vector3d horizontal_x(
-        detection_rotation(0, 0),
-        detection_rotation(1, 0),
-        0.0);
-      if (horizontal_x.norm() > 1e-6 &&
-        vision_axis_ratio >= vision_pick_min_orientation_extent_ratio_)
-      {
-        target.rpy.z() = std::atan2(horizontal_x.y(), horizontal_x.x());
-        applied_vision_orientation = true;
-      }
+    if (!poseHasValidOrientation(detection->pose)) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "Vision pick: detection for %s/%s has no valid YOLO-seg PCA orientation; aborting",
+        task_presets::targetName(target_kind),
+        target_model.c_str());
+      return false;
     }
+
+    const Eigen::Matrix3d detection_rotation = poseOrientation(detection->pose).toRotationMatrix();
+    const Eigen::Vector3d horizontal_x(
+      detection_rotation(0, 0),
+      detection_rotation(1, 0),
+      0.0);
+    if (horizontal_x.norm() <= 1e-6) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "Vision pick: detection for %s/%s has degenerate YOLO-seg PCA yaw axis; aborting",
+        task_presets::targetName(target_kind),
+        target_model.c_str());
+      return false;
+    }
+    target.rpy.z() = std::atan2(horizontal_x.y(), horizontal_x.x());
 
     if (vision_pick_use_size_ &&
       detection->size.x() > 0.005 &&
@@ -3242,9 +3350,10 @@ private:
 
     RCLCPP_INFO(
       get_logger(),
-      "Vision pick target '%s': class=%s score=%.3f center [%.3f %.3f %.3f] -> [%.3f %.3f %.3f], xyz=[%.3f %.3f %.3f], yaw=%.3f %s axis_ratio=%.2f",
+      "Vision pick target '%s': class=%s id=%s score=%.3f center [%.3f %.3f %.3f] -> [%.3f %.3f %.3f], xyz=[%.3f %.3f %.3f], yaw=%.3f (yolo-seg PCA)",
       target.name.c_str(),
       detection->class_id.c_str(),
+      detection->object_id.c_str(),
       detection->score,
       previous_center.x(),
       previous_center.y(),
@@ -3255,9 +3364,7 @@ private:
       target.xyz.x(),
       target.xyz.y(),
       target.xyz.z(),
-      target.rpy.z(),
-      applied_vision_orientation ? "(vision PCA)" : "(preset)",
-      vision_axis_ratio);
+      target.rpy.z());
     return true;
   }
 
@@ -5407,10 +5514,7 @@ private:
   double vision_pick_max_age_sec_{2.0};
   double vision_pick_max_distance_m_{0.15};
   double vision_pick_min_score_{0.25};
-  bool vision_pick_required_{false};
-  bool vision_pick_use_orientation_{true};
   bool vision_pick_use_size_{false};
-  double vision_pick_min_orientation_extent_ratio_{1.35};
   rclcpp::Subscription<vision_msgs::msg::Detection3DArray>::SharedPtr vision_detection_sub_;
   std::mutex vision_detections_mutex_;
   std::vector<VisionPickDetection> latest_vision_detections_;

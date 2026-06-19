@@ -36,6 +36,7 @@ class PcaResult:
     centroid: np.ndarray
     axes: np.ndarray
     extents: np.ndarray
+    eigenvalues: np.ndarray
 
 
 @dataclass
@@ -46,12 +47,23 @@ class DetectionPose:
     centroid_source: np.ndarray
     axes_source: np.ndarray
     extents: np.ndarray
+    eigenvalues: np.ndarray
+    pca_ratio: float
     centroid_target: np.ndarray
     axes_target: np.ndarray
     orientation_xyzw: np.ndarray
     entry_position: np.ndarray
     layout_name: str = ""
     layout_distance_m: float = math.nan
+    pca_stabilized: bool = False
+    pca_hold_previous: bool = False
+
+
+@dataclass
+class PcaAxisState:
+    axis_source: np.ndarray
+    axis_target: np.ndarray
+    pca_ratio: float
 
 
 @dataclass
@@ -186,6 +198,30 @@ def axes_to_quaternion(long_axis: np.ndarray, view_axis: np.ndarray) -> np.ndarr
     return matrix_to_quaternion(rotation)
 
 
+def orthonormal_axes_from_long_axis(long_axis: np.ndarray, reference_axes: np.ndarray) -> np.ndarray:
+    x_axis = normalize(long_axis, reference_axes[:, 0])
+    y_axis = reference_axes[:, 1] - x_axis * float(np.dot(reference_axes[:, 1], x_axis))
+    if np.linalg.norm(y_axis) < 1e-6:
+        y_axis = np.cross(reference_axes[:, 2], x_axis)
+    if np.linalg.norm(y_axis) < 1e-6:
+        y_axis = np.cross(np.array([0.0, 0.0, 1.0], dtype=float), x_axis)
+    if np.linalg.norm(y_axis) < 1e-6:
+        y_axis = np.cross(np.array([0.0, 1.0, 0.0], dtype=float), x_axis)
+    y_axis = normalize(y_axis, np.array([0.0, 1.0, 0.0], dtype=float))
+    z_axis = normalize(np.cross(x_axis, y_axis), np.array([0.0, 0.0, 1.0], dtype=float))
+    y_axis = normalize(np.cross(z_axis, x_axis), y_axis)
+    axes = np.column_stack([x_axis, y_axis, z_axis])
+    if np.linalg.det(axes) < 0.0:
+        axes[:, 2] *= -1.0
+    return axes
+
+
+def pca_eigen_ratio(eigenvalues: np.ndarray) -> float:
+    if eigenvalues.shape[0] < 2:
+        return 0.0
+    return float(eigenvalues[0] / max(float(eigenvalues[1]), 1e-9))
+
+
 def deproject(u: np.ndarray, v: np.ndarray, z: np.ndarray, camera_info: CameraInfo) -> np.ndarray:
     fx = camera_info.k[0]
     fy = camera_info.k[4]
@@ -204,7 +240,19 @@ def depth_to_meters(depth_image: np.ndarray, encoding: str, depth_scale: float) 
     return depth_image.astype(np.float32)
 
 
-def pca_from_points(points: np.ndarray) -> PcaResult | None:
+def voxel_downsample(points: np.ndarray, voxel_size: float) -> np.ndarray:
+    if voxel_size <= 0.0 or points.shape[0] == 0:
+        return points
+    voxel_indices = np.floor(points / voxel_size).astype(np.int64)
+    _, unique_indices = np.unique(voxel_indices, axis=0, return_index=True)
+    return points[np.sort(unique_indices)]
+
+
+def pca_from_points(points: np.ndarray, voxel_size: float = 0.0) -> PcaResult | None:
+    if points.shape[0] < 8:
+        return None
+
+    points = voxel_downsample(points, voxel_size)
     if points.shape[0] < 8:
         return None
 
@@ -221,6 +269,7 @@ def pca_from_points(points: np.ndarray) -> PcaResult | None:
     covariance = np.cov(centered, rowvar=False)
     values, vectors = np.linalg.eigh(covariance)
     order = np.argsort(values)[::-1]
+    eigenvalues = np.maximum(values[order], 0.0)
     axes = vectors[:, order]
 
     if axes[0, 0] < 0.0:
@@ -230,7 +279,7 @@ def pca_from_points(points: np.ndarray) -> PcaResult | None:
 
     projected = centered @ axes
     extents = np.max(projected, axis=0) - np.min(projected, axis=0)
-    return PcaResult(centroid=centroid, axes=axes, extents=extents)
+    return PcaResult(centroid=centroid, axes=axes, extents=extents, eigenvalues=eigenvalues)
 
 
 def transform_points(points: np.ndarray, transform: TransformStamped | None) -> np.ndarray:
@@ -294,6 +343,10 @@ class GazeboYoloPoseNode(Node):
         self.declare_parameter("layout_match_max_distance_m", 0.18)
         self.declare_parameter("layout_pose_weight", 0.85)
         self.declare_parameter("layout_match_publish_unmatched", False)
+        self.declare_parameter("pca_voxel_size_m", 0.003)
+        self.declare_parameter("pca_filter_alpha", 0.25)
+        self.declare_parameter("pca_min_eigen_ratio", 1.2)
+        self.declare_parameter("pca_max_angle_deg", 15.0)
 
         self._bridge = CvBridge()
         self._depth_image = None
@@ -323,6 +376,11 @@ class GazeboYoloPoseNode(Node):
         self._layout_match_publish_unmatched = as_bool(
             self.get_parameter("layout_match_publish_unmatched").value
         )
+        self._pca_voxel_size = max(0.0, float(self.get_parameter("pca_voxel_size_m").value))
+        self._pca_filter_alpha = float(np.clip(float(self.get_parameter("pca_filter_alpha").value), 0.0, 1.0))
+        self._pca_min_eigen_ratio = max(1.0, float(self.get_parameter("pca_min_eigen_ratio").value))
+        self._pca_max_angle_rad = math.radians(max(0.0, float(self.get_parameter("pca_max_angle_deg").value)))
+        self._pca_axis_states: dict[str, PcaAxisState] = {}
         self._layout_objects = self._load_layout_objects(Path(self._layout_path)) if self._layout_path else []
         self._last_raw_detection_count = 0
         self._warned_missing_yolo_masks = False
@@ -372,7 +430,8 @@ class GazeboYoloPoseNode(Node):
             f"Gazebo vision pose node ready: backend={self._detector_backend}, "
             f"model={self._model_path}, "
             f"target_frame={self._target_frame}, "
-            f"layout_matching={self._enable_layout_matching}, layout_objects={len(self._layout_objects)}"
+            f"layout_matching={self._enable_layout_matching}, layout_objects={len(self._layout_objects)}, "
+            f"pca_filter_alpha={self._pca_filter_alpha:.2f}, pca_min_ratio={self._pca_min_eigen_ratio:.2f}"
         )
 
     def _on_camera_info(self, msg: CameraInfo) -> None:
@@ -417,6 +476,7 @@ class GazeboYoloPoseNode(Node):
         detections = self._extract_yolo_detections(result, depth_m, self._camera_info, transform)
         self._last_raw_detection_count = len(detections)
         detections = self._apply_layout_matching(detections, output_frame)
+        detections = self._stabilize_pca_axes(detections)
 
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
@@ -542,13 +602,92 @@ class GazeboYoloPoseNode(Node):
             centroid_source=detection.centroid_source,
             axes_source=detection.axes_source,
             extents=detection.extents,
+            eigenvalues=detection.eigenvalues,
+            pca_ratio=detection.pca_ratio,
             centroid_target=matched_center,
             axes_target=detection.axes_target,
             orientation_xyzw=detection.orientation_xyzw,
             entry_position=matched_center + entry_offset,
             layout_name=layout_object.name,
             layout_distance_m=distance,
+            pca_stabilized=detection.pca_stabilized,
+            pca_hold_previous=detection.pca_hold_previous,
         )
+
+
+    def _pca_state_key(self, detection: DetectionPose) -> str:
+        if detection.layout_name:
+            return f"layout:{normalize_class_name(detection.layout_name)}"
+        x1, y1, x2, y2 = detection.bbox_xyxy
+        cx = int(round((x1 + x2) * 0.5 / 32.0))
+        cy = int(round((y1 + y2) * 0.5 / 32.0))
+        return f"raw:{normalize_class_name(detection.class_name)}:{cx}:{cy}"
+
+    def _stabilize_pca_axes(self, detections: list[DetectionPose]) -> list[DetectionPose]:
+        stabilized = []
+        for detection in detections:
+            key = self._pca_state_key(detection)
+            prev = self._pca_axis_states.get(key)
+            source_axis = normalize(detection.axes_source[:, 0], np.array([1.0, 0.0, 0.0], dtype=float))
+            target_axis = normalize(detection.axes_target[:, 0], np.array([1.0, 0.0, 0.0], dtype=float))
+            hold_previous = False
+
+            if prev is not None:
+                if float(np.dot(target_axis, prev.axis_target)) < 0.0:
+                    target_axis = -target_axis
+                    source_axis = -source_axis
+
+                ratio = detection.pca_ratio
+                dot = float(np.clip(np.dot(target_axis, prev.axis_target), -1.0, 1.0))
+                angle = math.acos(dot)
+                if ratio < self._pca_min_eigen_ratio or angle > self._pca_max_angle_rad:
+                    source_axis = prev.axis_source
+                    target_axis = prev.axis_target
+                    hold_previous = True
+                else:
+                    alpha = self._pca_filter_alpha
+                    source_axis = normalize(
+                        alpha * source_axis + (1.0 - alpha) * prev.axis_source,
+                        prev.axis_source,
+                    )
+                    target_axis = normalize(
+                        alpha * target_axis + (1.0 - alpha) * prev.axis_target,
+                        prev.axis_target,
+                    )
+
+            source_axes = orthonormal_axes_from_long_axis(source_axis, detection.axes_source)
+            target_axes = orthonormal_axes_from_long_axis(target_axis, detection.axes_target)
+            view_axis_target = normalize(
+                detection.centroid_target - detection.entry_position,
+                np.array([0.0, 0.0, 1.0], dtype=float),
+            )
+            quat = axes_to_quaternion(target_axes[:, 0], view_axis_target)
+            self._pca_axis_states[key] = PcaAxisState(
+                axis_source=source_axes[:, 0],
+                axis_target=target_axes[:, 0],
+                pca_ratio=detection.pca_ratio,
+            )
+            stabilized.append(
+                DetectionPose(
+                    class_name=detection.class_name,
+                    score=detection.score,
+                    bbox_xyxy=detection.bbox_xyxy,
+                    centroid_source=detection.centroid_source,
+                    axes_source=source_axes,
+                    extents=detection.extents,
+                    eigenvalues=detection.eigenvalues,
+                    pca_ratio=detection.pca_ratio,
+                    centroid_target=detection.centroid_target,
+                    axes_target=target_axes,
+                    orientation_xyzw=quat,
+                    entry_position=detection.entry_position,
+                    layout_name=detection.layout_name,
+                    layout_distance_m=detection.layout_distance_m,
+                    pca_stabilized=True,
+                    pca_hold_previous=hold_previous,
+                )
+            )
+        return stabilized
 
     def _extract_yolo_detections(
         self,
@@ -627,7 +766,7 @@ class GazeboYoloPoseNode(Node):
             roi_points = self._points_from_bbox(depth_m, camera_info, x1, y1, x2, y2)
         else:
             roi_points = self._points_from_mask(depth_m, camera_info, mask, x1, y1, x2, y2)
-        pca = pca_from_points(roi_points)
+        pca = pca_from_points(roi_points, self._pca_voxel_size)
         if pca is None:
             return None
 
@@ -648,6 +787,8 @@ class GazeboYoloPoseNode(Node):
             centroid_source=pca.centroid,
             axes_source=pca.axes,
             extents=pca.extents,
+            eigenvalues=pca.eigenvalues,
+            pca_ratio=pca_eigen_ratio(pca.eigenvalues),
             centroid_target=centroid_target,
             axes_target=axes_target,
             orientation_xyzw=quat,
@@ -719,7 +860,8 @@ class GazeboYoloPoseNode(Node):
         x1, y1, x2, y2 = detection.bbox_xyxy
         cv2.rectangle(image, (x1, y1), (x2, y2), (30, 220, 30), 2)
         label_name = detection.layout_name or detection.class_name
-        label = f"{label_name} {detection.score:.2f}"
+        pca_suffix = " H" if detection.pca_hold_previous else ""
+        label = f"{label_name} {detection.score:.2f} r{detection.pca_ratio:.1f}{pca_suffix}"
         text_scale = 0.46
         text_thickness = 1
         (text_width, text_height), baseline = cv2.getTextSize(
@@ -817,7 +959,7 @@ class GazeboYoloPoseNode(Node):
 
         status_lines = [
             "D435 Gazebo Vision",
-            f"backend={self._detector_backend}  mask_pca=True",
+            f"backend={self._detector_backend}  mask_pca=stable",
             f"layout={self._enable_layout_matching}  frame={output_frame}",
             f"det={len(detections)}/{self._last_raw_detection_count}  fps={self._ui_fps:.1f}",
         ]
