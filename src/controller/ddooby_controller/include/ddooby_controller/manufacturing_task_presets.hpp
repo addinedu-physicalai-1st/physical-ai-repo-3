@@ -217,9 +217,6 @@ inline constexpr KetchupSqueezePreset kDefaultKetchupSqueeze{
   0.010
 };
 
-// joint limit에 딱 붙지 않도록 안쪽으로 유지할 최소 margin.
-inline constexpr double kDefaultJointLimitSafetyMargin = 0.00001;
-
 // MoveIt plan + execute를 같은 목표에 대해 재시도할 기본 횟수.
 inline constexpr int kDefaultPlanExecuteMaxAttempts = 5;
 

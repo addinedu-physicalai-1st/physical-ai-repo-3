@@ -119,6 +119,7 @@ struct PickMotionConfig
   bool pull_out_to_pre_grasp_before_lift{false};
   bool allow_planned_grasp_approach_fallback{false};
   bool use_planned_grasp_approach{false};
+  double max_lift_height_m{0.0};
 };
 
 enum class PreGraspGoalMode
@@ -1113,42 +1114,6 @@ PickPlan makeHorizontalPickPlan(
     tcp_y};
 }
 
-double boundedJointLimitMargin(const moveit::core::VariableBounds & bounds, double requested_margin)
-{
-  if (!bounds.position_bounded_ || requested_margin <= 0.0) {
-    return 0.0;
-  }
-
-  const double range = bounds.max_position_ - bounds.min_position_;
-  if (range <= 0.0) {
-    return 0.0;
-  }
-
-  const double max_margin = range * 0.49;
-  return requested_margin < max_margin ? requested_margin : max_margin;
-}
-
-double clampInsideJointLimitMargin(
-  double value,
-  const moveit::core::VariableBounds & bounds,
-  double requested_margin)
-{
-  const double margin = boundedJointLimitMargin(bounds, requested_margin);
-  if (margin <= 0.0 || !std::isfinite(value)) {
-    return value;
-  }
-
-  const double lower = bounds.min_position_ + margin;
-  const double upper = bounds.max_position_ - margin;
-  if (value < lower) {
-    return lower;
-  }
-  if (value > upper) {
-    return upper;
-  }
-  return value;
-}
-
 void setBoundedStartState(moveit::planning_interface::MoveGroupInterface & group)
 {
   auto current_state = group.getCurrentState(2.0);
@@ -1160,67 +1125,11 @@ void setBoundedStartState(moveit::planning_interface::MoveGroupInterface & group
   const auto * joint_model_group = current_state->getJointModelGroup(group.getName());
   if (joint_model_group != nullptr) {
     current_state->enforceBounds(joint_model_group);
-    for (const auto & variable_name : joint_model_group->getVariableNames()) {
-      const auto & bounds = current_state->getRobotModel()->getVariableBounds(variable_name);
-      const double current_value = current_state->getVariablePosition(variable_name);
-      const double bounded_value = clampInsideJointLimitMargin(
-        current_value,
-        bounds,
-        task_presets::kDefaultJointLimitSafetyMargin);
-      if (bounded_value != current_value) {
-        current_state->setVariablePosition(variable_name, bounded_value);
-      }
-    }
   } else {
     current_state->enforceBounds();
   }
   current_state->update();
   group.setStartState(*current_state);
-}
-
-bool planRespectsJointLimitMargin(
-  const rclcpp::Logger & logger,
-  const moveit::planning_interface::MoveGroupInterface & group,
-  const moveit::planning_interface::MoveGroupInterface::Plan & plan,
-  double requested_margin)
-{
-  if (requested_margin <= 0.0) {
-    return true;
-  }
-
-  const auto robot_model = group.getRobotModel();
-  if (!robot_model) {
-    return true;
-  }
-
-  const auto & trajectory = plan.trajectory.joint_trajectory;
-  for (const auto & point : trajectory.points) {
-    const size_t count = std::min(trajectory.joint_names.size(), point.positions.size());
-    for (size_t i = 0; i < count; ++i) {
-      const auto & joint_name = trajectory.joint_names[i];
-      const auto & bounds = robot_model->getVariableBounds(joint_name);
-      const double margin = boundedJointLimitMargin(bounds, requested_margin);
-      if (margin <= 0.0 || !std::isfinite(point.positions[i])) {
-        continue;
-      }
-
-      const double lower = bounds.min_position_ + margin;
-      const double upper = bounds.max_position_ - margin;
-      if (point.positions[i] < lower || point.positions[i] > upper) {
-        RCLCPP_WARN(
-          logger,
-          "%s plan rejected: joint '%s' position %.6f is outside safety bounds [%.6f, %.6f]",
-          group.getName().c_str(),
-          joint_name.c_str(),
-          point.positions[i],
-          lower,
-          upper);
-        return false;
-      }
-    }
-  }
-
-  return true;
 }
 
 void enforceMinimumTrajectoryDuration(
@@ -1251,26 +1160,6 @@ bool planAndExecute(
       }
       return false;
     }
-
-    if (!planRespectsJointLimitMargin(
-        logger,
-        group,
-        plan,
-        task_presets::kDefaultJointLimitSafetyMargin))
-    {
-      RCLCPP_ERROR(
-        logger,
-        "%s plan reached joint limit safety margin%s",
-        label.c_str(),
-        attempt < max_attempts ? "; retrying from refreshed state" : "");
-      if (attempt < max_attempts) {
-        rclcpp::sleep_for(300ms);
-        setBoundedStartState(group);
-        continue;
-      }
-      return false;
-    }
-
     enforceMinimumTrajectoryDuration(logger, plan.trajectory, label, min_duration_sec);
 
     if (group.execute(plan) == moveit::core::MoveItErrorCode::SUCCESS) {
@@ -1717,15 +1606,6 @@ bool executeCartesian(
   }
   enforceMinimumTrajectoryDuration(logger, plan.trajectory, label, min_duration_sec);
   alignTrajectoryStartToCurrentState(logger, group, plan.trajectory, label);
-  if (!planRespectsJointLimitMargin(
-      logger,
-      group,
-      plan,
-      0.0))
-  {
-    RCLCPP_ERROR(logger, "%s Cartesian path reached joint limit safety margin", label.c_str());
-    return false;
-  }
   if (group.execute(plan) != moveit::core::MoveItErrorCode::SUCCESS) {
     RCLCPP_ERROR(logger, "Failed to execute %s Cartesian path", label.c_str());
     return false;
@@ -1773,13 +1653,15 @@ bool planAndExecutePreGrasp(
   PreGraspGoalMode & used_mode)
 {
   if (use_clearance_approach) {
-    constexpr double kPreGraspClearanceHeight = 0.03;
+    constexpr double kPreGraspClearanceHeight = 0.07;
+    const geometry_msgs::msg::Pose current_pose = arm.getCurrentPose(tcp_link).pose;
     geometry_msgs::msg::Pose approach_pose = pre_grasp_pose;
-    approach_pose.position.z += kPreGraspClearanceHeight;
+    approach_pose.position.z = std::max(current_pose.position.z, pre_grasp_pose.position.z + kPreGraspClearanceHeight);
+    approach_pose.orientation = current_pose.orientation;
 
     RCLCPP_INFO(
       logger,
-      "Moving to pre-grasp clearance pose at z=%.3f before descending to pre-grasp",
+      "Moving to pre-grasp clearance pose at z=%.3f with current TCP orientation before descending to pre-grasp",
       approach_pose.position.z);
     if (!planAndExecutePoseTarget(
         logger,
@@ -1787,10 +1669,11 @@ bool planAndExecutePreGrasp(
         approach_pose,
         tcp_link,
         "pre-grasp clearance pose",
-        task_presets::kDefaultPlanExecuteMaxAttempts,
+        2,
         min_duration_sec))
     {
-      RCLCPP_WARN(logger, "Pre-grasp clearance pose failed; trying direct pre-grasp target");
+      RCLCPP_ERROR(logger, "Pre-grasp clearance pose failed; aborting to avoid unsafe direct pre-grasp path");
+      return false;
     }
   }
 
@@ -2576,6 +2459,18 @@ private:
 
     geometry_msgs::msg::Pose grasp_pose = pick_plan.grasp_pose;
     geometry_msgs::msg::Pose lift_pose = pick_plan.lift_pose;
+    if (config.max_lift_height_m > 0.0) {
+      const double requested_lift = lift_pose.position.z - grasp_pose.position.z;
+      if (requested_lift > config.max_lift_height_m) {
+        lift_pose.position.z = grasp_pose.position.z + config.max_lift_height_m;
+        RCLCPP_INFO(
+          get_logger(),
+          "%s: limiting pick lift height %.3f -> %.3f m",
+          config.log_label.c_str(),
+          requested_lift,
+          config.max_lift_height_m);
+      }
+    }
 
     if (shouldRunStage(ManufacturingStage::Pick)) {
       const double pre_grasp_dx =
@@ -2841,8 +2736,22 @@ private:
             acceleration_scaling_,
             cartesian_min_duration_sec_))
         {
-          restore_target_gripper_collision();
-          return false;
+          RCLCPP_WARN(
+            get_logger(),
+            "%s: Cartesian lift failed; trying regular pose planning to lift",
+            config.log_label.c_str());
+          if (!planAndExecutePoseTarget(
+              get_logger(),
+              arm,
+              lift_pose,
+              config.tcp_link,
+              config.log_label + " planned lift",
+              task_presets::kDefaultPlanExecuteMaxAttempts,
+              pose_min_duration_sec_))
+          {
+            restore_target_gripper_collision();
+            return false;
+          }
         }
         logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " lift");
         if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "lift")) {
@@ -2902,9 +2811,23 @@ private:
           acceleration_scaling_,
           cartesian_min_duration_sec_))
       {
-        restore_target_gripper_collision();
-        return false;
-      }
+          RCLCPP_WARN(
+            get_logger(),
+            "%s: Cartesian lift failed; trying regular pose planning to lift",
+            config.log_label.c_str());
+          if (!planAndExecutePoseTarget(
+              get_logger(),
+              arm,
+              lift_pose,
+              config.tcp_link,
+              config.log_label + " planned lift",
+              task_presets::kDefaultPlanExecuteMaxAttempts,
+              pose_min_duration_sec_))
+          {
+            restore_target_gripper_collision();
+            return false;
+          }
+        }
       logCurrentTcpPose(get_logger(), arm, config.tcp_link, config.log_label + " lift");
       if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "lift")) {
         restore_target_gripper_collision();
@@ -3025,6 +2948,14 @@ private:
       RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", bread_target_model.c_str(), error.what());
       return false;
     }
+    if (!moveArmToReadyBeforeVisionPick(
+        "Bread pick",
+        left_arm_group_,
+        left_ready_pose_name_,
+        left_ready_joints_))
+    {
+      return false;
+    }
     if (!applyVisionPickTarget(ManufacturingTarget::Bread, bread_target_model, target)) {
       return false;
     }
@@ -3049,7 +2980,9 @@ private:
         left_ready_joints_,
         &task_presets::kLeftBreadPickTuning,
         false,
-        true},
+        true,
+        false,
+        0.08},
       target,
       pick_plan);
   }
@@ -3075,6 +3008,37 @@ private:
       return false;
     }
     return true;
+  }
+
+  bool moveArmToReadyBeforeVisionPick(
+    const std::string & log_label,
+    const std::string & arm_group,
+    const std::string & ready_pose_name,
+    const std::vector<double> & ready_joints)
+  {
+    if (!enable_vision_pick_ || !shouldRunStage(ManufacturingStage::Pick) || dry_run_) {
+      return true;
+    }
+
+    auto self = shared_from_this();
+    moveit::planning_interface::MoveGroupInterface arm(self, arm_group);
+    arm.setPlanningTime(planning_time_sec_);
+    arm.setNumPlanningAttempts(planning_attempts_);
+    arm.setMaxVelocityScalingFactor(velocity_scaling_);
+    arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
+    arm.setPoseReferenceFrame(arm.getPlanningFrame());
+    if (!ready_joints.empty()) {
+      arm.rememberJointValues(ready_pose_name, ready_joints);
+    }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "%s: moving arm to ready pose before vision pick observation",
+      log_label.c_str());
+    arm.clearPoseTargets();
+    setBoundedStartState(arm);
+    arm.setNamedTarget(ready_pose_name);
+    return planAndExecute(get_logger(), arm, log_label + " vision observation ready");
   }
 
   void handleVisionDetections(const vision_msgs::msg::Detection3DArray::SharedPtr msg)
@@ -3640,6 +3604,14 @@ private:
       RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", sausage_target_model.c_str(), error.what());
       return false;
     }
+    if (!moveArmToReadyBeforeVisionPick(
+        "Sausage pick",
+        left_arm_group_,
+        left_ready_pose_name_,
+        left_ready_joints_))
+    {
+      return false;
+    }
     if (!applyVisionPickTarget(ManufacturingTarget::Sausage, sausage_target_model, target)) {
       return false;
     }
@@ -3664,7 +3636,9 @@ private:
         left_ready_joints_,
         &task_presets::kLeftSausagePickTuning,
         false,
-        true},
+        true,
+        false,
+        0.08},
       target,
       pick_plan);
   }
@@ -3699,6 +3673,14 @@ private:
 
     TargetObject target;
     if (!loadManufacturingTarget(beverage_target_model, target)) {
+      return false;
+    }
+    if (!moveArmToReadyBeforeVisionPick(
+        "Beverage can pick",
+        left_arm_group_,
+        left_ready_pose_name_,
+        left_ready_joints_))
+    {
       return false;
     }
     if (!applyVisionPickTarget(beverage_target, beverage_target_model, target)) {
@@ -4276,6 +4258,14 @@ private:
       target = loadTargetObject(package_share_directory, layout_path, ketchup_target_model);
     } catch (const std::exception & error) {
       RCLCPP_ERROR(get_logger(), "Failed to load target object '%s': %s", ketchup_target_model.c_str(), error.what());
+      return false;
+    }
+    if (!moveArmToReadyBeforeVisionPick(
+        "Ketchup pick",
+        left_arm_group_,
+        left_ready_pose_name_,
+        left_ready_joints_))
+    {
       return false;
     }
     if (!applyVisionPickTarget(ManufacturingTarget::Ketchup, ketchup_target_model, target)) {
