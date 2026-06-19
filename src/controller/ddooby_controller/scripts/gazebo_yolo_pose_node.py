@@ -55,17 +55,18 @@ class DetectionPose:
 
 
 @dataclass
-class HsvDetectionRule:
-    class_name: str
-    ranges: tuple[tuple[tuple[int, int, int], tuple[int, int, int]], ...]
-    score: float
-
-
-@dataclass
 class LayoutObject:
     name: str
     class_name: str
     position: np.ndarray
+
+
+def normalize_class_name(value: str) -> str:
+    return "".join(
+        character.lower()
+        for character in value.strip()
+        if character not in ("_", "-", " ", ".", "/", ":")
+    )
 
 
 def normalize(vector: np.ndarray, fallback: np.ndarray) -> np.ndarray:
@@ -113,14 +114,17 @@ def layout_class_from_model_name(name: str) -> str | None:
 
 
 def class_matches_layout(detection_class: str, layout_class: str) -> bool:
-    detection_class = detection_class.strip().lower()
-    layout_class = layout_class.strip().lower()
+    detection_class = normalize_class_name(detection_class)
+    layout_class = normalize_class_name(layout_class)
     if detection_class == layout_class:
         return True
     aliases = {
-        "ketchup": {"ketchup", "kachup", "red_object", "bottle"},
-        "coke": {"coke", "can_coke", "red_object", "can"},
-        "coffee": {"coffee", "can_coffee", "can"},
+        "ketchup": {"ketchup", "kachup", "redobject", "bottle"},
+        "coke": {"coke", "cola", "cancoke", "redobject", "can"},
+        "coffee": {"coffee", "cancoffee", "can"},
+        "bread": {"bread", "bun", "hotdogbun"},
+        "sausage": {"sausage", "hotdogsausage"},
+        "case": {"case", "tray", "box", "hotdogcase"},
     }
     return detection_class in aliases.get(layout_class, set())
 
@@ -259,40 +263,11 @@ def make_pose(position: np.ndarray, quat_xyzw: np.ndarray) -> Pose:
     return pose
 
 
-HSV_RULES = (
-    HsvDetectionRule(
-        "sausage",
-        (((5, 90, 70), (24, 255, 255)),),
-        0.90,
-    ),
-    HsvDetectionRule(
-        "bread",
-        (((20, 45, 70), (45, 255, 255)),),
-        0.82,
-    ),
-    HsvDetectionRule(
-        "coffee",
-        (((5, 45, 20), (28, 255, 145)),),
-        0.88,
-    ),
-    HsvDetectionRule(
-        "case",
-        (((0, 0, 145), (180, 45, 255)),),
-        0.78,
-    ),
-    HsvDetectionRule(
-        "red_object",
-        (((0, 70, 45), (9, 255, 255)), ((170, 70, 45), (180, 255, 255))),
-        0.86,
-    ),
-)
-
 
 class GazeboYoloPoseNode(Node):
     def __init__(self):
         super().__init__("gazebo_yolo_pose")
 
-        self.declare_parameter("detector_backend", "hsv")
         self.declare_parameter("model_path", "yolo11n.pt")
         self.declare_parameter("conf_threshold", 0.35)
         self.declare_parameter("iou_threshold", 0.45)
@@ -314,11 +289,6 @@ class GazeboYoloPoseNode(Node):
         self.declare_parameter("publish_debug_image", True)
         self.declare_parameter("show_debug_view", False)
         self.declare_parameter("debug_window_name", "manufacturing_vision")
-        self.declare_parameter("hsv_min_area_px", 120)
-        self.declare_parameter("hsv_min_fill_ratio", 0.18)
-        self.declare_parameter("hsv_max_area_fraction", 0.20)
-        self.declare_parameter("hsv_morph_kernel", 5)
-        self.declare_parameter("hsv_red_ketchup_min_extent_m", 0.18)
         self.declare_parameter("layout_path", default_layout_path())
         self.declare_parameter("enable_layout_matching", True)
         self.declare_parameter("layout_match_max_distance_m", 0.18)
@@ -331,9 +301,7 @@ class GazeboYoloPoseNode(Node):
         self._camera_info = None
         self._frame_count = 0
 
-        self._detector_backend = str(self.get_parameter("detector_backend").value).strip().lower()
-        if self._detector_backend not in ("hsv", "yolo"):
-            raise ValueError("detector_backend must be 'hsv' or 'yolo'")
+        self._detector_backend = "yolo-seg"
         self._model_path = str(self.get_parameter("model_path").value)
         self._conf = float(self.get_parameter("conf_threshold").value)
         self._iou = float(self.get_parameter("iou_threshold").value)
@@ -348,11 +316,6 @@ class GazeboYoloPoseNode(Node):
         self._publish_debug_image = as_bool(self.get_parameter("publish_debug_image").value)
         self._show_debug_view = as_bool(self.get_parameter("show_debug_view").value)
         self._debug_window_name = str(self.get_parameter("debug_window_name").value)
-        self._hsv_min_area_px = max(1, int(self.get_parameter("hsv_min_area_px").value))
-        self._hsv_min_fill_ratio = float(self.get_parameter("hsv_min_fill_ratio").value)
-        self._hsv_max_area_fraction = float(self.get_parameter("hsv_max_area_fraction").value)
-        self._hsv_morph_kernel = max(1, int(self.get_parameter("hsv_morph_kernel").value))
-        self._hsv_red_ketchup_min_extent_m = float(self.get_parameter("hsv_red_ketchup_min_extent_m").value)
         self._layout_path = str(self.get_parameter("layout_path").value)
         self._enable_layout_matching = as_bool(self.get_parameter("enable_layout_matching").value)
         self._layout_match_max_distance = float(self.get_parameter("layout_match_max_distance_m").value)
@@ -362,13 +325,14 @@ class GazeboYoloPoseNode(Node):
         )
         self._layout_objects = self._load_layout_objects(Path(self._layout_path)) if self._layout_path else []
         self._last_raw_detection_count = 0
+        self._warned_missing_yolo_masks = False
         self._debug_window_created = False
         self._last_ui_time = time.monotonic()
         self._ui_fps = 0.0
         self._class_allowlist = {
-            str(item).strip()
+            normalize_class_name(str(item))
             for item in self.get_parameter("class_allowlist").value
-            if str(item).strip()
+            if normalize_class_name(str(item))
         }
 
         detections_topic = str(self.get_parameter("detections_topic").value)
@@ -377,11 +341,9 @@ class GazeboYoloPoseNode(Node):
 
         self._tf_buffer = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
-        self._model = None
-        if self._detector_backend == "yolo":
-            if YOLO is None:
-                raise RuntimeError("ultralytics is not installed; install it before running YOLO perception")
-            self._model = YOLO(self._model_path)
+        if YOLO is None:
+            raise RuntimeError("ultralytics is not installed; install it before running YOLO-seg perception")
+        self._model = YOLO(self._model_path)
 
         self._detections_pub = self.create_publisher(Detection3DArray, detections_topic, 10)
         self._grasp_pose_pub = self.create_publisher(PoseArray, grasp_pose_topic, 10)
@@ -408,7 +370,7 @@ class GazeboYoloPoseNode(Node):
 
         self.get_logger().info(
             f"Gazebo vision pose node ready: backend={self._detector_backend}, "
-            f"model={self._model_path if self._detector_backend == 'yolo' else 'unused'}, "
+            f"model={self._model_path}, "
             f"target_frame={self._target_frame}, "
             f"layout_matching={self._enable_layout_matching}, layout_objects={len(self._layout_objects)}"
         )
@@ -451,11 +413,8 @@ class GazeboYoloPoseNode(Node):
         transform = self._lookup_transform(source_frame)
         output_frame = self._target_frame if transform is not None else source_frame
 
-        if self._detector_backend == "yolo":
-            result = self._model(color, conf=self._conf, iou=self._iou, verbose=False)[0]
-            detections = self._extract_yolo_detections(result, depth_m, self._camera_info, transform)
-        else:
-            detections = self._extract_hsv_detections(color, depth_m, self._camera_info, transform)
+        result = self._model(color, conf=self._conf, iou=self._iou, verbose=False)[0]
+        detections = self._extract_yolo_detections(result, depth_m, self._camera_info, transform)
         self._last_raw_detection_count = len(detections)
         detections = self._apply_layout_matching(detections, output_frame)
 
@@ -605,14 +564,25 @@ class GazeboYoloPoseNode(Node):
         boxes = result.boxes.xyxy.cpu().numpy()
         scores = result.boxes.conf.cpu().numpy()
         class_ids = result.boxes.cls.cpu().numpy().astype(int)
+        masks = self._extract_yolo_masks(result, depth_m.shape)
+        if not masks:
+            if not self._warned_missing_yolo_masks:
+                self.get_logger().warn(
+                    "YOLO model did not provide segmentation masks; skipping detections. "
+                    "Use a YOLO-seg model for stable principal-axis estimation."
+                )
+                self._warned_missing_yolo_masks = True
+            return []
         detections = []
 
-        for bbox, score, class_id in zip(boxes, scores, class_ids):
+        for index, (bbox, score, class_id) in enumerate(zip(boxes, scores, class_ids)):
             class_name = str(names[class_id])
-            if self._class_allowlist and class_name not in self._class_allowlist:
+            normalized_class = normalize_class_name(class_name)
+            if self._class_allowlist and normalized_class not in self._class_allowlist:
                 continue
 
             x1, y1, x2, y2 = self._clamp_bbox(bbox, depth_m.shape)
+            mask = masks[index] if index < len(masks) else None
             detection = self._make_detection_from_region(
                 class_name,
                 float(score),
@@ -620,92 +590,27 @@ class GazeboYoloPoseNode(Node):
                 depth_m,
                 camera_info,
                 transform,
+                mask,
             )
             if detection is not None:
                 detections.append(detection)
         return detections
 
-    def _extract_hsv_detections(
-        self,
-        color: np.ndarray,
-        depth_m: np.ndarray,
-        camera_info: CameraInfo,
-        transform: TransformStamped | None,
-    ) -> list[DetectionPose]:
-        hsv = cv2.cvtColor(color, cv2.COLOR_BGR2HSV)
-        detections = []
+    def _extract_yolo_masks(self, result, depth_shape: tuple[int, int]) -> list[np.ndarray | None]:
+        if getattr(result, "masks", None) is None or result.masks is None:
+            return []
+        if getattr(result.masks, "data", None) is None:
+            return []
 
-        for rule in HSV_RULES:
-            mask = self._mask_for_hsv_rule(hsv, rule)
-            if not np.any(mask):
-                continue
-
-            image_area = float(mask.shape[0] * mask.shape[1])
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                if area < self._hsv_min_area_px:
-                    continue
-                if image_area > 0.0 and area > image_area * self._hsv_max_area_fraction:
-                    continue
-
-                x, y, w, h = cv2.boundingRect(contour)
-                if w <= 1 or h <= 1:
-                    continue
-                fill_ratio = area / max(float(w * h), 1.0)
-                if fill_ratio < self._hsv_min_fill_ratio:
-                    continue
-
-                bbox = (x, y, x + w, y + h)
-                detection = self._make_detection_from_region(
-                    rule.class_name,
-                    rule.score,
-                    bbox,
-                    depth_m,
-                    camera_info,
-                    transform,
-                    mask,
-                )
-                if detection is None:
-                    continue
-
-                if rule.class_name == "red_object" and not self._enable_layout_matching:
-                    detection.class_name = self._classify_red_detection(detection)
-                    if detection.class_name is None:
-                        continue
-
-                if self._class_allowlist and detection.class_name not in self._class_allowlist:
-                    continue
-                detections.append(detection)
-
-        return detections
-
-    def _mask_for_hsv_rule(self, hsv: np.ndarray, rule: HsvDetectionRule) -> np.ndarray:
-        mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
-        for lower, upper in rule.ranges:
-            mask = cv2.bitwise_or(
-                mask,
-                cv2.inRange(
-                    hsv,
-                    np.array(lower, dtype=np.uint8),
-                    np.array(upper, dtype=np.uint8),
-                ),
-            )
-
-        kernel_size = self._hsv_morph_kernel
-        if kernel_size > 1:
-            kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        return mask
-
-    def _classify_red_detection(self, detection: DetectionPose) -> str | None:
-        max_extent = float(np.max(detection.extents))
-        x1, y1, x2, y2 = detection.bbox_xyxy
-        bbox_aspect = float(y2 - y1) / max(float(x2 - x1), 1.0)
-        if max_extent >= self._hsv_red_ketchup_min_extent_m or bbox_aspect >= 2.8:
-            return "ketchup"
-        return "coke"
+        mask_data = result.masks.data.cpu().numpy()
+        masks = []
+        height, width = depth_shape
+        for mask in mask_data:
+            mask_u8 = (mask > 0.5).astype(np.uint8) * 255
+            if mask_u8.shape[:2] != (height, width):
+                mask_u8 = cv2.resize(mask_u8, (width, height), interpolation=cv2.INTER_NEAREST)
+            masks.append(mask_u8)
+        return masks
 
     def _make_detection_from_region(
         self,
@@ -843,13 +748,44 @@ class GazeboYoloPoseNode(Node):
             cv2.LINE_AA,
         )
 
+        world_center = detection.centroid_target
+        xyz_label = f"x{world_center[0]:+.2f} y{world_center[1]:+.2f} z{world_center[2]:+.2f}"
+        xyz_scale = 0.38
+        (xyz_width, xyz_height), xyz_baseline = cv2.getTextSize(
+            xyz_label,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            xyz_scale,
+            text_thickness,
+        )
+        xyz_x = min(max(0, x1), max(0, image.shape[1] - xyz_width - 6))
+        xyz_y = min(image.shape[0] - xyz_baseline - 4, max(y2 + xyz_height + 6, xyz_height + 8))
+        cv2.rectangle(
+            image,
+            (xyz_x - 2, xyz_y - xyz_height - 5),
+            (xyz_x + xyz_width + 4, xyz_y + xyz_baseline + 2),
+            (18, 24, 20),
+            -1,
+        )
+        cv2.putText(
+            image,
+            xyz_label,
+            (xyz_x, xyz_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            xyz_scale,
+            (210, 240, 255),
+            text_thickness,
+            cv2.LINE_AA,
+        )
+
         center = detection.centroid_source
         axis = detection.axes_source[:, 0]
         p0 = self._project(center, camera_info)
-        p1 = self._project(center + axis * 0.08, camera_info)
-        if p0 is not None and p1 is not None:
-            cv2.circle(image, p0, 4, (0, 0, 255), -1)
-            cv2.line(image, p0, p1, (0, 0, 255), 2)
+        axis_length = float(np.clip(detection.extents[0] * 0.55, 0.035, 0.12))
+        p_neg = self._project(center - axis * axis_length, camera_info)
+        p_pos = self._project(center + axis * axis_length, camera_info)
+        if p0 is not None and p_neg is not None and p_pos is not None:
+            cv2.circle(image, p0, 4, (255, 80, 0), -1)
+            cv2.line(image, p_neg, p_pos, (0, 0, 255), 2)
 
         entry_source = detection.centroid_source - normalize(
             detection.centroid_source,
@@ -875,34 +811,60 @@ class GazeboYoloPoseNode(Node):
         self._ui_fps = instant_fps if self._ui_fps <= 0.0 else (0.85 * self._ui_fps + 0.15 * instant_fps)
 
         height, width = color_debug.shape[:2]
-        panel_width = 420
+        panel_width = 520
         panel = np.full((height, panel_width, 3), (28, 30, 33), dtype=np.uint8)
         view = np.hstack([color_debug, panel])
 
+        status_lines = [
+            "D435 Gazebo Vision",
+            f"backend={self._detector_backend}  mask_pca=True",
+            f"layout={self._enable_layout_matching}  frame={output_frame}",
+            f"det={len(detections)}/{self._last_raw_detection_count}  fps={self._ui_fps:.1f}",
+        ]
         self._draw_status_text(
             view,
-            [
-                "D435 Gazebo Vision",
-                f"backend: {self._detector_backend}",
-                f"layout match: {self._enable_layout_matching}",
-                f"frame: {output_frame}",
-                f"detections: {len(detections)} / raw {self._last_raw_detection_count}",
-                f"fps: {self._ui_fps:.1f}",
-                "q/esc: close view",
-            ],
+            status_lines,
             x=width + 16,
             y=28,
             color=(230, 235, 240),
+            line_height=20,
+            scale=0.48,
         )
 
         depth_preview = self._make_depth_preview(depth_m, max_width=panel_width - 32)
-        y_depth = 150
+        y_depth = 28 + len(status_lines) * 20 + 24
+        max_depth_height = max(80, height - y_depth - 220)
+        if depth_preview.shape[0] > max_depth_height:
+            scale = max_depth_height / max(depth_preview.shape[0], 1)
+            target_size = (
+                max(1, int(depth_preview.shape[1] * scale)),
+                max(1, int(depth_preview.shape[0] * scale)),
+            )
+            depth_preview = cv2.resize(depth_preview, target_size, interpolation=cv2.INTER_AREA)
         view[y_depth:y_depth + depth_preview.shape[0], width + 16:width + 16 + depth_preview.shape[1]] = depth_preview
-        cv2.putText(view, "depth", (width + 16, y_depth - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (190, 210, 255), 1)
+        cv2.putText(
+            view,
+            "depth",
+            (width + 16, y_depth - 8),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.46,
+            (190, 210, 255),
+            1,
+            cv2.LINE_AA,
+        )
 
         y = y_depth + depth_preview.shape[0] + 34
         if not detections:
-            cv2.putText(view, "no detections", (width + 16, y), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (120, 130, 140), 1)
+            cv2.putText(
+                view,
+                "no detections",
+                (width + 16, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.50,
+                (120, 130, 140),
+                1,
+                cv2.LINE_AA,
+            )
             return view
 
         for idx, detection in enumerate(detections[:8], start=1):
@@ -915,11 +877,19 @@ class GazeboYoloPoseNode(Node):
             )
             lines = [
                 f"{idx}. {object_name}  {detection.class_name}  {detection.score:.2f}  {match_text}",
-                f"   xyz {center[0]:+.3f} {center[1]:+.3f} {center[2]:+.3f}"
+                f"   xyz {center[0]:+.3f} {center[1]:+.3f} {center[2]:+.3f}",
                 f"   size {extents[0]:.3f} {extents[1]:.3f} {extents[2]:.3f}",
             ]
-            self._draw_status_text(view, lines, x=width + 16, y=y, color=(225, 230, 235), line_height=20)
-            y += 48
+            self._draw_status_text(
+                view,
+                lines,
+                x=width + 16,
+                y=y,
+                color=(225, 230, 235),
+                line_height=17,
+                scale=0.42,
+            )
+            y += 58
             if y > height - 40:
                 break
         return view
@@ -932,6 +902,7 @@ class GazeboYoloPoseNode(Node):
         y: int,
         color: tuple[int, int, int],
         line_height: int = 22,
+        scale: float = 0.52,
     ) -> None:
         for index, line in enumerate(lines):
             cv2.putText(
@@ -939,7 +910,7 @@ class GazeboYoloPoseNode(Node):
                 line,
                 (x, y + index * line_height),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.52,
+                scale,
                 color,
                 1,
                 cv2.LINE_AA,
@@ -1001,7 +972,8 @@ def main(args=None) -> None:
         if node._show_debug_view:
             cv2.destroyAllWindows()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

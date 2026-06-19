@@ -78,6 +78,7 @@ install(TARGETS
 )
 
 install(PROGRAMS
+  scripts/capture_gazebo_yolo_dataset.py
   scripts/gazebo_yolo_pose_node.py
   scripts/realsense_hsv_preview.py
   scripts/sync_planning_scene_from_layout.py

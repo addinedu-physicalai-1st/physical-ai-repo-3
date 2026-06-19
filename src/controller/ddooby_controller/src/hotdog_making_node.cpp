@@ -218,6 +218,35 @@ ArmSide defaultArmForTarget(ManufacturingTarget target)
   return ArmSide::Left;
 }
 
+bool isHotdogAssemblyEndpoint(ManufacturingTarget target)
+{
+  return target == ManufacturingTarget::Case ||
+         target == ManufacturingTarget::Bread ||
+         target == ManufacturingTarget::Sausage ||
+         target == ManufacturingTarget::Ketchup ||
+         target == ManufacturingTarget::Hotdog;
+}
+
+int hotdogAssemblyStepOrder(ManufacturingTarget target)
+{
+  switch (target) {
+    case ManufacturingTarget::Case:
+      return 1;
+    case ManufacturingTarget::Bread:
+      return 2;
+    case ManufacturingTarget::Sausage:
+      return 3;
+    case ManufacturingTarget::Ketchup:
+      return 4;
+    case ManufacturingTarget::Hotdog:
+      return 5;
+    case ManufacturingTarget::Coffee:
+    case ManufacturingTarget::Coke:
+      return 0;
+  }
+  return 0;
+}
+
 std::optional<ManufacturingStage> stageEndpointFromWaypointName(const std::string & value)
 {
   const std::string normalized = normalizeStageName(value);
@@ -636,6 +665,14 @@ bool poseHasValidOrientation(const geometry_msgs::msg::Pose & pose)
     pose.orientation.z * pose.orientation.z +
     pose.orientation.w * pose.orientation.w;
   return norm_squared > 1e-8;
+}
+
+double visionPrincipalAxisExtentRatio(const Eigen::Vector3d & size)
+{
+  if (size.x() <= 0.005 || size.y() <= 0.005) {
+    return 0.0;
+  }
+  return size.x() / std::max(size.y(), 1e-6);
 }
 
 Eigen::Vector3d heldCaseCenterFromTcpPose(const geometry_msgs::msg::Pose & right_tcp_pose)
@@ -1880,8 +1917,10 @@ public:
     vision_pick_max_distance_m_ = declare_parameter<double>("vision_pick_max_distance_m", 0.15);
     vision_pick_min_score_ = declare_parameter<double>("vision_pick_min_score", 0.25);
     vision_pick_required_ = declare_parameter<bool>("vision_pick_required", false);
-    vision_pick_use_orientation_ = declare_parameter<bool>("vision_pick_use_orientation", false);
+    vision_pick_use_orientation_ = declare_parameter<bool>("vision_pick_use_orientation", true);
     vision_pick_use_size_ = declare_parameter<bool>("vision_pick_use_size", false);
+    vision_pick_min_orientation_extent_ratio_ =
+      declare_parameter<double>("vision_pick_min_orientation_extent_ratio", 1.35);
 
     if (enable_vision_pick_) {
       vision_detection_sub_ =
@@ -1893,13 +1932,15 @@ public:
         });
       RCLCPP_INFO(
         get_logger(),
-        "Vision pick enabled: topic=%s timeout=%.2fs max_age=%.2fs max_distance=%.3fm min_score=%.2f required=%s",
+        "Vision pick enabled: topic=%s timeout=%.2fs max_age=%.2fs max_distance=%.3fm min_score=%.2f required=%s use_orientation=%s min_axis_ratio=%.2f",
         vision_detections_topic_.c_str(),
         vision_pick_timeout_sec_,
         vision_pick_max_age_sec_,
         vision_pick_max_distance_m_,
         vision_pick_min_score_,
-        vision_pick_required_ ? "true" : "false");
+        vision_pick_required_ ? "true" : "false",
+        vision_pick_use_orientation_ ? "true" : "false",
+        vision_pick_min_orientation_extent_ratio_);
     }
 
     try {
@@ -1961,58 +2002,27 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "Manufacturing request: task=%s, arm=%s, start_stage=%s, play_to_stage=%s",
+      "Manufacturing request: task=%s, start_stage=%s, play_to_stage=%s",
       task_presets::targetName(target_),
-      task_presets::armName(arm_),
       task_presets::stageName(start_stage_),
       play_to_stage_.has_value() ? task_presets::stageName(play_to_stage_.value()) : "complete");
 
-    if (target_ == ManufacturingTarget::Case && arm_ == ArmSide::Right) {
-      return runCasePick();
+    if (parseArmSide(arm_name_).has_value()) {
+      RCLCPP_WARN(
+        get_logger(),
+        "arm:=%s is deprecated for manufacturing tasks; task determines the required arm sequence",
+        arm_name_.c_str());
     }
-    if (target_ == ManufacturingTarget::Hotdog) {
-      return runHotdogAssembly();
+
+    if (isHotdogAssemblyEndpoint(target_)) {
+      return runHotdogAssemblyUntil(target_);
     }
-    if (target_ == ManufacturingTarget::Bread && arm_ == ArmSide::Left) {
-      if (play_to_stage_.has_value() &&
-        stageOrder(play_to_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
-      {
-        return runBreadPick();
-      }
-      return runBreadPlace();
-    }
-    if (target_ == ManufacturingTarget::Sausage && arm_ == ArmSide::Left) {
-      if (play_to_stage_.has_value() &&
-        stageOrder(play_to_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
-      {
-        return runSausagePick();
-      }
-      return runSausagePlace();
-    }
-    if (target_ == ManufacturingTarget::Ketchup && arm_ == ArmSide::Left) {
-      if (play_to_stage_.has_value() &&
-        stageOrder(play_to_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
-      {
-        return runKetchupPick();
-      }
-      return runKetchupSqueeze();
-    }
-    if ((target_ == ManufacturingTarget::Coke || target_ == ManufacturingTarget::Coffee) &&
-      arm_ == ArmSide::Left)
-    {
-      if (play_to_stage_.has_value() &&
-        stageOrder(play_to_stage_.value()) <= stageOrder(ManufacturingStage::Pick))
-      {
-        return runBeverageCanPick(target_);
-      }
+
+    if (target_ == ManufacturingTarget::Coke || target_ == ManufacturingTarget::Coffee) {
       return runBeverageCanServe(target_);
     }
 
-    RCLCPP_ERROR(
-      get_logger(),
-      "Unsupported task/arm combination: task=%s, arm=%s",
-      task_presets::targetName(target_),
-      task_presets::armName(arm_));
+    RCLCPP_ERROR(get_logger(), "Unsupported task: %s", task_presets::targetName(target_));
     return false;
   }
 
@@ -2058,23 +2068,35 @@ private:
 
   bool runHotdogAssembly()
   {
-    if (start_stage_ == ManufacturingStage::Place) {
+    return runHotdogAssemblyUntil(ManufacturingTarget::Hotdog);
+  }
+
+  bool runHotdogAssemblyUntil(ManufacturingTarget endpoint)
+  {
+    const int endpoint_order = hotdogAssemblyStepOrder(endpoint);
+    if (endpoint_order <= 0) {
+      RCLCPP_ERROR(get_logger(), "Unsupported hotdog assembly endpoint: %s", task_presets::targetName(endpoint));
+      return false;
+    }
+
+    if (endpoint == ManufacturingTarget::Hotdog && start_stage_ == ManufacturingStage::Place) {
       RCLCPP_INFO(
         get_logger(),
         "New York hotdog assembly starts at completed-hotdog pickup-zone place");
       return runCompletedHotdogPlace();
     }
 
-    if (start_stage_ != ManufacturingStage::Home ||
-      (play_to_stage_.has_value() &&
-      play_to_stage_.value() != ManufacturingStage::Place))
-    {
+    if (start_stage_ != ManufacturingStage::Home) {
       RCLCPP_WARN(
         get_logger(),
-        "task:=hotdog currently runs the implemented full sequence and ignores waypoint slicing");
+        "task:=%s runs from the beginning of the manufacturing sequence; start_from_waypoint is only exact for task:=hotdog play_to_stage:=place",
+        task_presets::targetName(endpoint));
     }
 
-    RCLCPP_INFO(get_logger(), "New York hotdog assembly started");
+    RCLCPP_INFO(
+      get_logger(),
+      "New York hotdog assembly started: endpoint=%s",
+      task_presets::targetName(endpoint));
 
     const std::string saved_target_model = target_model_;
     const ManufacturingStage saved_start_stage = start_stage_;
@@ -2086,35 +2108,56 @@ private:
       play_to_stage_ = saved_play_to_stage;
     };
 
+    auto run_endpoint_step = [&](ManufacturingTarget step, const std::string & model, auto && runner) {
+      target_model_ = model;
+      play_to_stage_ = step == endpoint ? saved_play_to_stage : std::optional<ManufacturingStage>{};
+      return runner();
+    };
+
     start_stage_ = ManufacturingStage::Home;
-    play_to_stage_.reset();
 
-    target_model_ = case_target_model_;
-    RCLCPP_INFO(get_logger(), "Hotdog assembly step 1/5: pick and present case (%s)", target_model_.c_str());
-    if (!runCasePick()) {
+    RCLCPP_INFO(get_logger(), "Hotdog assembly step 1/5: pick and present case (%s)", case_target_model_.c_str());
+    if (!run_endpoint_step(ManufacturingTarget::Case, case_target_model_, [&]() {return runCasePick();})) {
       restore_state();
       return false;
     }
+    if (endpoint_order == hotdogAssemblyStepOrder(ManufacturingTarget::Case)) {
+      restore_state();
+      RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at case endpoint");
+      return true;
+    }
 
-    target_model_ = bread_target_model_;
-    RCLCPP_INFO(get_logger(), "Hotdog assembly step 2/5: pick and place bread (%s)", target_model_.c_str());
-    if (!runBreadPlace()) {
+    RCLCPP_INFO(get_logger(), "Hotdog assembly step 2/5: pick and place bread (%s)", bread_target_model_.c_str());
+    if (!run_endpoint_step(ManufacturingTarget::Bread, bread_target_model_, [&]() {return runBreadPlace();})) {
       restore_state();
       return false;
     }
+    if (endpoint_order == hotdogAssemblyStepOrder(ManufacturingTarget::Bread)) {
+      restore_state();
+      RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at bread endpoint");
+      return true;
+    }
 
-    target_model_ = sausage_target_model_;
-    RCLCPP_INFO(get_logger(), "Hotdog assembly step 3/5: pick and place sausage (%s)", target_model_.c_str());
-    if (!runSausagePlace()) {
+    RCLCPP_INFO(get_logger(), "Hotdog assembly step 3/5: pick and place sausage (%s)", sausage_target_model_.c_str());
+    if (!run_endpoint_step(ManufacturingTarget::Sausage, sausage_target_model_, [&]() {return runSausagePlace();})) {
       restore_state();
       return false;
     }
+    if (endpoint_order == hotdogAssemblyStepOrder(ManufacturingTarget::Sausage)) {
+      restore_state();
+      RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at sausage endpoint");
+      return true;
+    }
 
-    target_model_ = ketchup_target_model_;
-    RCLCPP_INFO(get_logger(), "Hotdog assembly step 4/5: pick, aim, and squeeze ketchup (%s)", target_model_.c_str());
-    if (!runKetchupSqueeze()) {
+    RCLCPP_INFO(get_logger(), "Hotdog assembly step 4/5: pick, aim, and squeeze ketchup (%s)", ketchup_target_model_.c_str());
+    if (!run_endpoint_step(ManufacturingTarget::Ketchup, ketchup_target_model_, [&]() {return runKetchupSqueeze();})) {
       restore_state();
       return false;
+    }
+    if (endpoint_order == hotdogAssemblyStepOrder(ManufacturingTarget::Ketchup)) {
+      restore_state();
+      RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at ketchup endpoint");
+      return true;
     }
 
     play_to_stage_ = saved_play_to_stage;
@@ -3170,14 +3213,19 @@ private:
     const Eigen::Vector3d previous_center = objectWorldCenter(target);
     const Eigen::Vector3d detection_center = posePosition(detection->pose);
 
+    bool applied_vision_orientation = false;
+    double vision_axis_ratio = visionPrincipalAxisExtentRatio(detection->size);
     if (vision_pick_use_orientation_ && poseHasValidOrientation(detection->pose)) {
       const Eigen::Matrix3d detection_rotation = poseOrientation(detection->pose).toRotationMatrix();
       const Eigen::Vector3d horizontal_x(
         detection_rotation(0, 0),
         detection_rotation(1, 0),
         0.0);
-      if (horizontal_x.norm() > 1e-6) {
+      if (horizontal_x.norm() > 1e-6 &&
+        vision_axis_ratio >= vision_pick_min_orientation_extent_ratio_)
+      {
         target.rpy.z() = std::atan2(horizontal_x.y(), horizontal_x.x());
+        applied_vision_orientation = true;
       }
     }
 
@@ -3194,7 +3242,7 @@ private:
 
     RCLCPP_INFO(
       get_logger(),
-      "Vision pick target '%s': class=%s score=%.3f center [%.3f %.3f %.3f] -> [%.3f %.3f %.3f], xyz=[%.3f %.3f %.3f]",
+      "Vision pick target '%s': class=%s score=%.3f center [%.3f %.3f %.3f] -> [%.3f %.3f %.3f], xyz=[%.3f %.3f %.3f], yaw=%.3f %s axis_ratio=%.2f",
       target.name.c_str(),
       detection->class_id.c_str(),
       detection->score,
@@ -3206,7 +3254,10 @@ private:
       detection_center.z(),
       target.xyz.x(),
       target.xyz.y(),
-      target.xyz.z());
+      target.xyz.z(),
+      target.rpy.z(),
+      applied_vision_orientation ? "(vision PCA)" : "(preset)",
+      vision_axis_ratio);
     return true;
   }
 
@@ -5357,8 +5408,9 @@ private:
   double vision_pick_max_distance_m_{0.15};
   double vision_pick_min_score_{0.25};
   bool vision_pick_required_{false};
-  bool vision_pick_use_orientation_{false};
+  bool vision_pick_use_orientation_{true};
   bool vision_pick_use_size_{false};
+  double vision_pick_min_orientation_extent_ratio_{1.35};
   rclcpp::Subscription<vision_msgs::msg::Detection3DArray>::SharedPtr vision_detection_sub_;
   std::mutex vision_detections_mutex_;
   std::vector<VisionPickDetection> latest_vision_detections_;

@@ -1,11 +1,22 @@
+from pathlib import Path
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
+from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
 
 
+def default_model_path():
+    return str(
+        Path(get_package_share_directory("ddooby_controller"))
+        / "assets"
+        / "vision_models"
+        / "gazebo_moca_yolov8n_seg.pt"
+    )
+
+
 def generate_launch_description():
-    detector_backend = LaunchConfiguration("detector_backend")
     model_path = LaunchConfiguration("model_path")
     target_frame = LaunchConfiguration("target_frame")
     show_debug_view = LaunchConfiguration("show_debug_view")
@@ -17,15 +28,9 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "detector_backend",
-                default_value="hsv",
-                choices=["hsv", "yolo"],
-                description="Object detector backend. HSV is recommended for color-coded Gazebo objects.",
-            ),
-            DeclareLaunchArgument(
                 "model_path",
-                default_value="yolo11n.pt",
-                description="Ultralytics YOLO model path. Used only when detector_backend:=yolo.",
+                default_value=default_model_path(),
+                description="Ultralytics YOLO-seg model path for Gazebo manufacturing object segmentation.",
             ),
             DeclareLaunchArgument(
                 "target_frame",
@@ -41,13 +46,13 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "process_every_n",
                 default_value="1",
-                description="Run the vision detector once every N color frames",
+                description="Run YOLO-seg once every N color frames",
             ),
             DeclareLaunchArgument(
                 "enable_layout_matching",
                 default_value="true",
                 choices=["true", "false"],
-                description="Match raw vision candidates to known manufacturing layout objects",
+                description="Match YOLO-seg candidates to known manufacturing layout objects",
             ),
             DeclareLaunchArgument(
                 "layout_match_max_distance",
@@ -66,7 +71,6 @@ def generate_launch_description():
                 output="screen",
                 parameters=[
                     {
-                        "detector_backend": detector_backend,
                         "model_path": model_path,
                         "target_frame": target_frame,
                         "show_debug_view": show_debug_view,

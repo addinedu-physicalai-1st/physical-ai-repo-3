@@ -28,6 +28,7 @@ def generate_launch_description():
     vision_pick_min_score = LaunchConfiguration("vision_pick_min_score")
     vision_pick_required = LaunchConfiguration("vision_pick_required")
     vision_pick_use_orientation = LaunchConfiguration("vision_pick_use_orientation")
+    vision_pick_min_orientation_extent_ratio = LaunchConfiguration("vision_pick_min_orientation_extent_ratio")
     vision_pick_use_size = LaunchConfiguration("vision_pick_use_size")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
@@ -41,7 +42,7 @@ def generate_launch_description():
         "arm",
         default_value="auto",
         choices=["auto", "left", "right"],
-        description="Arm side to use. Auto maps bread/sausage to left and case to right.",
+        description="Deprecated compatibility option. Manufacturing tasks now determine the required arm sequence from task.",
     )
     target_model_arg = DeclareLaunchArgument(
         "target_model",
@@ -145,9 +146,14 @@ def generate_launch_description():
     )
     vision_pick_use_orientation_arg = DeclareLaunchArgument(
         "vision_pick_use_orientation",
-        default_value="false",
+        default_value="true",
         choices=["true", "false"],
-        description="Use detected object yaw for pick target orientation. Existing preset orientation remains default.",
+        description="Use detected object principal-axis yaw for pick target orientation when the PCA axis is reliable.",
+    )
+    vision_pick_min_orientation_extent_ratio_arg = DeclareLaunchArgument(
+        "vision_pick_min_orientation_extent_ratio",
+        default_value="1.35",
+        description="Minimum PCA primary/secondary extent ratio required before applying vision yaw to pick targets.",
     )
     vision_pick_use_size_arg = DeclareLaunchArgument(
         "vision_pick_use_size",
@@ -197,6 +203,7 @@ def generate_launch_description():
                 "vision_pick_min_score": vision_pick_min_score,
                 "vision_pick_required": vision_pick_required,
                 "vision_pick_use_orientation": vision_pick_use_orientation,
+                "vision_pick_min_orientation_extent_ratio": vision_pick_min_orientation_extent_ratio,
                 "vision_pick_use_size": vision_pick_use_size,
                 "enable_ketchup_squeeze_gripper": PythonExpression(
                     ["'true' if '", use_sim_time, "' == 'false' else 'false'"]
@@ -228,6 +235,7 @@ def generate_launch_description():
         vision_pick_min_score_arg,
         vision_pick_required_arg,
         vision_pick_use_orientation_arg,
+        vision_pick_min_orientation_extent_ratio_arg,
         vision_pick_use_size_arg,
         use_sim_time_arg,
         hotdog_making_node,

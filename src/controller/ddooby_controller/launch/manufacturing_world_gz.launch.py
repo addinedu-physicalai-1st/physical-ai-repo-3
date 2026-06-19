@@ -53,7 +53,6 @@ def generate_launch_description():
     with_moveit = LaunchConfiguration("with_moveit")
     with_rviz = LaunchConfiguration("with_rviz")
     with_vision = LaunchConfiguration("with_vision")
-    vision_detector_backend = LaunchConfiguration("vision_detector_backend")
     vision_model_path = LaunchConfiguration("vision_model_path")
     show_vision_view = LaunchConfiguration("show_vision_view")
     vision_process_every_n = LaunchConfiguration("vision_process_every_n")
@@ -82,26 +81,14 @@ def generate_launch_description():
     )
     with_vision_arg = DeclareLaunchArgument(
         "with_vision",
-        default_value="false",
+        default_value="true",
         choices=["true", "false"],
-        description="Launch Gazebo D435 image bridges and manufacturing vision pose estimation",
-    )
-    vision_detector_backend_arg = DeclareLaunchArgument(
-        "vision_detector_backend",
-        default_value="hsv",
-        choices=["hsv", "yolo"],
-        description="Object detector backend for Gazebo vision. Use hsv for color-coded Gazebo objects.",
-    )
-    vision_detector_profile_arg = DeclareLaunchArgument(
-        "vision_detector_profile",
-        default_value="gazebo",
-        choices=["gazebo", "realsense"],
-        description="HSV threshold profile name. Gazebo world runs with gazebo.",
+        description="Launch Gazebo D435 image bridges and YOLO-seg manufacturing vision pose estimation",
     )
     vision_model_path_arg = DeclareLaunchArgument(
         "vision_model_path",
-        default_value="yolo11n.pt",
-        description="Ultralytics YOLO model path. Used only when vision_detector_backend:=yolo.",
+        default_value=str(package_share / "assets" / "vision_models" / "gazebo_moca_yolov8n_seg.pt"),
+        description="Ultralytics YOLO-seg model path for Gazebo manufacturing object segmentation.",
     )
     show_vision_view_arg = DeclareLaunchArgument(
         "show_vision_view",
@@ -112,7 +99,7 @@ def generate_launch_description():
     vision_process_every_n_arg = DeclareLaunchArgument(
         "vision_process_every_n",
         default_value="1",
-        description="Run the vision detector once every N color frames",
+        description="Run YOLO-seg once every N color frames",
     )
     vision_enable_layout_matching_arg = DeclareLaunchArgument(
         "vision_enable_layout_matching",
@@ -130,7 +117,6 @@ def generate_launch_description():
         default_value="0.85",
         description="Blend weight for the known layout pose after a vision candidate is matched",
     )
-
     set_pose_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
@@ -159,7 +145,6 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {
-                "detector_backend": vision_detector_backend,
                 "model_path": vision_model_path,
                 "target_frame": "world",
                 "show_debug_view": show_vision_view,
@@ -213,8 +198,6 @@ def generate_launch_description():
         with_moveit_arg,
         with_rviz_arg,
         with_vision_arg,
-        vision_detector_backend_arg,
-        vision_detector_profile_arg,
         vision_model_path_arg,
         show_vision_view_arg,
         vision_process_every_n_arg,
