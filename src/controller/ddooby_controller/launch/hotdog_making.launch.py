@@ -117,12 +117,12 @@ def generate_launch_description():
     )
     vision_pick_timeout_sec_arg = DeclareLaunchArgument(
         "vision_pick_timeout_sec",
-        default_value="2.0",
+        default_value="8.0",
         description="Seconds to wait for a matching vision detection before pick planning.",
     )
     vision_pick_max_age_sec_arg = DeclareLaunchArgument(
         "vision_pick_max_age_sec",
-        default_value="2.0",
+        default_value="5.0",
         description="Maximum accepted age in seconds for vision detections.",
     )
     vision_pick_max_distance_m_arg = DeclareLaunchArgument(

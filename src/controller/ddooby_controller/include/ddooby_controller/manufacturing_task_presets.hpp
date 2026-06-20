@@ -572,7 +572,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Pick,
     "pre_grasp",
-    {true, 0.438, 0.205, 0.600, 0.711, 0.036, 0.701, 0.035},
+    {true, 0.438, 0.205, 0.600, 0.704, 0.110, 0.694, 0.108},
     PoseAxisSource::TargetObject,
     PoseAxisSource::TargetObject,
     PoseAxisSource::Preset,
@@ -785,9 +785,9 @@ inline constexpr PickTuningPreset kLeftSausagePickTuning{
 
 // 케첩 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kLeftKetchupPickTuning{
-  0.0,
+  0.015,
   {true, 0.040},
-  {true, 0.018}
+  {true, 0.014}
 };
 
 // 음료 캔 pick/인계 파지 세부 조정값.

@@ -1450,7 +1450,6 @@ bool planAndExecutePoseTarget(
   arm.setPoseTarget(target_pose, tcp_link);
   return planAndExecute(logger, arm, label, max_attempts, min_duration_sec);
 }
-
 double durationToSec(const builtin_interfaces::msg::Duration & duration)
 {
   return static_cast<double>(duration.sec) + static_cast<double>(duration.nanosec) * 1e-9;
@@ -1820,8 +1819,8 @@ public:
     enable_vision_pick_ = declare_parameter<bool>("enable_vision_pick", false);
     vision_detections_topic_ =
       declare_parameter<std::string>("vision_detections_topic", "/manufacturing_vision/detections");
-    vision_pick_timeout_sec_ = declare_parameter<double>("vision_pick_timeout_sec", 2.0);
-    vision_pick_max_age_sec_ = declare_parameter<double>("vision_pick_max_age_sec", 2.0);
+    vision_pick_timeout_sec_ = declare_parameter<double>("vision_pick_timeout_sec", 8.0);
+    vision_pick_max_age_sec_ = declare_parameter<double>("vision_pick_max_age_sec", 5.0);
     vision_pick_max_distance_m_ = declare_parameter<double>("vision_pick_max_distance_m", 0.15);
     vision_pick_min_score_ = declare_parameter<double>("vision_pick_min_score", 0.25);
     vision_pick_use_size_ = declare_parameter<bool>("vision_pick_use_size", false);
@@ -5054,15 +5053,18 @@ private:
     geometry_msgs::msg::Pose return_lift_pose = return_pose;
     return_lift_pose.position.z += task_presets::kLeftKetchupReturnLiftHeightM;
 
-    RCLCPP_INFO(get_logger(), "Ketchup place: retreating back to aim pose");
-    if (!planAndExecutePoseTarget(
+    RCLCPP_INFO(get_logger(), "Ketchup place: Cartesian retreat back to aim pose");
+    if (!executeCartesian(
         get_logger(),
         left_arm,
-        aim_pose,
-        left_tcp_link_,
+        {aim_pose},
         "ketchup place aim retreat pose",
-        task_presets::kDefaultPlanExecuteMaxAttempts,
-        pose_min_duration_sec_))
+        cartesian_eef_step_,
+        min_cartesian_fraction_,
+        cartesian_avoid_collisions_,
+        velocity_scaling_,
+        acceleration_scaling_,
+        cartesian_min_duration_sec_))
     {
       return false;
     }
@@ -5106,14 +5108,17 @@ private:
     }
 
     RCLCPP_INFO(get_logger(), "Ketchup place: returning bottle");
-    if (!planAndExecutePoseTarget(
+    if (!executeCartesian(
         get_logger(),
         left_arm,
-        return_pose,
-        left_tcp_link_,
+        {return_pose},
         "ketchup return place pose",
-        task_presets::kDefaultPlanExecuteMaxAttempts,
-        pose_min_duration_sec_))
+        cartesian_eef_step_,
+        min_cartesian_fraction_,
+        cartesian_avoid_collisions_,
+        velocity_scaling_,
+        acceleration_scaling_,
+        cartesian_min_duration_sec_))
     {
       return false;
     }
