@@ -3,12 +3,16 @@
   <model name="sausage">
     <static>false</static>
     <link name="sausage_link">
+      <velocity_decay>
+        <linear>1.000000</linear>
+        <angular>1.800000</angular>
+      </velocity_decay>
       <inertial>
-        <mass>0.100000</mass>
+        <mass>0.030000</mass>
         <inertia>
-          <ixx>0.000100000</ixx>
-          <iyy>0.000100000</iyy>
-          <izz>0.000100000</izz>
+          <ixx>0.000030000</ixx>
+          <iyy>0.000030000</iyy>
+          <izz>0.000030000</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>
@@ -18,6 +22,7 @@
         <geometry>
           <mesh>
             <uri>meshes/sausage.obj</uri>
+            <scale>1.200000 1.200000 0.887000</scale>
           </mesh>
         </geometry>
         <material>
@@ -30,16 +35,38 @@
         <pose>-0.000000016 0.000000030 0.000000045 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.020000007 0.020000000 0.160000011</size>
+            <size>0.024000000 0.024000000 0.142000000</size>
           </box>
         </geometry>
+        <max_contacts>20</max_contacts>
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>100.0</mu>
+              <mu2>100.0</mu2>
+              <slip1>0.0</slip1>
+              <slip2>0.0</slip2>
             </ode>
+            <torsional>
+              <coefficient>1.0</coefficient>
+              <use_patch_radius>true</use_patch_radius>
+              <patch_radius>0.020000</patch_radius>
+              <surface_radius>0.010000</surface_radius>
+              <ode>
+                <slip>0.0</slip>
+              </ode>
+            </torsional>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000000</soft_cfm>
+              <soft_erp>0.800000</soft_erp>
+              <kp>1000000.000000</kp>
+              <kd>100.000000</kd>
+              <max_vel>0.010000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
     </link>

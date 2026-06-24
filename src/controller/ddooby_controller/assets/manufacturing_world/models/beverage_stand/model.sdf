@@ -20,6 +20,11 @@
             <uri>meshes/beverage_stand.obj</uri>
           </mesh>
         </geometry>
+        <material>
+          <ambient>0.112500 0.112500 0.105000 1.000000</ambient>
+          <diffuse>0.450000 0.450000 0.420000 1.000000</diffuse>
+          <specular>0.120000 0.120000 0.120000 1.000000</specular>
+        </material>
       </visual>
       <collision name="beverage_stand_beverage_stand_base_collision">
         <pose>-0.025909603 0.149219140 -0.054576635 0 0 0</pose>
@@ -28,13 +33,35 @@
             <size>0.300000012 0.400000006 0.109999999</size>
           </box>
         </geometry>
+        <max_contacts>20</max_contacts>
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>6.0</mu>
+              <mu2>6.0</mu2>
+              <slip1>0.0</slip1>
+              <slip2>0.0</slip2>
             </ode>
+            <torsional>
+              <coefficient>1.0</coefficient>
+              <use_patch_radius>true</use_patch_radius>
+              <patch_radius>0.020000</patch_radius>
+              <surface_radius>0.010000</surface_radius>
+              <ode>
+                <slip>0.0</slip>
+              </ode>
+            </torsional>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000000</soft_cfm>
+              <soft_erp>0.800000</soft_erp>
+              <kp>1000000.000000</kp>
+              <kd>100.000000</kd>
+              <max_vel>0.010000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
       <collision name="beverage_stand_beverage_stand_left_wall_collision">
@@ -44,13 +71,35 @@
             <size>0.300000012 0.009999990 0.155000001</size>
           </box>
         </geometry>
+        <max_contacts>20</max_contacts>
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>6.0</mu>
+              <mu2>6.0</mu2>
+              <slip1>0.0</slip1>
+              <slip2>0.0</slip2>
             </ode>
+            <torsional>
+              <coefficient>1.0</coefficient>
+              <use_patch_radius>true</use_patch_radius>
+              <patch_radius>0.020000</patch_radius>
+              <surface_radius>0.010000</surface_radius>
+              <ode>
+                <slip>0.0</slip>
+              </ode>
+            </torsional>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000000</soft_cfm>
+              <soft_erp>0.800000</soft_erp>
+              <kp>1000000.000000</kp>
+              <kd>100.000000</kd>
+              <max_vel>0.010000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
       <collision name="beverage_stand_beverage_stand_right_wall_collision">
@@ -60,13 +109,35 @@
             <size>0.300000012 0.009999998 0.155000001</size>
           </box>
         </geometry>
+        <max_contacts>20</max_contacts>
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>6.0</mu>
+              <mu2>6.0</mu2>
+              <slip1>0.0</slip1>
+              <slip2>0.0</slip2>
             </ode>
+            <torsional>
+              <coefficient>1.0</coefficient>
+              <use_patch_radius>true</use_patch_radius>
+              <patch_radius>0.020000</patch_radius>
+              <surface_radius>0.010000</surface_radius>
+              <ode>
+                <slip>0.0</slip>
+              </ode>
+            </torsional>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000000</soft_cfm>
+              <soft_erp>0.800000</soft_erp>
+              <kp>1000000.000000</kp>
+              <kd>100.000000</kd>
+              <max_vel>0.010000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
       <collision name="beverage_stand_beverage_stand_top_collision">
@@ -76,13 +147,35 @@
             <size>0.120000005 0.400000036 0.004999995</size>
           </box>
         </geometry>
+        <max_contacts>20</max_contacts>
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>6.0</mu>
+              <mu2>6.0</mu2>
+              <slip1>0.0</slip1>
+              <slip2>0.0</slip2>
             </ode>
+            <torsional>
+              <coefficient>1.0</coefficient>
+              <use_patch_radius>true</use_patch_radius>
+              <patch_radius>0.020000</patch_radius>
+              <surface_radius>0.010000</surface_radius>
+              <ode>
+                <slip>0.0</slip>
+              </ode>
+            </torsional>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000000</soft_cfm>
+              <soft_erp>0.800000</soft_erp>
+              <kp>1000000.000000</kp>
+              <kd>100.000000</kd>
+              <max_vel>0.010000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
     </link>

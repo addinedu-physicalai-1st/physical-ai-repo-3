@@ -33,22 +33,22 @@ cd "$(git rev-parse --show-toplevel)"
 
 ## 0. 공통 주의
 
-실물 로봇 제조 연동은 `ROS_DOMAIN_ID=22`로 통일한다.
+실물 로봇 제조 연동은 `ROS_DOMAIN_ID=77`로 통일한다.
 
 ```bash
-export ROS_DOMAIN_ID=22
+export ROS_DOMAIN_ID=77
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 ```
 
-`src/service/run_moca_service_native.sh`도 `ROS_DOMAIN_ID`를 안 주면 기본값으로 `22`를 잡는다.
-웹 주문 연동 테스트에서는 bringup, action server, `moca_service`를 모두 같은 `ROS_DOMAIN_ID=22`에서 실행한다.
+`src/service/run_moca_service_native.sh`도 `ROS_DOMAIN_ID`를 안 주면 기본값으로 `77`을 잡는다.
+웹 주문 연동 테스트에서는 bringup, action server, `moca_service`를 모두 같은 `ROS_DOMAIN_ID=77`에서 실행한다.
 
 성공했던 실물 테스트의 핵심 설정:
 
 ```text
 manifacture_action_server.launch.py hotdog_use_sim_time:=false
-moca_service ROS_DOMAIN_ID=22
+moca_service ROS_DOMAIN_ID=77
 moca_service MOCA_DDOOBY_CONTROLLER_ACTION_NAME=ddooby/manifacture
 manufacturing_openarm.launch.py enable_gravity_comp:=true
 hotdog_making_node task:=hotdog use_sim_time:=false
@@ -166,7 +166,7 @@ cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 
-export ROS_DOMAIN_ID=22
+export ROS_DOMAIN_ID=77
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 
@@ -192,7 +192,7 @@ ROS graph 확인:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-export ROS_DOMAIN_ID=22
+export ROS_DOMAIN_ID=77
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 
@@ -224,7 +224,7 @@ cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 
-export ROS_DOMAIN_ID=22
+export ROS_DOMAIN_ID=77
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 export ROS_HOME=/tmp/ros_home
@@ -244,7 +244,7 @@ DDooby manufacture action server ready: ddooby/manifacture
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-export ROS_DOMAIN_ID=22
+export ROS_DOMAIN_ID=77
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 
@@ -262,12 +262,12 @@ ros2 action list | grep ddooby
 터미널 4.
 
 웹 주문을 받아서 `/ddooby/manifacture` action goal을 보내는 서비스다.
-실물 연동에서는 `ROS_DOMAIN_ID=22`를 반드시 명시한다.
+실물 연동에서는 `ROS_DOMAIN_ID=77`을 반드시 명시한다.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/src/service"
 
-export ROS_DOMAIN_ID=22
+export ROS_DOMAIN_ID=77
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 
@@ -284,11 +284,11 @@ export MOCA_DDOOBY_CONTROLLER_ACTION_TIMEOUT_SEC=5.0
 ```text
 ddooby_controller ROS runtime started node=moca_ddooby_controller action=ddooby/manifacture
 order orchestration runtime started
-ros domain id:       22
+ros domain id:       77
 ```
 
-`ros domain id: 22`가 아니면 잘못 실행한 것이다.
-`Ctrl+C`로 끄고 위 명령처럼 `ROS_DOMAIN_ID=22`를 명시해서 다시 실행한다.
+`ros domain id:       77`가 아니면 잘못 실행한 것이다.
+`Ctrl+C`로 끄고 위 명령처럼 `ROS_DOMAIN_ID=77`을 명시해서 다시 실행한다.
 
 ## 6. 메뉴 확인
 
@@ -400,7 +400,7 @@ cd "$(git rev-parse --show-toplevel)"
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 
-export ROS_DOMAIN_ID=22
+export ROS_DOMAIN_ID=77
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 
@@ -465,7 +465,7 @@ ros2 node list | sort
 ```bash
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
-export ROS_DOMAIN_ID=22
+export ROS_DOMAIN_ID=77
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 unset ROS_LOCALHOST_ONLY
 
@@ -485,10 +485,10 @@ ros2 action list | grep ddooby
 `moca_service` 로그에 아래처럼 보이면 domain이 잘못된 경우가 많다.
 
 ```text
-ros domain id:       <22가 아닌 값>
+ros domain id:       <77이 아닌 값>
 ```
 
-실물 테스트에서는 `ROS_DOMAIN_ID=22`로 다시 실행한다.
+실물 테스트에서는 `ROS_DOMAIN_ID=77`로 다시 실행한다.
 
 웹 `/api/menu`가 예전 커피 메뉴로 보일 때:
 

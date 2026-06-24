@@ -157,5 +157,39 @@
       tcp_xyz="$(arg tcp_xyz)"
       tcp_rpy="$(arg tcp_rpy)"
       description_pkg="openarm_description"/>
+
+    <gazebo reference="openarm_left_left_finger">
+      <mu1>100.0</mu1>
+      <mu2>100.0</mu2>
+      <kp>1000000.0</kp>
+      <kd>100.0</kd>
+      <maxVel>0.01</maxVel>
+      <minDepth>0.002</minDepth>
+    </gazebo>
+    <gazebo reference="openarm_left_right_finger">
+      <mu1>100.0</mu1>
+      <mu2>100.0</mu2>
+      <kp>1000000.0</kp>
+      <kd>100.0</kd>
+      <maxVel>0.01</maxVel>
+      <minDepth>0.002</minDepth>
+    </gazebo>
+    <gazebo reference="openarm_right_left_finger">
+      <mu1>100.0</mu1>
+      <mu2>100.0</mu2>
+      <kp>1000000.0</kp>
+      <kd>100.0</kd>
+      <maxVel>0.01</maxVel>
+      <minDepth>0.002</minDepth>
+    </gazebo>
+    <gazebo reference="openarm_right_right_finger">
+      <mu1>100.0</mu1>
+      <mu2>100.0</mu2>
+      <kp>1000000.0</kp>
+      <kd>100.0</kd>
+      <maxVel>0.01</maxVel>
+      <minDepth>0.002</minDepth>
+    </gazebo>
+
   </xacro:macro>
 </robot>

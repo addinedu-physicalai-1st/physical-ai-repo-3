@@ -53,6 +53,7 @@ def generate_launch_description():
     with_moveit = LaunchConfiguration("with_moveit")
     with_rviz = LaunchConfiguration("with_rviz")
     with_vision = LaunchConfiguration("with_vision")
+    gz_headless = LaunchConfiguration("gz_headless")
     vision_model_path = LaunchConfiguration("vision_model_path")
     show_vision_view = LaunchConfiguration("show_vision_view")
     vision_process_every_n = LaunchConfiguration("vision_process_every_n")
@@ -78,6 +79,13 @@ def generate_launch_description():
         default_value="false",
         choices=["true", "false"],
         description="Launch MoveGroup and RViz with the Gazebo manufacturing world",
+    )
+
+    gz_headless_arg = DeclareLaunchArgument(
+        "gz_headless",
+        default_value="false",
+        choices=["true", "false"],
+        description="Run Gazebo Sim server only without GUI",
     )
     with_vision_arg = DeclareLaunchArgument(
         "with_vision",
@@ -197,6 +205,7 @@ def generate_launch_description():
     return LaunchDescription([
         with_moveit_arg,
         with_rviz_arg,
+        gz_headless_arg,
         with_vision_arg,
         vision_model_path_arg,
         show_vision_view_arg,
@@ -211,7 +220,8 @@ def generate_launch_description():
                     "launch",
                     "openarm_bimanual_gz.launch.py",
                 ])
-            )
+            ),
+            launch_arguments={"gz_headless": gz_headless}.items(),
         ),
         TimerAction(period=2.0, actions=[set_pose_bridge]),
         TimerAction(period=4.0, actions=[camera_bridge]),

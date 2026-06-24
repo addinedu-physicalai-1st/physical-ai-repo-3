@@ -582,6 +582,22 @@ Eigen::Quaterniond poseOrientation(const geometry_msgs::msg::Pose & pose)
   return orientation;
 }
 
+void applyLocalTcpZRoll(geometry_msgs::msg::Pose & pose, double roll_deg)
+{
+  if (std::abs(roll_deg) < 1e-9) {
+    return;
+  }
+
+  const double roll_rad = roll_deg * std::acos(-1.0) / 180.0;
+  Eigen::Quaterniond orientation =
+    poseOrientation(pose) * Eigen::AngleAxisd(roll_rad, Eigen::Vector3d::UnitZ());
+  orientation.normalize();
+  pose.orientation.x = orientation.x();
+  pose.orientation.y = orientation.y();
+  pose.orientation.z = orientation.z();
+  pose.orientation.w = orientation.w();
+}
+
 Eigen::Vector3d rpyFromRotation(const Eigen::Matrix3d & rotation)
 {
   const double pitch = std::asin(std::clamp(-rotation(2, 0), -1.0, 1.0));
@@ -689,6 +705,14 @@ bool visionClassMatches(
     }
   }
   return false;
+}
+
+bool visionObjectIdMatchesTargetModel(
+  const std::string & object_id,
+  const std::string & target_model)
+{
+  return !object_id.empty() &&
+         normalizeStageName(object_id) == normalizeStageName(target_model);
 }
 
 bool poseHasValidOrientation(const geometry_msgs::msg::Pose & pose)
@@ -1354,8 +1378,8 @@ bool applyTargetGripperAllowedCollision(
 
   RCLCPP_INFO(
     logger,
-    "%s target/gripper collision between '%s' and %zu touch links",
-    allow ? "Allowing" : "Restoring",
+    "%s target collision between '%s' and %zu links",
+    allow ? "Allowing" : "Disallowing",
     target_object.c_str(),
     touch_links.size());
   if (!planning_scene_interface.applyPlanningScene(scene)) {
@@ -2237,6 +2261,7 @@ private:
     }
 
     const auto & tuning = *config.tuning;
+    const geometry_msgs::msg::Pose auto_pre_grasp_pose = pick_plan.pre_grasp_pose;
     const bool pre_grasp_pose_configured =
       hasStageWaypointPosePreset(config.target, config.arm, ManufacturingStage::Pick, "pre_grasp");
     const bool pick_pose_configured =
@@ -2272,12 +2297,35 @@ private:
     if (pre_grasp_pose_configured && !pick_pose_configured) {
       pick_plan.grasp_pose.orientation = pick_plan.pre_grasp_pose.orientation;
       RCLCPP_INFO(get_logger(), "Stage pose preset linked: pick auto position uses pre_grasp orientation");
+      if (config.target == ManufacturingTarget::Sausage) {
+        pick_plan.grasp_pose.position.x = pick_plan.pre_grasp_pose.position.x;
+        pick_plan.grasp_pose.position.y = pick_plan.pre_grasp_pose.position.y;
+        pick_plan.lift_pose.position.x = pick_plan.pre_grasp_pose.position.x;
+        pick_plan.lift_pose.position.y = pick_plan.pre_grasp_pose.position.y;
+        RCLCPP_INFO(
+          get_logger(),
+          "Sausage pick: reusing pre-grasp xy for grasp/lift to avoid extra lateral correction");
+      }
     }
     if (pick_pose_configured) {
       pick_plan.lift_pose.position = pick_plan.grasp_pose.position;
       pick_plan.lift_pose.position.z += lift_height_;
     }
     pick_plan.lift_pose.orientation = pick_plan.grasp_pose.orientation;
+
+    if (
+      config.target == ManufacturingTarget::Ketchup &&
+      config.arm == ArmSide::Left &&
+      std::abs(task_presets::kLeftKetchupPickWristRollDeg) > 1e-9)
+    {
+      applyLocalTcpZRoll(pick_plan.pre_grasp_pose, task_presets::kLeftKetchupPickWristRollDeg);
+      applyLocalTcpZRoll(pick_plan.grasp_pose, task_presets::kLeftKetchupPickWristRollDeg);
+      applyLocalTcpZRoll(pick_plan.lift_pose, task_presets::kLeftKetchupPickWristRollDeg);
+      RCLCPP_INFO(
+        get_logger(),
+        "Ketchup pick final pose wrist roll correction applied: %.2f deg",
+        task_presets::kLeftKetchupPickWristRollDeg);
+    }
 
     RCLCPP_INFO(
       get_logger(),
@@ -2321,8 +2369,28 @@ private:
     }
 
     auto self = shared_from_this();
+    RCLCPP_INFO(
+      get_logger(),
+      "%s MoveIt setup: constructing arm group '%s'",
+      config.log_label.c_str(),
+      config.arm_group.c_str());
     moveit::planning_interface::MoveGroupInterface arm(self, config.arm_group);
+    RCLCPP_INFO(
+      get_logger(),
+      "%s MoveIt setup: arm group '%s' constructed",
+      config.log_label.c_str(),
+      config.arm_group.c_str());
+    RCLCPP_INFO(
+      get_logger(),
+      "%s MoveIt setup: constructing gripper group '%s'",
+      config.log_label.c_str(),
+      config.gripper_group.c_str());
     moveit::planning_interface::MoveGroupInterface gripper(self, config.gripper_group);
+    RCLCPP_INFO(
+      get_logger(),
+      "%s MoveIt setup: gripper group '%s' constructed",
+      config.log_label.c_str(),
+      config.gripper_group.c_str());
     moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
     if (!applyVisionCollisionObjectIfNeeded(planning_scene_interface, target, config.log_label)) {
       return false;
@@ -2429,7 +2497,8 @@ private:
       const bool use_pre_grasp_clearance =
         pre_grasp_pose_configured &&
         (config.target == ManufacturingTarget::Bread ||
-        config.target == ManufacturingTarget::Sausage);
+        config.target == ManufacturingTarget::Sausage ||
+        config.target == ManufacturingTarget::Ketchup);
       if (!planAndExecutePreGrasp(
           get_logger(),
           arm,
@@ -2487,7 +2556,15 @@ private:
         reached_pre_grasp_pose.position.x,
         reached_pre_grasp_pose.position.y,
         pre_grasp_xy_error);
-      if (pre_grasp_xy_error > max_pre_grasp_xy_error_) {
+      const bool has_target_alignment_after_pre_grasp =
+        pre_grasp_pose_configured && !pick_pose_configured &&
+        (config.target == ManufacturingTarget::Case ||
+        config.target == ManufacturingTarget::Bread ||
+        config.target == ManufacturingTarget::Sausage ||
+        config.target == ManufacturingTarget::Ketchup);
+      if (pre_grasp_xy_error > max_pre_grasp_xy_error_ &&
+        !has_target_alignment_after_pre_grasp)
+      {
         RCLCPP_ERROR(
           get_logger(),
           "%s: rejecting pre-grasp because TCP xy error %.3f m exceeds %.3f m",
@@ -2496,7 +2573,50 @@ private:
           max_pre_grasp_xy_error_);
         return false;
       }
-      if (pre_grasp_pose_configured && !pick_pose_configured) {
+      if (pre_grasp_xy_error > max_pre_grasp_xy_error_) {
+        RCLCPP_WARN(
+          get_logger(),
+          "%s: pre-grasp TCP xy error %.3f m exceeds %.3f m; continuing to explicit target-alignment step",
+          config.log_label.c_str(),
+          pre_grasp_xy_error,
+          max_pre_grasp_xy_error_);
+      }
+      if (config.target == ManufacturingTarget::Ketchup && pre_grasp_xy_error > 0.015) {
+        if (pre_grasp_xy_error > max_pre_grasp_xy_error_) {
+          RCLCPP_WARN(
+            get_logger(),
+            "%s: pre-grasp TCP xy error %.3f m exceeds %.3f m; applying bottle-aligned correction",
+            config.log_label.c_str(),
+            pre_grasp_xy_error,
+            max_pre_grasp_xy_error_);
+        }
+        geometry_msgs::msg::Pose target_aligned_pre_grasp_pose = pick_plan.pre_grasp_pose;
+        target_aligned_pre_grasp_pose.orientation = grasp_pose.orientation;
+        RCLCPP_INFO(
+          get_logger(),
+          "%s: re-aligning TCP to bottle y before straight horizontal grasp approach",
+          config.log_label.c_str());
+        if (!planAndExecutePoseTarget(
+            get_logger(),
+            arm,
+            target_aligned_pre_grasp_pose,
+            config.tcp_link,
+            config.log_label + " bottle-y-aligned pre-grasp",
+            task_presets::kDefaultPlanExecuteMaxAttempts,
+            pose_min_duration_sec_))
+        {
+          return false;
+        }
+        reached_pre_grasp_pose = arm.getCurrentPose(config.tcp_link).pose;
+        logCurrentTcpPose(
+          get_logger(),
+          arm,
+          config.tcp_link,
+          config.log_label + " bottle-y-aligned pre-grasp");
+        if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "target_align")) {
+          return true;
+        }
+      } else if (pre_grasp_pose_configured && !pick_pose_configured) {
         if (config.target == ManufacturingTarget::Case) {
           const Eigen::Vector3d approach_axis = pick_plan.principal_axis.normalized();
           const Eigen::Vector3d reached_position = posePosition(reached_pre_grasp_pose);
@@ -2533,14 +2653,40 @@ private:
           if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "target_align")) {
             return true;
           }
+        } else if (config.target == ManufacturingTarget::Ketchup) {
+          geometry_msgs::msg::Pose target_aligned_pre_grasp_pose = pick_plan.pre_grasp_pose;
+          target_aligned_pre_grasp_pose.orientation = grasp_pose.orientation;
+          RCLCPP_INFO(
+            get_logger(),
+            "%s: moving to bottle-axis-aligned pre-grasp before straight horizontal approach",
+            config.log_label.c_str());
+          if (!planAndExecutePoseTarget(
+              get_logger(),
+              arm,
+              target_aligned_pre_grasp_pose,
+              config.tcp_link,
+              config.log_label + " bottle-axis-aligned horizontal pre-grasp",
+              task_presets::kDefaultPlanExecuteMaxAttempts,
+              pose_min_duration_sec_))
+          {
+            return false;
+          }
+          logCurrentTcpPose(
+            get_logger(),
+            arm,
+            config.tcp_link,
+            config.log_label + " bottle-axis-aligned horizontal pre-grasp");
+          if (shouldStopAfterWaypoint(ManufacturingStage::Pick, "target_align")) {
+            return true;
+          }
         } else if (
-          config.target == ManufacturingTarget::Ketchup ||
+          config.target == ManufacturingTarget::Sausage ||
           config.target == ManufacturingTarget::Coke ||
           config.target == ManufacturingTarget::Coffee)
         {
           RCLCPP_INFO(
             get_logger(),
-            "%s: skipping forced target alignment; cylindrical target uses planned grasp approach",
+            "%s: skipping forced target alignment; target uses planned grasp approach",
             config.log_label.c_str());
         } else {
           constexpr double kMinGraspClearanceAboveTarget = 0.05;
@@ -2578,10 +2724,24 @@ private:
 
           geometry_msgs::msg::Pose target_aligned_pre_grasp_pose = grasp_pose;
           target_aligned_pre_grasp_pose.position.z = clearance_z;
-          RCLCPP_INFO(
-            get_logger(),
-            "%s: moving above selected target before vertical grasp descent",
-            config.log_label.c_str());
+          if (config.target == ManufacturingTarget::Sausage) {
+            constexpr double kSausageTargetAlignExtraZ = 0.04;
+            target_aligned_pre_grasp_pose.position.x = pick_plan.pre_grasp_pose.position.x;
+            target_aligned_pre_grasp_pose.position.y = pick_plan.pre_grasp_pose.position.y;
+            target_aligned_pre_grasp_pose.position.z =
+              std::max(target_aligned_pre_grasp_pose.position.z, grasp_pose.position.z + 0.09) +
+              kSausageTargetAlignExtraZ;
+            target_aligned_pre_grasp_pose.orientation = pick_plan.pre_grasp_pose.orientation;
+            RCLCPP_INFO(
+              get_logger(),
+              "%s: moving to elevated sausage pre-grasp alignment before vertical descent",
+              config.log_label.c_str());
+          } else {
+            RCLCPP_INFO(
+              get_logger(),
+              "%s: moving above selected target before vertical grasp descent",
+              config.log_label.c_str());
+          }
           if (!planAndExecutePoseTarget(
               get_logger(),
               arm,
@@ -3121,8 +3281,16 @@ private:
           detection.frame_id.c_str());
         continue;
       }
-      const bool object_id_matches =
-        !detection.object_id.empty() && visionClassMatches(detection.object_id, target_kind, target_model);
+      const bool has_object_id = !detection.object_id.empty();
+      const bool object_id_matches = visionObjectIdMatchesTargetModel(detection.object_id, target_model);
+      if (has_object_id && !object_id_matches) {
+        RCLCPP_DEBUG(
+          get_logger(),
+          "Vision pick skip id=%s for target_model=%s",
+          detection.object_id.c_str(),
+          target_model.c_str());
+        continue;
+      }
       if (!object_id_matches && !visionClassMatches(detection.class_id, target_kind, target_model)) {
         RCLCPP_DEBUG(
           get_logger(),
@@ -3188,8 +3356,7 @@ private:
         stream << " ...";
         break;
       }
-      const bool object_id_matches =
-        !detection.object_id.empty() && visionClassMatches(detection.object_id, target_kind, target_model);
+      const bool object_id_matches = visionObjectIdMatchesTargetModel(detection.object_id, target_model);
       const bool class_matches = visionClassMatches(detection.class_id, target_kind, target_model);
       const double age_sec = (now - detection.stamp).seconds();
       const Eigen::Vector3d detection_center = posePosition(detection.pose);
@@ -4275,8 +4442,8 @@ private:
     PickPlan pick_plan =
       makeHorizontalPickPlan(
         grasp_target,
-        Eigen::Vector3d::UnitY(),
         Eigen::Vector3d::UnitX(),
+        Eigen::Vector3d::UnitY(),
         ketchup_pre_grasp_distance_,
         lift_height_,
         task_presets::kLeftKetchupPickTuning.grasp_tcp_z_offset_m);
@@ -4354,6 +4521,7 @@ private:
     logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Bread place case reference");
     logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Bread place initial");
 
+    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
     bool left_work_pose_configured = false;
     if (shouldRunStage(ManufacturingStage::Work)) {
       RCLCPP_INFO(get_logger(), "Bread place: moving to configured work pose");
@@ -4410,7 +4578,6 @@ private:
     }
     rclcpp::sleep_for(300ms);
 
-    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
     if (!detachTargetCollisionObject(left_arm, bread_target_model, "Bread place")) {
       return false;
     }
@@ -4513,6 +4680,7 @@ private:
     logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Case presentation initial");
     logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Sausage place initial");
 
+    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
     bool right_work_pose_configured = false;
     bool left_work_pose_configured = false;
     std::optional<geometry_msgs::msg::Pose> left_work_pose;
@@ -4554,15 +4722,29 @@ private:
           makePoseFromWaypointPreset(
             get_logger(), *left_work_preset, references, "Sausage place work");
         left_work_pose = work_pose;
-        if (!planAndExecutePoseTarget(
-            get_logger(),
-            left_arm,
-            work_pose,
-            left_tcp_link_,
-            "sausage place work pose",
-            task_presets::kDefaultPlanExecuteMaxAttempts,
-            cartesian_min_duration_sec_))
-        {
+        const double previous_velocity_scaling = velocity_scaling_;
+        const double previous_acceleration_scaling = acceleration_scaling_;
+        const double sausage_transport_velocity_scaling = std::max(previous_velocity_scaling, 0.15);
+        const double sausage_transport_acceleration_scaling =
+          std::max(previous_acceleration_scaling, 0.10);
+        left_arm.setMaxVelocityScalingFactor(sausage_transport_velocity_scaling);
+        left_arm.setMaxAccelerationScalingFactor(sausage_transport_acceleration_scaling);
+        RCLCPP_INFO(
+          get_logger(),
+          "Sausage place work transport scaling: velocity=%.3f acceleration=%.3f",
+          sausage_transport_velocity_scaling,
+          sausage_transport_acceleration_scaling);
+        const bool sausage_work_ok = planAndExecutePoseTarget(
+          get_logger(),
+          left_arm,
+          work_pose,
+          left_tcp_link_,
+          "sausage place work pose",
+          task_presets::kDefaultPlanExecuteMaxAttempts,
+          cartesian_min_duration_sec_);
+        left_arm.setMaxVelocityScalingFactor(previous_velocity_scaling);
+        left_arm.setMaxAccelerationScalingFactor(previous_acceleration_scaling);
+        if (!sausage_work_ok) {
           return false;
         }
       }
@@ -4589,7 +4771,8 @@ private:
       case_target.size.z() * 0.5 +
       bread_target.size.z() +
       sausage_thickness * 0.5 +
-      case_sausage_place_clearance_;
+      case_sausage_place_clearance_ -
+      task_presets::kLeftSausagePickTuning.grasp_tcp_z_offset_m;
 
     geometry_msgs::msg::Pose approach_pose = left_current_pose;
     approach_pose.position.x = case_center.x();
@@ -4643,14 +4826,16 @@ private:
       RCLCPP_INFO(get_logger(), "Sausage place release pose preset applied");
     } else {
       release_pose.position.x = approach_pose.position.x;
-      release_pose.position.y = approach_pose.position.y;
+      release_pose.position.y =
+        approach_pose.position.y + task_presets::kLeftSausageReleaseYOffsetFromApproachM;
       release_pose.orientation = approach_pose.orientation;
       RCLCPP_INFO(
         get_logger(),
-        "Sausage place auto release pose: xyz=[%.3f %.3f %.3f]",
+        "Sausage place auto release pose: xyz=[%.3f %.3f %.3f], y_offset_from_approach=%.3f",
         release_pose.position.x,
         release_pose.position.y,
-        release_pose.position.z);
+        release_pose.position.z,
+        task_presets::kLeftSausageReleaseYOffsetFromApproachM);
     }
 
     if (left_work_pose.has_value()) {
@@ -4706,19 +4891,16 @@ private:
     }
     rclcpp::sleep_for(300ms);
 
-    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
     if (!detachTargetCollisionObject(left_arm, sausage_target_model, "Sausage place")) {
       return false;
     }
-    if (!removeTargetCollisionObject(planning_scene_interface, sausage_target_model, "Sausage place")) {
-      return false;
-    }
+    RCLCPP_INFO(
+      get_logger(),
+      "Sausage place: keeping released sausage collision object in planning scene");
 
     if (shouldStopAfter(ManufacturingStage::Place)) {
       return true;
     }
-
-    RCLCPP_INFO(get_logger(), "Sausage place: release completed without extra retreat");
 
     bool return_home_pose_configured = false;
     if (shouldRunStage(ManufacturingStage::ReturnHome)) {
@@ -4810,6 +4992,7 @@ private:
     logCurrentTcpPose(get_logger(), right_arm, right_tcp_link_, "Ketchup case presentation initial");
     logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Ketchup squeeze initial");
 
+    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
     bool right_case_present_configured = false;
     if (shouldRunStage(ManufacturingStage::Work)) {
       RCLCPP_INFO(get_logger(), "Ketchup squeeze: moving right hand to case presentation pose");
@@ -5032,12 +5215,12 @@ private:
     PickPlan return_plan =
       makeHorizontalPickPlan(
         ketchup_grasp_target,
-        Eigen::Vector3d::UnitY(),
         Eigen::Vector3d::UnitX(),
+        Eigen::Vector3d::UnitY(),
         ketchup_pre_grasp_distance_,
         lift_height_,
         task_presets::kLeftKetchupPickTuning.grasp_tcp_z_offset_m);
-    geometry_msgs::msg::Pose return_pre_grasp_pose = return_plan.pre_grasp_pose;
+    geometry_msgs::msg::Pose return_pose = return_plan.grasp_pose;
     if (const auto * pick_pre_grasp_preset =
         task_presets::findStageWaypointPosePreset(
           ManufacturingTarget::Ketchup,
@@ -5045,13 +5228,67 @@ private:
           ManufacturingStage::Pick,
           "pre_grasp"))
     {
-      return_pre_grasp_pose = makePoseFromPreset(pick_pre_grasp_preset->pose);
-      RCLCPP_INFO(get_logger(), "Ketchup return pre-grasp uses pick.pre_grasp waypoint pose");
+      const geometry_msgs::msg::Pose pick_orientation_pose =
+        makePoseFromPreset(pick_pre_grasp_preset->pose);
+      return_pose.orientation = pick_orientation_pose.orientation;
+      RCLCPP_INFO(get_logger(), "Ketchup return place uses pick pre-grasp orientation");
     }
-    geometry_msgs::msg::Pose return_pose = return_plan.grasp_pose;
-    return_pose.orientation = return_pre_grasp_pose.orientation;
     geometry_msgs::msg::Pose return_lift_pose = return_pose;
+    if (std::abs(task_presets::kLeftKetchupPickWristRollDeg) > 1e-9) {
+      applyLocalTcpZRoll(return_pose, task_presets::kLeftKetchupPickWristRollDeg);
+      applyLocalTcpZRoll(return_lift_pose, task_presets::kLeftKetchupPickWristRollDeg);
+      RCLCPP_INFO(
+        get_logger(),
+        "Ketchup return place uses pick-equivalent wrist roll correction: %.2f deg",
+        task_presets::kLeftKetchupPickWristRollDeg);
+    }
     return_lift_pose.position.z += task_presets::kLeftKetchupReturnLiftHeightM;
+
+    const auto ensure_left_tcp_near_pose = [&](
+        const geometry_msgs::msg::Pose & target_pose,
+        const std::string & label,
+        bool retry_with_pose_target = true) -> bool {
+        const auto current_pose = left_arm.getCurrentPose(left_tcp_link_).pose;
+        const double position_error = (posePosition(current_pose) - posePosition(target_pose)).norm();
+        if (position_error <= 0.070) {
+          return true;
+        }
+        if (!retry_with_pose_target) {
+          RCLCPP_ERROR(
+            get_logger(),
+            "%s TCP is %.3f m from target after execution",
+            label.c_str(),
+            position_error);
+          return false;
+        }
+        RCLCPP_WARN(
+          get_logger(),
+          "%s TCP is %.3f m from target after execution; retrying exact pose target",
+          label.c_str(),
+          position_error);
+        if (!planAndExecutePoseTarget(
+            get_logger(),
+            left_arm,
+            target_pose,
+            left_tcp_link_,
+            label + " retry",
+            task_presets::kDefaultPlanExecuteMaxAttempts,
+            pose_min_duration_sec_))
+        {
+          return false;
+        }
+        const auto retry_pose = left_arm.getCurrentPose(left_tcp_link_).pose;
+        const double retry_error = (posePosition(retry_pose) - posePosition(target_pose)).norm();
+        if (retry_error > 0.070) {
+          RCLCPP_ERROR(
+            get_logger(),
+            "%s TCP remains %.3f m from target after retry",
+            label.c_str(),
+            retry_error);
+          return false;
+        }
+        return true;
+      };
 
     RCLCPP_INFO(get_logger(), "Ketchup place: Cartesian retreat back to aim pose");
     if (!executeCartesian(
@@ -5069,6 +5306,9 @@ private:
       return false;
     }
     logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Ketchup place aim retreat");
+    if (!ensure_left_tcp_near_pose(aim_pose, "Ketchup place aim retreat")) {
+      return false;
+    }
     if (shouldStopAfterWaypoint(ManufacturingStage::Place, "aim")) {
       return true;
     }
@@ -5089,7 +5329,7 @@ private:
 
     RCLCPP_INFO(
       get_logger(),
-      "Ketchup place: moving through return lift pose (height=%.3f)",
+      "Ketchup place: MoveIt move through return lift pose (height=%.3f)",
       task_presets::kLeftKetchupReturnLiftHeightM);
     if (!planAndExecutePoseTarget(
         get_logger(),
@@ -5103,6 +5343,9 @@ private:
       return false;
     }
     logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Ketchup return lift");
+    if (!ensure_left_tcp_near_pose(return_lift_pose, "Ketchup return lift", false)) {
+      return false;
+    }
     if (shouldStopAfterWaypoint(ManufacturingStage::Place, "lift")) {
       return true;
     }
@@ -5127,6 +5370,51 @@ private:
       return true;
     }
 
+    const auto ketchup_gripper_touch_links = makeGripperTouchLinks(left_gripper, left_tcp_link_);
+    const std::vector<std::string> beverage_support_links{"beverage_stand"};
+    const auto set_ketchup_beverage_support_collision = [&](bool allow) {
+        return applyTargetGripperAllowedCollision(
+          shared_from_this(),
+          get_logger(),
+          planning_scene_interface,
+          ketchup_target_model,
+          beverage_support_links,
+          allow,
+          collision_scene_settle_ms_);
+      };
+    const auto set_ketchup_gripper_collision = [&](bool allow) {
+        return applyTargetGripperAllowedCollision(
+          shared_from_this(),
+          get_logger(),
+          planning_scene_interface,
+          ketchup_target_model,
+          ketchup_gripper_touch_links,
+          allow,
+          collision_scene_settle_ms_);
+      };
+    const auto set_beverage_gripper_collision = [&](bool allow) {
+        return applyTargetGripperAllowedCollision(
+          shared_from_this(),
+          get_logger(),
+          planning_scene_interface,
+          "beverage_stand",
+          ketchup_gripper_touch_links,
+          allow,
+          collision_scene_settle_ms_);
+      };
+    const auto restore_transient_place_collisions = [&]() {
+        const bool gripper_ok = set_ketchup_gripper_collision(false);
+        const bool stand_ok = set_beverage_gripper_collision(false);
+        return gripper_ok && stand_ok;
+      };
+
+    if (!set_ketchup_beverage_support_collision(true) ||
+      !set_ketchup_gripper_collision(true) ||
+      !set_beverage_gripper_collision(true))
+    {
+      return false;
+    }
+
     if (!openGripperForPickApproach(
         get_logger(),
         left_gripper,
@@ -5134,11 +5422,14 @@ private:
         task_presets::kLeftKetchupPickTuning,
         gripper_open_target_))
     {
+      restore_transient_place_collisions();
+      set_ketchup_beverage_support_collision(false);
       return false;
     }
 
-    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
     if (!detachTargetCollisionObject(left_arm, ketchup_target_model, "Ketchup place")) {
+      restore_transient_place_collisions();
+      set_ketchup_beverage_support_collision(false);
       return false;
     }
     if (!restoreTargetCollisionObject(
@@ -5146,11 +5437,60 @@ private:
         ketchup_target_model,
         "Ketchup place"))
     {
+      restore_transient_place_collisions();
+      set_ketchup_beverage_support_collision(false);
       return false;
     }
 
     if (shouldStopAfterWaypoint(ManufacturingStage::Place, "release")) {
+      if (!restore_transient_place_collisions()) {
+        return false;
+      }
       return true;
+    }
+
+    geometry_msgs::msg::Pose ketchup_horizontal_retreat_pose = return_pose;
+    ketchup_horizontal_retreat_pose.position.x -= 0.120;
+    ketchup_horizontal_retreat_pose.position.z += 0.010;
+    RCLCPP_INFO(get_logger(), "Ketchup place: retreating horizontally clear of restored bottle collision");
+    if (!executeCartesian(
+        get_logger(),
+        left_arm,
+        {ketchup_horizontal_retreat_pose},
+        "ketchup horizontal release retreat",
+        cartesian_eef_step_,
+        min_cartesian_fraction_,
+        cartesian_avoid_collisions_,
+        velocity_scaling_,
+        acceleration_scaling_,
+        cartesian_min_duration_sec_))
+    {
+      restore_transient_place_collisions();
+      return false;
+    }
+    logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Ketchup horizontal release retreat");
+
+    geometry_msgs::msg::Pose ketchup_clear_retreat_pose = ketchup_horizontal_retreat_pose;
+    ketchup_clear_retreat_pose.position.z = return_lift_pose.position.z + 0.060;
+    RCLCPP_INFO(get_logger(), "Ketchup place: extra clear retreat before restoring strict collisions");
+    if (!executeCartesian(
+        get_logger(),
+        left_arm,
+        {ketchup_clear_retreat_pose},
+        "ketchup extra clear retreat",
+        cartesian_eef_step_,
+        min_cartesian_fraction_,
+        false,
+        velocity_scaling_,
+        acceleration_scaling_,
+        cartesian_min_duration_sec_))
+    {
+      restore_transient_place_collisions();
+      return false;
+    }
+    logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Ketchup extra clear retreat");
+    if (!restore_transient_place_collisions()) {
+      return false;
     }
 
     RCLCPP_INFO(get_logger(), "Hotdog ketchup squeeze completed");
@@ -5179,11 +5519,14 @@ private:
     auto self = shared_from_this();
     moveit::planning_interface::MoveGroupInterface right_arm(self, right_arm_group_);
     moveit::planning_interface::MoveGroupInterface right_gripper(self, right_gripper_group_);
+    const double carry_velocity_scaling = task_presets::kCompletedHotdogCarryVelocityScaling;
+    const double carry_acceleration_scaling = task_presets::kCompletedHotdogCarryAccelerationScaling;
+    const double carry_min_duration_sec = task_presets::kCompletedHotdogCarryMinDurationSec;
 
     right_arm.setPlanningTime(planning_time_sec_);
     right_arm.setNumPlanningAttempts(planning_attempts_);
-    right_arm.setMaxVelocityScalingFactor(velocity_scaling_);
-    right_arm.setMaxAccelerationScalingFactor(acceleration_scaling_);
+    right_arm.setMaxVelocityScalingFactor(carry_velocity_scaling);
+    right_arm.setMaxAccelerationScalingFactor(carry_acceleration_scaling);
     right_gripper.setMaxVelocityScalingFactor(gripper_velocity_scaling_);
     right_gripper.setMaxAccelerationScalingFactor(gripper_acceleration_scaling_);
 
@@ -5261,19 +5604,16 @@ private:
       const geometry_msgs::msg::Pose waypoint_pose = makePoseFromPreset(waypoint_preset->pose);
       RCLCPP_INFO(
         get_logger(),
-        "Completed hotdog place: Cartesian carry to waypoint %s",
+        "Completed hotdog place: MoveIt carry to waypoint %s",
         waypoint_name);
-      if (!executeCartesian(
+      if (!planAndExecutePoseTarget(
           get_logger(),
           right_arm,
-          {waypoint_pose},
+          waypoint_pose,
+          right_tcp_link_,
           std::string("completed hotdog pickup ") + waypoint_name,
-          cartesian_eef_step_,
-          min_cartesian_fraction_,
-          cartesian_avoid_collisions_,
-          velocity_scaling_,
-          acceleration_scaling_,
-          cartesian_min_duration_sec_))
+          task_presets::kDefaultPlanExecuteMaxAttempts,
+          carry_min_duration_sec))
       {
         return false;
       }
@@ -5291,18 +5631,15 @@ private:
         current_pose.position.y + (release_pose.position.y - current_pose.position.y) * 0.5;
       midpoint_pose.position.z = std::max(current_pose.position.z, release_pose.position.z);
 
-      RCLCPP_INFO(get_logger(), "Completed hotdog place: Cartesian carry through auto midpoint");
-      if (!executeCartesian(
+      RCLCPP_INFO(get_logger(), "Completed hotdog place: MoveIt carry through auto midpoint");
+      if (!planAndExecutePoseTarget(
           get_logger(),
           right_arm,
-          {midpoint_pose},
+          midpoint_pose,
+          right_tcp_link_,
           "completed hotdog pickup auto midpoint",
-          cartesian_eef_step_,
-          min_cartesian_fraction_,
-          cartesian_avoid_collisions_,
-          velocity_scaling_,
-          acceleration_scaling_,
-          cartesian_min_duration_sec_))
+          task_presets::kDefaultPlanExecuteMaxAttempts,
+          carry_min_duration_sec))
       {
         return false;
       }
@@ -5324,9 +5661,9 @@ private:
         cartesian_eef_step_,
         min_cartesian_fraction_,
         cartesian_avoid_collisions_,
-        velocity_scaling_,
-        acceleration_scaling_,
-        cartesian_min_duration_sec_))
+        carry_velocity_scaling,
+        carry_acceleration_scaling,
+        carry_min_duration_sec))
     {
       return false;
     }
@@ -5368,9 +5705,9 @@ private:
         cartesian_eef_step_,
         min_cartesian_fraction_,
         cartesian_avoid_collisions_,
-        velocity_scaling_,
-        acceleration_scaling_,
-        cartesian_min_duration_sec_))
+        carry_velocity_scaling,
+        carry_acceleration_scaling,
+        carry_min_duration_sec))
     {
       return false;
     }
@@ -5411,9 +5748,9 @@ private:
           cartesian_eef_step_,
           min_cartesian_fraction_,
           cartesian_avoid_collisions_,
-          velocity_scaling_,
-          acceleration_scaling_,
-          cartesian_min_duration_sec_))
+          carry_velocity_scaling,
+          carry_acceleration_scaling,
+          carry_min_duration_sec))
       {
         return false;
       }

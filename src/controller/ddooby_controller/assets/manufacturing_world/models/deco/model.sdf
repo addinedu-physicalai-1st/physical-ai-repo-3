@@ -33,11 +33,14 @@
             <size>0.050000001 0.050000001 0.100000001</size>
           </box>
         </geometry>
+        <max_contacts>20</max_contacts>
         <surface>
           <friction>
             <ode>
               <mu>1.0</mu>
               <mu2>1.0</mu2>
+              <slip1>0.0</slip1>
+              <slip2>0.0</slip2>
             </ode>
           </friction>
         </surface>

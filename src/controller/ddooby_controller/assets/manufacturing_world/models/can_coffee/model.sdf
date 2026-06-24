@@ -3,6 +3,10 @@
   <model name="can_coffee">
     <static>false</static>
     <link name="can_coffee_link">
+      <velocity_decay>
+        <linear>0.400000</linear>
+        <angular>0.800000</angular>
+      </velocity_decay>
       <inertial>
         <mass>0.100000</mass>
         <inertia>
@@ -33,13 +37,35 @@
             <size>0.050000001 0.050000001 0.133000001</size>
           </box>
         </geometry>
+        <max_contacts>20</max_contacts>
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>6.0</mu>
+              <mu2>6.0</mu2>
+              <slip1>0.0</slip1>
+              <slip2>0.0</slip2>
             </ode>
+            <torsional>
+              <coefficient>1.0</coefficient>
+              <use_patch_radius>true</use_patch_radius>
+              <patch_radius>0.020000</patch_radius>
+              <surface_radius>0.010000</surface_radius>
+              <ode>
+                <slip>0.0</slip>
+              </ode>
+            </torsional>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000000</soft_cfm>
+              <soft_erp>0.800000</soft_erp>
+              <kp>1000000.000000</kp>
+              <kd>100.000000</kd>
+              <max_vel>0.010000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
     </link>

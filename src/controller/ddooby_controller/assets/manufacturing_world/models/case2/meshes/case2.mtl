@@ -1,3 +1,9 @@
+newmtl case2_gazebo_visual
+Ka 0.960000 0.960000 0.920000
+Kd 0.960000 0.960000 0.920000
+d 1.000000
+illum 2
+
 newmtl default_material
 Ka 0.960000 0.960000 0.920000
 Kd 0.960000 0.960000 0.920000

@@ -33,13 +33,35 @@
             <size>1.110000014 0.234999999 0.264999986</size>
           </box>
         </geometry>
+        <max_contacts>20</max_contacts>
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
+              <mu>8.0</mu>
+              <mu2>8.0</mu2>
+              <slip1>0.0</slip1>
+              <slip2>0.0</slip2>
             </ode>
+            <torsional>
+              <coefficient>1.0</coefficient>
+              <use_patch_radius>true</use_patch_radius>
+              <patch_radius>0.020000</patch_radius>
+              <surface_radius>0.010000</surface_radius>
+              <ode>
+                <slip>0.0</slip>
+              </ode>
+            </torsional>
           </friction>
+          <contact>
+            <ode>
+              <soft_cfm>0.000000</soft_cfm>
+              <soft_erp>0.800000</soft_erp>
+              <kp>1000000.000000</kp>
+              <kd>100.000000</kd>
+              <max_vel>0.010000</max_vel>
+              <min_depth>0.002000</min_depth>
+            </ode>
+          </contact>
         </surface>
       </collision>
     </link>

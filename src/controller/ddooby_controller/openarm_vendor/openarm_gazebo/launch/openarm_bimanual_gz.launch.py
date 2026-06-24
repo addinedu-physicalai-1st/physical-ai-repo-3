@@ -2,10 +2,19 @@ import os
 
 from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, SetEnvironmentVariable, TimerAction
-from launch.substitutions import Command, FindExecutable, PathJoinSubstitution
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction, SetEnvironmentVariable, TimerAction
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+
+
+def make_gz_sim(context, world_file):
+    headless = LaunchConfiguration("gz_headless").perform(context).lower() == "true"
+    cmd = ["gz", "sim", "-r"]
+    if headless:
+        cmd.append("-s")
+    cmd.append(world_file)
+    return [ExecuteProcess(cmd=cmd, output="screen")]
 
 
 def generate_launch_description():
@@ -62,10 +71,14 @@ def generate_launch_description():
         )
     }
 
-    gz_sim = ExecuteProcess(
-        cmd=["gz", "sim", "-r", world_file],
-        output="screen",
+    gz_headless_arg = DeclareLaunchArgument(
+        "gz_headless",
+        default_value="false",
+        choices=["true", "false"],
+        description="Run Gazebo Sim server only without GUI",
     )
+
+    gz_sim = OpaqueFunction(function=make_gz_sim, args=[world_file])
 
     robot_state_publisher = Node(
         package="robot_state_publisher",
@@ -172,6 +185,7 @@ def generate_launch_description():
                 name="SDF_PATH",
                 value=gz_resource_path,
             ),
+            gz_headless_arg,
             gz_sim,
             clock_bridge,
             robot_state_publisher,

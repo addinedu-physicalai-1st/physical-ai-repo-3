@@ -196,7 +196,7 @@ inline constexpr PickGeometryPreset kDefaultPickGeometry{
 inline constexpr PlaceGeometryPreset kDefaultPlaceGeometry{
   0.08,
   0.005,
-  0.004
+  0.000
 };
 
 inline constexpr CartesianPreset kDefaultCartesian{
@@ -297,7 +297,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
   // 빵 work stage: 케이스 위 빵 놓기 직전 pose.
-  // x/y는 현재 오른손 케이스 중심을 따라가고, z/orientation은 guide pose를 유지한다.
+  // x는 현재 오른손 케이스 중심을 따라가고, y는 소시지가 케이스 안쪽에 안착되도록 보정한다.
   {
     ManufacturingTarget::Bread,
     ArmSide::Left,
@@ -338,7 +338,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Work,
     "work",
-    {true, 0.204, -0.007, 0.367, 0.504, 0.497, 0.503, -0.496}
+    {true, 0.204, -0.007, 0.367, 0.477, 0.523, 0.528, -0.469}
   },
   // 케이스 place stage: place pose, 현재는 비활성화.
   {
@@ -365,8 +365,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
   // 소시지 work stage: 빵 위 소시지 놓기 직전 pose, 비활성화 시 자동 approach pose 사용.
-  // x/y는 현재 오른손 케이스 중심을 따라가되 길쭉한 소시지를 위해 y 방향으로 살짝 앞쪽에 둔다.
-  // z/orientation은 guide pose를 유지한다.
+  // x/y는 현재 오른손 케이스 중심을 따라가고, z/orientation은 guide pose를 유지한다.
   {
     ManufacturingTarget::Sausage,
     ArmSide::Left,
@@ -418,7 +417,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Work,
     "case_present",
-    {true, 0.204, -0.039, 0.504, 0.505, 0.497, 0.503, -0.496}
+    {true, 0.204, -0.039, 0.504, 0.478, 0.522, 0.528, -0.469}
   },
   // 케첩 place stage: 케첩 반환 pose. 비활성화 시 자동 반환 pose 사용.
   {
@@ -442,7 +441,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Place,
     "move1",
-    {true, 0.451, -0.342, 0.507, 0.701, 0.033, 0.712, -0.025}
+    {true, 0.451, -0.342, 0.507, 0.669, 0.032, 0.742, -0.026}
   },
   // 완성 핫도그 place stage: pickup zone으로 가기 전 두 번째 중간 경유 pose. 비활성화 시 건너뜀.
   {
@@ -458,7 +457,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Place,
     "release_pose",
-    {true, 0.052, -0.572, 0.318, 0.510, -0.483, 0.502, 0.504}
+    {true, 0.052, -0.572, 0.318, 0.488, -0.461, 0.524, 0.525}
   },
   // 완성 핫도그 place stage: gripper open 이후 release waypoint. pose preset으로는 사용하지 않음.
   {
@@ -537,6 +536,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     {true, 0.360, -0.201, 0.405, 0.721, -0.000, 0.693, -0.000}
   },
   // 소시지 pick stage: 소시지 위 접근 pose.
+  // target object y를 그대로 사용해 인접한 sausage2 쪽으로 들어가지 않게 한다.
   {
     ManufacturingTarget::Sausage,
     ArmSide::Left,
@@ -547,7 +547,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     PoseAxisSource::TargetObject,
     PoseAxisSource::Preset,
     0.005,
-    -0.057,
+    0.0,
     0.0
   },
   // 소시지 pick stage: 소시지 집기 pose. 비활성화 시 자동 계산.
@@ -572,12 +572,12 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Pick,
     "pre_grasp",
-    {true, 0.438, 0.205, 0.600, 0.704, 0.110, 0.694, 0.108},
+    {true, 0.438, 0.205, 0.600, 0.711, 0.036, 0.701, 0.035},
     PoseAxisSource::TargetObject,
     PoseAxisSource::TargetObject,
     PoseAxisSource::Preset,
     -0.098,
-    -0.002,
+    0.0,
     0.0
   },
   // 케첩 pick stage: 케첩 집기 pose. 비활성화 시 자동 계산.
@@ -763,7 +763,7 @@ inline constexpr PickTuningPreset kLeftBreadPickTuning{
 
 // 케이스 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kRightCasePickTuning{
-  -0.020,
+  -0.035,
   {true, 0.043},
   {true, 0.034}
 };
@@ -778,17 +778,23 @@ inline constexpr double kRightCaseGraspWorldZOffsetM = 0.004;
 
 // 소시지 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kLeftSausagePickTuning{
-  0.006,
-  {true, 0.024},
-  {true, 0.005}
+  0.000,
+  {true, 0.030},
+  {true, 0.010}
 };
 
 // 케첩 pick 파지 세부 조정값.
 inline constexpr PickTuningPreset kLeftKetchupPickTuning{
-  0.015,
+  0.010,
   {true, 0.040},
   {true, 0.014}
 };
+
+// 소시지 release는 work pose에서 xy 미세 조정 없이 수직으로 내려놓는다.
+inline constexpr double kLeftSausageReleaseYOffsetFromApproachM = 0.0;
+
+// 케첩 pick은 horizontal pick orientation을 그대로 사용한다.
+inline constexpr double kLeftKetchupPickWristRollDeg = 0.0;
 
 // 음료 캔 pick/인계 파지 세부 조정값.
 inline constexpr PickTuningPreset kLeftBeverageCanPickTuning{
@@ -824,6 +830,9 @@ inline constexpr double kLeftKetchupReturnLiftHeightM = 0.120;
 // 완성 핫도그를 pickup zone에 놓을 때 쓰는 오른손 접근 높이와 바닥 clearance.
 inline constexpr double kCompletedHotdogPickupApproachHeightM = 0.120;
 inline constexpr double kCompletedHotdogPickupPlaceClearanceM = 0.010;
+inline constexpr double kCompletedHotdogCarryVelocityScaling = 0.020;
+inline constexpr double kCompletedHotdogCarryAccelerationScaling = 0.020;
+inline constexpr double kCompletedHotdogCarryMinDurationSec = 6.0;
 
 inline const StageWaypointPosePreset * findStageWaypointPosePreset(
   ManufacturingTarget target,
