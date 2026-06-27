@@ -175,6 +175,9 @@ def generate_launch_description():
                 "play_to_waypoint": play_to_waypoint,
                 "gripper_grasp_target": gripper_grasp_target,
                 "dry_run": dry_run,
+                "validate_gazebo_result": PythonExpression(
+                    ["'true' if '", use_sim_time, "' == 'true' else 'false'"]
+                ),
                 "enable_vision_pick": enable_vision_pick,
                 "vision_detections_topic": vision_detections_topic,
                 "vision_pick_timeout_sec": vision_pick_timeout_sec,

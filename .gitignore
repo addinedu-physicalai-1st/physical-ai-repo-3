@@ -49,6 +49,8 @@ rosbag2_*/
 !src/service/web_service/app/models/
 !src/service/web_service/app/models/**
 !src/service/web_service/app/models/**
+!src/controller/ddooby_controller/tools/
+!src/controller/ddooby_controller/tools/**
 !src/controller/ddooby_controller/assets/manufacturing_world/models/
 !src/controller/ddooby_controller/assets/manufacturing_world/models/**
 

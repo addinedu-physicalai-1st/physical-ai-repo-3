@@ -27,11 +27,31 @@ ament_target_dependencies(manifacture_action_server_node
   custom_msg
 )
 
-add_executable(hotdog_making_node src/hotdog_making_node.cpp)
-target_include_directories(hotdog_making_node PRIVATE
+add_library(ddooby_manufacturing_task_core STATIC
+  src/manufacturing_beverage_task.cpp
+  src/manufacturing_completed_hotdog_task.cpp
+  src/manufacturing_hotdog_steps.cpp
+  src/manufacturing_ketchup_task.cpp
+  src/manufacturing_layout_utils.cpp
+  src/manufacturing_pick_planner.cpp
+  src/manufacturing_pick_execution.cpp
+  src/manufacturing_place_planner.cpp
+  src/manufacturing_result_validation.cpp
+  src/manufacturing_task_common.cpp
+  src/manufacturing_pose_utils.cpp
+  src/manufacturing_stage_motion.cpp
+  src/manufacturing_target_loading.cpp
+  src/manufacturing_task_runtime.cpp
+  src/manufacturing_task_runner.cpp
+  src/moveit_task_utils.cpp
+  src/planning_scene_utils.cpp
+  src/vision_pick_adapter.cpp
+  src/vision_pick_detection_store.cpp
+)
+target_include_directories(ddooby_manufacturing_task_core PUBLIC
   include
 )
-ament_target_dependencies(hotdog_making_node
+ament_target_dependencies(ddooby_manufacturing_task_core
   ament_index_cpp
   geometry_msgs
   moveit_ros_planning_interface
@@ -39,6 +59,14 @@ ament_target_dependencies(hotdog_making_node
   rclcpp
   shape_msgs
   vision_msgs
+)
+
+add_executable(hotdog_making_node src/hotdog_making_node.cpp)
+target_include_directories(hotdog_making_node PRIVATE
+  include
+)
+target_link_libraries(hotdog_making_node
+  ddooby_manufacturing_task_core
 )
 
 add_executable(drink_serving_node src/drink_serving_node.cpp)
@@ -80,7 +108,6 @@ install(TARGETS
 install(PROGRAMS
   scripts/capture_gazebo_yolo_dataset.py
   scripts/gazebo_yolo_pose_node.py
-  scripts/realsense_hsv_preview.py
   scripts/sync_planning_scene_from_layout.py
   DESTINATION lib/${PROJECT_NAME}
 )

@@ -457,7 +457,7 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Right,
     ManufacturingStage::Place,
     "release_pose",
-    {true, 0.052, -0.572, 0.318, 0.488, -0.461, 0.524, 0.525}
+    {true, 0.052, -0.572, 0.340, 0.488, -0.461, 0.524, 0.525}
   },
   // 완성 핫도그 place stage: gripper open 이후 release waypoint. pose preset으로는 사용하지 않음.
   {
@@ -825,7 +825,7 @@ inline constexpr double kCokePickupZoneYOffsetM = -0.040;
 inline constexpr double kCoffeePickupZoneYOffsetM = 0.040;
 
 // 케첩 반환 시 음료 진열대 천장판을 넘기 위한 return_pose 직전 clearance 높이.
-inline constexpr double kLeftKetchupReturnLiftHeightM = 0.120;
+inline constexpr double kLeftKetchupReturnLiftHeightM = 0.180;
 
 // 완성 핫도그를 pickup zone에 놓을 때 쓰는 오른손 접근 높이와 바닥 clearance.
 inline constexpr double kCompletedHotdogPickupApproachHeightM = 0.120;
