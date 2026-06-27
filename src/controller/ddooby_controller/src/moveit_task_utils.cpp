@@ -136,16 +136,22 @@ bool planAndExecute(
   for (int attempt = 1; attempt <= max_attempts; ++attempt) {
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     if (group.plan(plan) != moveit::core::MoveItErrorCode::SUCCESS) {
-      RCLCPP_ERROR(
-        logger,
-        "Failed to plan %s%s",
-        label.c_str(),
-        attempt < max_attempts ? "; retrying from refreshed state" : "");
       if (attempt < max_attempts) {
+        RCLCPP_WARN(
+          logger,
+          "Failed to plan %s on attempt %d/%d; retrying from refreshed state",
+          label.c_str(),
+          attempt,
+          max_attempts);
         rclcpp::sleep_for(300ms);
         setBoundedStartState(group);
         continue;
       }
+      RCLCPP_ERROR(
+        logger,
+        "Failed to plan %s after %d attempt(s)",
+        label.c_str(),
+        max_attempts);
       return false;
     }
     enforceMinimumTrajectoryDuration(logger, plan.trajectory, label, min_duration_sec);
@@ -154,15 +160,23 @@ bool planAndExecute(
       return true;
     }
 
-    RCLCPP_ERROR(
-      logger,
-      "Failed to execute %s%s",
-      label.c_str(),
-      attempt < max_attempts ? "; retrying from refreshed state" : "");
     if (attempt < max_attempts) {
+      RCLCPP_WARN(
+        logger,
+        "Failed to execute %s on attempt %d/%d; retrying from refreshed state",
+        label.c_str(),
+        attempt,
+        max_attempts);
       rclcpp::sleep_for(500ms);
       setBoundedStartState(group);
+      continue;
     }
+    RCLCPP_ERROR(
+      logger,
+      "Failed to execute %s after %d attempt(s)",
+      label.c_str(),
+      max_attempts);
+    return false;
   }
   return false;
 }

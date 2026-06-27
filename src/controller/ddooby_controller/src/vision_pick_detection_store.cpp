@@ -149,6 +149,9 @@ std::string VisionPickDetectionStore::summarizeCandidates(
   task_presets::ManufacturingTarget target_kind,
   const std::string & target_model,
   const TargetObject & target,
+  double min_score,
+  double max_age_sec,
+  double max_distance_m,
   const rclcpp::Time & now) const
 {
   const std::vector<VisionPickDetection> detections = snapshot();
@@ -158,6 +161,12 @@ std::string VisionPickDetectionStore::summarizeCandidates(
          << ": count=" << detections.size();
   const Eigen::Vector3d expected_center = objectWorldCenter(target);
   std::size_t count = 0;
+  std::size_t score_reject_count = 0;
+  std::size_t frame_reject_count = 0;
+  std::size_t class_reject_count = 0;
+  std::size_t age_reject_count = 0;
+  std::size_t distance_reject_count = 0;
+  std::size_t usable_count = 0;
   for (const auto & detection : detections) {
     if (count++ >= 12) {
       stream << " ...";
@@ -168,15 +177,49 @@ std::string VisionPickDetectionStore::summarizeCandidates(
     const double age_sec = (now - detection.stamp).seconds();
     const Eigen::Vector3d detection_center = posePosition(detection.pose);
     const double distance = (detection_center - expected_center).norm();
+    const bool frame_matches = detection.frame_id.empty() || detection.frame_id == "world";
+    const bool score_ok = detection.score >= min_score;
+    const bool class_or_id_ok = object_id_matches || class_matches;
+    const bool age_ok = !std::isfinite(age_sec) || std::abs(age_sec) <= max_age_sec;
+    const bool distance_ok =
+      object_id_matches || max_distance_m <= 0.0 || distance <= max_distance_m;
+    std::string reject_reason = "usable";
+    if (!score_ok) {
+      reject_reason = "low_score";
+      ++score_reject_count;
+    } else if (!frame_matches) {
+      reject_reason = "frame";
+      ++frame_reject_count;
+    } else if (!class_or_id_ok) {
+      reject_reason = "class_or_id";
+      ++class_reject_count;
+    } else if (!age_ok) {
+      reject_reason = "stale";
+      ++age_reject_count;
+    } else if (!distance_ok) {
+      reject_reason = "far_from_layout";
+      ++distance_reject_count;
+    } else {
+      ++usable_count;
+    }
     stream << " [class=" << detection.class_id
            << " id=" << detection.object_id
            << " score=" << detection.score
+           << " frame=" << detection.frame_id
            << " class_match=" << (class_matches ? "Y" : "N")
            << " id_match=" << (object_id_matches ? "Y" : "N")
            << " age=" << age_sec
            << " dist=" << distance
+           << " reject=" << reject_reason
            << "]";
   }
+  stream << " summary{usable=" << usable_count
+         << ", low_score=" << score_reject_count
+         << ", frame=" << frame_reject_count
+         << ", class_or_id=" << class_reject_count
+         << ", stale=" << age_reject_count
+         << ", far_from_layout=" << distance_reject_count
+         << "}";
   return stream.str();
 }
 

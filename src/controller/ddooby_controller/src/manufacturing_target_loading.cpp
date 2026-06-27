@@ -148,6 +148,9 @@ std::string HotdogMakingNode::summarizeVisionPickCandidates(
       target_kind,
       target_model,
       target,
+      vision_pick_min_score_,
+      vision_pick_max_age_sec_,
+      vision_pick_max_distance_m_,
       get_clock()->now());
   }
 

@@ -318,23 +318,47 @@ bool HotdogMakingNode::runKetchupSqueeze()
       return true;
     }
 
+    bool ketchup_return_guide_configured = false;
     RCLCPP_INFO(
       get_logger(),
-      "Ketchup place: moving through left ready pose before return lift");
-    rememberJointTargetIfConfigured(left_arm, left_ready_pose_name_, left_ready_joints_);
-    if (!planAndExecuteNamedTarget(
+      "Ketchup place: checking optional return_guide pose before return lift");
+    if (!planAndExecuteStageWaypointPoseIfConfigured(
         get_logger(),
         left_arm,
-        left_ready_pose_name_,
-        "ketchup post-squeeze ready pose",
-        task_presets::kDefaultPlanExecuteMaxAttempts,
+        ManufacturingTarget::Ketchup,
+        ArmSide::Left,
+        ManufacturingStage::Place,
+        "return_guide",
+        left_tcp_link_,
+        ketchup_return_guide_configured,
         pose_min_duration_sec_))
     {
       return false;
     }
-    logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Ketchup post-squeeze ready pose");
-    if (shouldStopAfterWaypoint(ManufacturingStage::Place, "ready")) {
-      return true;
+    if (ketchup_return_guide_configured) {
+      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Ketchup post-squeeze return guide pose");
+      if (shouldStopAfterWaypoint(ManufacturingStage::Place, "return_guide")) {
+        return true;
+      }
+    } else {
+      RCLCPP_INFO(
+        get_logger(),
+        "Ketchup place: no return_guide pose configured; moving through left ready pose before return lift");
+      rememberJointTargetIfConfigured(left_arm, left_ready_pose_name_, left_ready_joints_);
+      if (!planAndExecuteNamedTarget(
+          get_logger(),
+          left_arm,
+          left_ready_pose_name_,
+          "ketchup post-squeeze ready pose",
+          task_presets::kDefaultPlanExecuteMaxAttempts,
+          pose_min_duration_sec_))
+      {
+        return false;
+      }
+      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Ketchup post-squeeze ready pose");
+      if (shouldStopAfterWaypoint(ManufacturingStage::Place, "ready")) {
+        return true;
+      }
     }
 
     RCLCPP_INFO(

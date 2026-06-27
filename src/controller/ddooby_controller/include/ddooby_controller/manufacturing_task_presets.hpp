@@ -287,7 +287,7 @@ inline constexpr const char * armName(ArmSide arm)
 // waypoint name과 개수는 target/task마다 다르게 정의할 수 있다.
 // 왼손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_left_hand_tcp
 // 오른손 pose 확인: ROS_LOG_DIR=/tmp/ros_logs ros2 run tf2_ros tf2_echo world openarm_right_hand_tcp
-inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePresets{{
+inline constexpr std::array<StageWaypointPosePreset, 53> kStageWaypointPosePresets{{
   // 빵 home stage: 작업 시작 pose, 비활성화 시 기존 ready pose 사용.
   {
     ManufacturingTarget::Bread,
@@ -425,6 +425,15 @@ inline constexpr std::array<StageWaypointPosePreset, 52> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Place,
     "return_pose",
+    {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
+  },
+  // 케첩 place stage: squeeze 이후 return lift로 가기 전 선택적 guide pose.
+  // 비활성화 시 검증된 left ready 경유 경로를 사용한다.
+  {
+    ManufacturingTarget::Ketchup,
+    ArmSide::Left,
+    ManufacturingStage::Place,
+    "return_guide",
     {false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}
   },
   // 케첩 return_home stage: 복귀 pose, 현재는 비활성화.

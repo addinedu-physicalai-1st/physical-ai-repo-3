@@ -39,6 +39,9 @@ public:
     task_presets::ManufacturingTarget target_kind,
     const std::string & target_model,
     const TargetObject & target,
+    double min_score,
+    double max_age_sec,
+    double max_distance_m,
     const rclcpp::Time & now) const;
 
 private:
