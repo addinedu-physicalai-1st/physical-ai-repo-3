@@ -26,6 +26,7 @@
 #include "ddooby_controller/manufacturing_pose_utils.hpp"
 #include "ddooby_controller/manufacturing_stage_motion.hpp"
 #include "ddooby_controller/manufacturing_task_common.hpp"
+#include "ddooby_controller/manufacturing_task_sequence_runner.hpp"
 #include "manufacturing_task_node_private.hpp"
 #include "ddooby_controller/manufacturing_task_runner.hpp"
 #include "ddooby_controller/moveit_task_utils.hpp"
@@ -260,13 +261,14 @@ void HotdogMakingNode::declareVisionPickParameters()
 void HotdogMakingNode::configureVisionSubscription()
 {
     if (enable_vision_pick_) {
-      vision_detection_sub_ =
-        create_subscription<vision_msgs::msg::Detection3DArray>(
-        vision_detections_topic_,
-        rclcpp::QoS(10),
-        [this](vision_msgs::msg::Detection3DArray::SharedPtr msg) {
-          handleVisionDetections(msg);
-        });
+      vision_pick_adapter_ = std::make_unique<VisionPickAdapter>(
+        *this,
+        manufacturing_task::VisionPickAdapterConfig{
+          true,
+          vision_detections_topic_,
+          vision_pick_timeout_sec_,
+          vision_pick_use_size_,
+          visionPickMatchConfig()});
       RCLCPP_INFO(
         get_logger(),
         "Vision pick enabled: topic=%s timeout=%.2fs max_age=%.2fs max_distance=%.3fm min_score=%.2f method=yolo-seg+pca",
@@ -378,11 +380,6 @@ bool HotdogMakingNode::runHotdogAssemblyUntil(ManufacturingTarget endpoint)
         task_presets::targetName(endpoint));
     }
 
-    RCLCPP_INFO(
-      get_logger(),
-      "New York hotdog assembly started: endpoint=%s",
-      task_presets::targetName(endpoint));
-
     const std::string saved_target_model = target_model_;
     const ManufacturingStage saved_start_stage = start_stage_;
     const auto saved_play_to_stage = play_to_stage_;
@@ -401,78 +398,50 @@ bool HotdogMakingNode::runHotdogAssemblyUntil(ManufacturingTarget endpoint)
 
     start_stage_ = ManufacturingStage::Home;
 
-    RCLCPP_INFO(get_logger(), "Hotdog assembly step 1/5: pick and present case (%s)", case_target_model_.c_str());
-    if (!run_endpoint_step(ManufacturingTarget::Case, case_target_model_, [&]() {return runCasePick();})) {
-      restore_state();
-      return false;
-    }
-    if (endpoint_order == hotdogAssemblyStepOrder(ManufacturingTarget::Case)) {
-      restore_state();
-      RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at case endpoint");
-      return true;
-    }
-
-    RCLCPP_INFO(get_logger(), "Hotdog assembly step 2/5: pick and place bread (%s)", bread_target_model_.c_str());
-    if (!run_endpoint_step(ManufacturingTarget::Bread, bread_target_model_, [&]() {return runBreadPlace();})) {
-      restore_state();
-      return false;
-    }
-    if (endpoint_order == hotdogAssemblyStepOrder(ManufacturingTarget::Bread)) {
-      restore_state();
-      RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at bread endpoint");
-      return true;
-    }
-
-    RCLCPP_INFO(get_logger(), "Hotdog assembly step 3/5: pick and place sausage (%s)", sausage_target_model_.c_str());
-    if (!run_endpoint_step(ManufacturingTarget::Sausage, sausage_target_model_, [&]() {return runSausagePlace();})) {
-      restore_state();
-      return false;
-    }
-    if (endpoint_order == hotdogAssemblyStepOrder(ManufacturingTarget::Sausage)) {
-      restore_state();
-      RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at sausage endpoint");
-      return true;
-    }
-
-    RCLCPP_INFO(get_logger(), "Hotdog assembly step 4/5: pick, aim, and squeeze ketchup (%s)", ketchup_target_model_.c_str());
-    if (!run_endpoint_step(ManufacturingTarget::Ketchup, ketchup_target_model_, [&]() {return runKetchupSqueeze();})) {
-      restore_state();
-      return false;
-    }
-    if (endpoint_order == hotdogAssemblyStepOrder(ManufacturingTarget::Ketchup)) {
-      restore_state();
-      RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at ketchup endpoint");
-      return true;
-    }
-
-    play_to_stage_ = saved_play_to_stage;
-    RCLCPP_INFO(get_logger(), "Hotdog assembly step 5/5: place completed hotdog at pickup zone");
-    if (!runCompletedHotdogPlace()) {
-      restore_state();
-      return false;
-    }
-    if (!shouldStopAtOrBefore(ManufacturingStage::Place)) {
-      RCLCPP_INFO(get_logger(), "Hotdog assembly final step: return left arm home");
-      if (!runSingleArmReturnHome(
+    manufacturing_task::TaskSequenceRunner sequence_runner(get_logger());
+    const bool success = sequence_runner.runHotdogAssembly(
+      endpoint,
+      {
+        manufacturing_task::HotdogAssemblyStep{
+          ManufacturingTarget::Case,
+          case_target_model_,
+          "pick and present case",
+          [&]() {return run_endpoint_step(ManufacturingTarget::Case, case_target_model_, [&]() {return runCasePick();});}},
+        manufacturing_task::HotdogAssemblyStep{
+          ManufacturingTarget::Bread,
+          bread_target_model_,
+          "pick and place bread",
+          [&]() {return run_endpoint_step(ManufacturingTarget::Bread, bread_target_model_, [&]() {return runBreadPlace();});}},
+        manufacturing_task::HotdogAssemblyStep{
+          ManufacturingTarget::Sausage,
+          sausage_target_model_,
+          "pick and place sausage",
+          [&]() {return run_endpoint_step(ManufacturingTarget::Sausage, sausage_target_model_, [&]() {return runSausagePlace();});}},
+        manufacturing_task::HotdogAssemblyStep{
+          ManufacturingTarget::Ketchup,
+          ketchup_target_model_,
+          "pick, aim, and squeeze ketchup",
+          [&]() {return run_endpoint_step(ManufacturingTarget::Ketchup, ketchup_target_model_, [&]() {return runKetchupSqueeze();});}},
+      },
+      [&]() {
+        play_to_stage_ = saved_play_to_stage;
+        return runCompletedHotdogPlace();
+      },
+      [&]() {
+        if (shouldStopAtOrBefore(ManufacturingStage::Place)) {
+          return true;
+        }
+        RCLCPP_INFO(get_logger(), "Hotdog assembly final step: return left arm home");
+        return runSingleArmReturnHome(
           ManufacturingTarget::Hotdog,
           ArmSide::Left,
           left_arm_group_,
           left_tcp_link_,
-          "Final left arm"))
-      {
-        restore_state();
-        return false;
-      }
-    }
-
-    if (!validateFinalHotdogPlacement()) {
-      restore_state();
-      return false;
-    }
-
+          "Final left arm");
+      },
+      [&]() {return validateFinalHotdogPlacement();});
     restore_state();
-    RCLCPP_INFO(get_logger(), "New York hotdog assembly completed");
-    return true;
+    return success;
   }
 
 bool HotdogMakingNode::shouldStopAfter(ManufacturingStage stage) const

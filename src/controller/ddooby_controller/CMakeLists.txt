@@ -34,11 +34,13 @@ add_library(ddooby_manufacturing_task_core STATIC
   src/manufacturing_pick_execution.cpp
   src/manufacturing_place_planner.cpp
   src/manufacturing_result_validation.cpp
+  src/manufacturing_result_validator.cpp
   src/manufacturing_task_common.cpp
   src/manufacturing_pose_utils.cpp
   src/manufacturing_stage_motion.cpp
   src/manufacturing_target_loading.cpp
   src/manufacturing_task_runtime.cpp
+  src/manufacturing_task_sequence_runner.cpp
   src/manufacturing_task_runner.cpp
   src/moveit_task_utils.cpp
   src/planning_scene_utils.cpp

@@ -17,8 +17,6 @@
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
 #include <moveit_msgs/msg/collision_object.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <rclcpp/wait_for_message.hpp>
-#include <vision_msgs/msg/detection3_d_array.hpp>
 
 #include "ddooby_controller/manufacturing_layout_utils.hpp"
 #include "ddooby_controller/manufacturing_pick_planner.hpp"
@@ -117,89 +115,12 @@ bool HotdogMakingNode::loadTargetForVisionPick(
     return applyVisionPickTarget(target_kind, target_model, target);
   }
 
-void HotdogMakingNode::handleVisionDetections(const vision_msgs::msg::Detection3DArray::SharedPtr msg)
-{
-    const rclcpp::Time received_stamp = get_clock()->now();
-    vision_pick_store_.updateFromMessage(received_stamp, *msg);
-    RCLCPP_DEBUG(get_logger(), "Vision pick received %zu detections", msg->detections.size());
-  }
-
 VisionPickMatchConfig HotdogMakingNode::visionPickMatchConfig() const
 {
     return VisionPickMatchConfig{
       vision_pick_min_score_,
       vision_pick_max_age_sec_,
       vision_pick_max_distance_m_};
-  }
-
-std::optional<VisionPickDetection> HotdogMakingNode::findVisionPickDetection(
-    ManufacturingTarget target_kind,
-    const std::string & target_model,
-    const TargetObject & target)
-{
-    return manufacturing_task::findMatchingVisionPickDetection(
-      get_logger(),
-      *get_clock(),
-      vision_pick_store_.snapshot(),
-      target_kind,
-      target_model,
-      target,
-      visionPickMatchConfig());
-  }
-
-std::string HotdogMakingNode::summarizeVisionPickCandidates(
-    ManufacturingTarget target_kind,
-    const std::string & target_model,
-    const TargetObject & target)
-{
-    return manufacturing_task::summarizeVisionPickCandidates(
-      vision_pick_store_.snapshot(),
-      target_kind,
-      target_model,
-      target,
-      visionPickMatchConfig(),
-      get_clock()->now());
-  }
-
-std::optional<VisionPickDetection> HotdogMakingNode::waitForVisionPickDetection(
-    ManufacturingTarget target_kind,
-    const std::string & target_model,
-    const TargetObject & target)
-{
-    const auto deadline = std::chrono::steady_clock::now() +
-      std::chrono::duration<double>(vision_pick_timeout_sec_);
-
-    rclcpp::NodeOptions waiter_options;
-    waiter_options.context(get_node_options().context());
-    waiter_options.start_parameter_services(false);
-    waiter_options.start_parameter_event_publisher(false);
-    waiter_options.enable_rosout(false);
-    auto waiter_node = std::make_shared<rclcpp::Node>("ddooby_vision_pick_waiter", waiter_options);
-    auto waiter_subscription = waiter_node->create_subscription<vision_msgs::msg::Detection3DArray>(
-      vision_detections_topic_,
-      rclcpp::QoS(10),
-      [](vision_msgs::msg::Detection3DArray::ConstSharedPtr) {});
-
-    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
-      if (const auto detection = findVisionPickDetection(target_kind, target_model, target)) {
-        return detection;
-      }
-
-      vision_msgs::msg::Detection3DArray msg;
-      if (rclcpp::wait_for_message(
-          msg,
-          waiter_subscription,
-          get_node_options().context(),
-          100ms))
-      {
-        handleVisionDetections(std::make_shared<vision_msgs::msg::Detection3DArray>(std::move(msg)));
-        if (const auto detection = findVisionPickDetection(target_kind, target_model, target)) {
-          return detection;
-        }
-      }
-    }
-
-    return findVisionPickDetection(target_kind, target_model, target);
   }
 
 bool HotdogMakingNode::applyVisionPickTarget(
@@ -211,30 +132,11 @@ bool HotdogMakingNode::applyVisionPickTarget(
       return true;
     }
 
-    RCLCPP_INFO(
-      get_logger(),
-      "Vision pick: waiting up to %.2fs for %s/%s detection",
-      vision_pick_timeout_sec_,
-      task_presets::targetName(target_kind),
-      target_model.c_str());
-    const auto detection = waitForVisionPickDetection(target_kind, target_model, target);
-    if (!detection.has_value()) {
-      const std::string message =
-        "Vision pick: no matching detection for " +
-        std::string(task_presets::targetName(target_kind)) +
-        "/" + target_model + "; aborting";
-      RCLCPP_ERROR(get_logger(), "%s", message.c_str());
-      RCLCPP_ERROR(get_logger(), "%s", summarizeVisionPickCandidates(target_kind, target_model, target).c_str());
+    if (!vision_pick_adapter_) {
+      RCLCPP_ERROR(get_logger(), "Vision pick enabled but VisionPickAdapter is not configured");
       return false;
     }
-
-    return applyVisionDetectionToTarget(
-      get_logger(),
-      target_kind,
-      target_model,
-      *detection,
-      vision_pick_use_size_,
-      target);
+    return vision_pick_adapter_->applyTarget(target_kind, target_model, target);
   }
 
 bool HotdogMakingNode::applyVisionCollisionObjectIfNeeded(

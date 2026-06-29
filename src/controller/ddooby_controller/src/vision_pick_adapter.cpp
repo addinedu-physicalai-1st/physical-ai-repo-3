@@ -1,9 +1,11 @@
 #include "ddooby_controller/vision_pick_adapter.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <sstream>
 
@@ -11,9 +13,12 @@
 #include "ddooby_controller/manufacturing_pose_utils.hpp"
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/wait_for_message.hpp>
 
 namespace ddooby_controller::manufacturing_task
 {
+
+using namespace std::chrono_literals;
 
 namespace
 {
@@ -425,6 +430,139 @@ bool applyVisionDetectionToTarget(
     target_object.xyz.z(),
     target_object.rpy.z());
   return true;
+}
+
+VisionPickAdapter::VisionPickAdapter(
+  rclcpp::Node & node,
+  const VisionPickAdapterConfig & config)
+: node_(node),
+  config_(config)
+{
+  subscription_ = node_.create_subscription<vision_msgs::msg::Detection3DArray>(
+    config_.detections_topic,
+    rclcpp::QoS(10),
+    [this](const vision_msgs::msg::Detection3DArray::SharedPtr msg) {
+      handleDetections(msg);
+    });
+}
+
+void VisionPickAdapter::handleDetections(
+  const vision_msgs::msg::Detection3DArray::SharedPtr msg)
+{
+  const rclcpp::Time received_stamp = node_.get_clock()->now();
+  store_.updateFromMessage(received_stamp, *msg);
+  RCLCPP_DEBUG(
+    node_.get_logger(),
+    "Vision pick received %zu detections",
+    msg->detections.size());
+}
+
+std::optional<VisionPickDetection> VisionPickAdapter::findDetection(
+  task_presets::ManufacturingTarget target_kind,
+  const std::string & target_model,
+  const TargetObject & target)
+{
+  return findMatchingVisionPickDetection(
+    node_.get_logger(),
+    *node_.get_clock(),
+    store_.snapshot(),
+    target_kind,
+    target_model,
+    target,
+    config_.match);
+}
+
+std::optional<VisionPickDetection> VisionPickAdapter::waitForDetection(
+  task_presets::ManufacturingTarget target_kind,
+  const std::string & target_model,
+  const TargetObject & target)
+{
+  const auto deadline = std::chrono::steady_clock::now() +
+    std::chrono::duration<double>(config_.timeout_sec);
+
+  rclcpp::NodeOptions waiter_options;
+  waiter_options.context(node_.get_node_options().context());
+  waiter_options.start_parameter_services(false);
+  waiter_options.start_parameter_event_publisher(false);
+  waiter_options.enable_rosout(false);
+  auto waiter_node = std::make_shared<rclcpp::Node>("ddooby_vision_pick_waiter", waiter_options);
+  auto waiter_subscription = waiter_node->create_subscription<vision_msgs::msg::Detection3DArray>(
+    config_.detections_topic,
+    rclcpp::QoS(10),
+    [](vision_msgs::msg::Detection3DArray::ConstSharedPtr) {});
+
+  while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
+    if (const auto detection = findDetection(target_kind, target_model, target)) {
+      return detection;
+    }
+
+    vision_msgs::msg::Detection3DArray msg;
+    if (rclcpp::wait_for_message(
+        msg,
+        waiter_subscription,
+        node_.get_node_options().context(),
+        100ms))
+    {
+      handleDetections(std::make_shared<vision_msgs::msg::Detection3DArray>(std::move(msg)));
+      if (const auto detection = findDetection(target_kind, target_model, target)) {
+        return detection;
+      }
+    }
+  }
+
+  return findDetection(target_kind, target_model, target);
+}
+
+std::string VisionPickAdapter::summarizeCandidates(
+  task_presets::ManufacturingTarget target_kind,
+  const std::string & target_model,
+  const TargetObject & target)
+{
+  return summarizeVisionPickCandidates(
+    store_.snapshot(),
+    target_kind,
+    target_model,
+    target,
+    config_.match,
+    node_.get_clock()->now());
+}
+
+bool VisionPickAdapter::applyTarget(
+  task_presets::ManufacturingTarget target_kind,
+  const std::string & target_model,
+  TargetObject & target)
+{
+  if (!config_.enabled) {
+    return true;
+  }
+
+  RCLCPP_INFO(
+    node_.get_logger(),
+    "Vision pick: waiting up to %.2fs for %s/%s detection",
+    config_.timeout_sec,
+    task_presets::targetName(target_kind),
+    target_model.c_str());
+  const auto detection = waitForDetection(target_kind, target_model, target);
+  if (!detection.has_value()) {
+    const std::string message =
+      "Vision pick: no matching detection for " +
+      std::string(task_presets::targetName(target_kind)) +
+      "/" + target_model + "; aborting";
+    RCLCPP_ERROR(node_.get_logger(), "%s", message.c_str());
+    RCLCPP_ERROR(
+      node_.get_logger(),
+      "%s",
+      summarizeCandidates(target_kind, target_model, target).c_str());
+    return false;
+  }
+
+  return applyVisionDetectionToTarget(
+    node_.get_logger(),
+    target_kind,
+    target_model,
+    *detection,
+    config_.use_detection_size,
+    target);
 }
 
 }  // namespace ddooby_controller::manufacturing_task

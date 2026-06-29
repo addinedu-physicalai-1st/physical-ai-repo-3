@@ -590,6 +590,23 @@ bool HotdogMakingNode::runSausagePlace()
       get_logger(),
       "Sausage place: keeping released sausage collision object in planning scene");
 
+    RCLCPP_INFO(get_logger(), "Sausage place: vertical retreat before any home/ready motion");
+    if (!executeCartesian(
+        get_logger(),
+        left_arm,
+        {sausage_place_plan.approach_pose},
+        "sausage place vertical retreat",
+        cartesian_eef_step_,
+        min_cartesian_fraction_,
+        false,
+        velocity_scaling_,
+        acceleration_scaling_,
+        cartesian_min_duration_sec_))
+    {
+      return false;
+    }
+    logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Sausage place vertical retreat");
+
     if (shouldStopAfter(ManufacturingStage::Place)) {
       return true;
     }

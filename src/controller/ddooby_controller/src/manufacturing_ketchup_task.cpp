@@ -344,19 +344,7 @@ bool HotdogMakingNode::runKetchupSqueeze()
     } else {
       RCLCPP_INFO(
         get_logger(),
-        "Ketchup place: no return_guide pose configured; moving through left ready pose before return lift");
-      rememberJointTargetIfConfigured(left_arm, left_ready_pose_name_, left_ready_joints_);
-      if (!planAndExecuteNamedTarget(
-          get_logger(),
-          left_arm,
-          left_ready_pose_name_,
-          "ketchup post-squeeze ready pose",
-          task_presets::kDefaultPlanExecuteMaxAttempts,
-          pose_min_duration_sec_))
-      {
-        return false;
-      }
-      logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Ketchup post-squeeze ready pose");
+        "Ketchup place: no return_guide pose configured; staying at elevated clearance before return lift");
       if (shouldStopAfterWaypoint(ManufacturingStage::Place, "ready")) {
         return true;
       }

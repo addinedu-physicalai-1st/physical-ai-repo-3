@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -16,7 +17,6 @@
 #include "ddooby_controller/manufacturing_task_presets.hpp"
 #include "ddooby_controller/manufacturing_task_types.hpp"
 #include "ddooby_controller/vision_pick_adapter.hpp"
-#include "ddooby_controller/vision_pick_detection_store.hpp"
 
 namespace ddooby_controller
 {
@@ -33,7 +33,7 @@ using manufacturing_task::PreGraspGoalMode;
 using manufacturing_task::TargetObject;
 using manufacturing_task::VisionPickDetection;
 using manufacturing_task::VisionPickMatchConfig;
-using manufacturing_task::VisionPickDetectionStore;
+using manufacturing_task::VisionPickAdapter;
 
 class HotdogMakingNode : public rclcpp::Node
 {
@@ -145,20 +145,7 @@ private:
     const std::vector<double> & ready_joints,
     const std::string & target_model,
     TargetObject & target);
-  void handleVisionDetections(const vision_msgs::msg::Detection3DArray::SharedPtr msg);
   VisionPickMatchConfig visionPickMatchConfig() const;
-  std::optional<VisionPickDetection> findVisionPickDetection(
-    ManufacturingTarget target_kind,
-    const std::string & target_model,
-    const TargetObject & target);
-  std::string summarizeVisionPickCandidates(
-    ManufacturingTarget target_kind,
-    const std::string & target_model,
-    const TargetObject & target);
-  std::optional<VisionPickDetection> waitForVisionPickDetection(
-    ManufacturingTarget target_kind,
-    const std::string & target_model,
-    const TargetObject & target);
   bool applyVisionPickTarget(
     ManufacturingTarget target_kind,
     const std::string & target_model,
@@ -237,7 +224,6 @@ private:
 
   // Headless Gazebo result validation.
   bool shouldValidateGazeboResult() const;
-  std::optional<std::map<std::string, Eigen::Vector3d>> readGazeboModelPositions() const;
   bool validateFinalHotdogPlacement();
   bool validateFinalBeveragePlacement(ManufacturingTarget beverage_target);
 
@@ -317,8 +303,7 @@ private:
   double vision_pick_max_distance_m_{0.15};
   double vision_pick_min_score_{0.25};
   bool vision_pick_use_size_{false};
-  rclcpp::Subscription<vision_msgs::msg::Detection3DArray>::SharedPtr vision_detection_sub_;
-  VisionPickDetectionStore vision_pick_store_;
+  std::unique_ptr<VisionPickAdapter> vision_pick_adapter_;
 };
 
 }  // namespace ddooby_controller
