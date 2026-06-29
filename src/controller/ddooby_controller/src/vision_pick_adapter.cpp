@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
+#include <optional>
+#include <sstream>
 
 #include "ddooby_controller/manufacturing_task_common.hpp"
 #include "ddooby_controller/manufacturing_pose_utils.hpp"
@@ -11,6 +14,95 @@
 
 namespace ddooby_controller::manufacturing_task
 {
+
+namespace
+{
+
+enum class VisionPickRejectReason
+{
+  Usable,
+  LowScore,
+  Frame,
+  ClassOrId,
+  Stale,
+  FarFromLayout,
+};
+
+const char * rejectReasonName(VisionPickRejectReason reason)
+{
+  switch (reason) {
+    case VisionPickRejectReason::Usable:
+      return "usable";
+    case VisionPickRejectReason::LowScore:
+      return "low_score";
+    case VisionPickRejectReason::Frame:
+      return "frame";
+    case VisionPickRejectReason::ClassOrId:
+      return "class_or_id";
+    case VisionPickRejectReason::Stale:
+      return "stale";
+    case VisionPickRejectReason::FarFromLayout:
+      return "far_from_layout";
+  }
+  return "unknown";
+}
+
+struct VisionPickCandidateEvaluation
+{
+  bool object_id_matches{false};
+  bool class_matches{false};
+  double age_sec{0.0};
+  double distance_m{std::numeric_limits<double>::infinity()};
+  VisionPickRejectReason reject_reason{VisionPickRejectReason::Usable};
+};
+
+VisionPickCandidateEvaluation evaluateVisionPickCandidate(
+  const VisionPickDetection & detection,
+  task_presets::ManufacturingTarget target_kind,
+  const std::string & target_model,
+  const TargetObject & target,
+  double min_score,
+  double max_age_sec,
+  double max_distance_m,
+  const rclcpp::Time & now)
+{
+  VisionPickCandidateEvaluation evaluation;
+  evaluation.object_id_matches = visionObjectIdMatchesTargetModel(detection.object_id, target_model);
+  evaluation.class_matches = visionClassMatches(detection.class_id, target_kind, target_model);
+  evaluation.age_sec = (now - detection.stamp).seconds();
+
+  const Eigen::Vector3d expected_center = objectWorldCenter(target);
+  const Eigen::Vector3d detection_center = posePosition(detection.pose);
+  evaluation.distance_m = (detection_center - expected_center).norm();
+
+  const bool frame_matches = detection.frame_id.empty() || detection.frame_id == "world";
+  const bool score_ok = detection.score >= min_score;
+  const bool class_or_id_ok =
+    evaluation.object_id_matches || (detection.object_id.empty() && evaluation.class_matches);
+  const bool age_ok = !std::isfinite(evaluation.age_sec) || std::abs(evaluation.age_sec) <= max_age_sec;
+  const bool distance_ok =
+    evaluation.object_id_matches || max_distance_m <= 0.0 || evaluation.distance_m <= max_distance_m;
+
+  if (!score_ok) {
+    evaluation.reject_reason = VisionPickRejectReason::LowScore;
+  } else if (!frame_matches) {
+    evaluation.reject_reason = VisionPickRejectReason::Frame;
+  } else if (!class_or_id_ok) {
+    evaluation.reject_reason = VisionPickRejectReason::ClassOrId;
+  } else if (!age_ok) {
+    evaluation.reject_reason = VisionPickRejectReason::Stale;
+  } else if (!distance_ok) {
+    evaluation.reject_reason = VisionPickRejectReason::FarFromLayout;
+  }
+  return evaluation;
+}
+
+bool visionPickCandidateUsable(const VisionPickCandidateEvaluation & evaluation)
+{
+  return evaluation.reject_reason == VisionPickRejectReason::Usable;
+}
+
+}  // namespace
 
 std::vector<std::string> visionClassAliases(
   task_presets::ManufacturingTarget target,
@@ -106,6 +198,167 @@ bool visionObjectIdMatchesTargetModel(
 {
   return !object_id.empty() &&
          normalizeStageName(object_id) == normalizeStageName(target_model);
+}
+
+std::optional<VisionPickDetection> findMatchingVisionPickDetection(
+  const rclcpp::Logger & logger,
+  rclcpp::Clock & clock,
+  const std::vector<VisionPickDetection> & detections,
+  task_presets::ManufacturingTarget target_kind,
+  const std::string & target_model,
+  const TargetObject & target,
+  const VisionPickMatchConfig & config)
+{
+  if (detections.empty()) {
+    RCLCPP_WARN_THROTTLE(
+      logger,
+      clock,
+      1000,
+      "Vision pick has no received detections yet");
+    return std::nullopt;
+  }
+
+  const rclcpp::Time now = clock.now();
+  double best_distance = std::numeric_limits<double>::infinity();
+  std::optional<VisionPickDetection> best_detection;
+
+  for (const auto & detection : detections) {
+    const auto evaluation = evaluateVisionPickCandidate(
+      detection,
+      target_kind,
+      target_model,
+      target,
+      config.min_score,
+      config.max_age_sec,
+      config.max_distance_m,
+      now);
+
+    if (evaluation.reject_reason == VisionPickRejectReason::LowScore) {
+      continue;
+    }
+    if (evaluation.reject_reason == VisionPickRejectReason::Frame) {
+      RCLCPP_WARN_THROTTLE(
+        logger,
+        clock,
+        2000,
+        "Vision pick ignores detection '%s' in frame '%s'; expected world frame",
+        detection.class_id.c_str(),
+        detection.frame_id.c_str());
+      continue;
+    }
+    if (!detection.object_id.empty() && !evaluation.object_id_matches) {
+      RCLCPP_DEBUG(
+        logger,
+        "Vision pick skip id=%s for target_model=%s",
+        detection.object_id.c_str(),
+        target_model.c_str());
+      continue;
+    }
+    if (evaluation.reject_reason == VisionPickRejectReason::ClassOrId) {
+      RCLCPP_DEBUG(
+        logger,
+        "Vision pick skip class=%s id=%s for target=%s/%s",
+        detection.class_id.c_str(),
+        detection.object_id.c_str(),
+        task_presets::targetName(target_kind),
+        target_model.c_str());
+      continue;
+    }
+    if (evaluation.reject_reason == VisionPickRejectReason::Stale) {
+      RCLCPP_DEBUG(
+        logger,
+        "Vision pick skip stale class=%s id=%s age=%.3f",
+        detection.class_id.c_str(),
+        detection.object_id.c_str(),
+        evaluation.age_sec);
+      continue;
+    }
+    if (evaluation.reject_reason == VisionPickRejectReason::FarFromLayout) {
+      RCLCPP_DEBUG(
+        logger,
+        "Vision pick skip far class=%s id=%s distance=%.3f",
+        detection.class_id.c_str(),
+        detection.object_id.c_str(),
+        evaluation.distance_m);
+      continue;
+    }
+    if (!visionPickCandidateUsable(evaluation)) {
+      continue;
+    }
+    if (evaluation.distance_m < best_distance) {
+      best_distance = evaluation.distance_m;
+      best_detection = detection;
+    }
+  }
+
+  return best_detection;
+}
+
+std::string summarizeVisionPickCandidates(
+  const std::vector<VisionPickDetection> & detections,
+  task_presets::ManufacturingTarget target_kind,
+  const std::string & target_model,
+  const TargetObject & target,
+  const VisionPickMatchConfig & config,
+  const rclcpp::Time & now)
+{
+  std::ostringstream stream;
+  stream << "Vision pick candidates for " << task_presets::targetName(target_kind) << "/" << target_model
+         << ": count=" << detections.size();
+  std::size_t count = 0;
+  std::size_t score_reject_count = 0;
+  std::size_t frame_reject_count = 0;
+  std::size_t class_reject_count = 0;
+  std::size_t age_reject_count = 0;
+  std::size_t distance_reject_count = 0;
+  std::size_t usable_count = 0;
+  for (const auto & detection : detections) {
+    if (count++ >= 12) {
+      stream << " ...";
+      break;
+    }
+    const auto evaluation = evaluateVisionPickCandidate(
+      detection,
+      target_kind,
+      target_model,
+      target,
+      config.min_score,
+      config.max_age_sec,
+      config.max_distance_m,
+      now);
+
+    if (evaluation.reject_reason == VisionPickRejectReason::LowScore) {
+      ++score_reject_count;
+    } else if (evaluation.reject_reason == VisionPickRejectReason::Frame) {
+      ++frame_reject_count;
+    } else if (evaluation.reject_reason == VisionPickRejectReason::ClassOrId) {
+      ++class_reject_count;
+    } else if (evaluation.reject_reason == VisionPickRejectReason::Stale) {
+      ++age_reject_count;
+    } else if (evaluation.reject_reason == VisionPickRejectReason::FarFromLayout) {
+      ++distance_reject_count;
+    } else {
+      ++usable_count;
+    }
+    stream << " [class=" << detection.class_id
+           << " id=" << detection.object_id
+           << " score=" << detection.score
+           << " frame=" << detection.frame_id
+           << " class_match=" << (evaluation.class_matches ? "Y" : "N")
+           << " id_match=" << (evaluation.object_id_matches ? "Y" : "N")
+           << " age=" << evaluation.age_sec
+           << " dist=" << evaluation.distance_m
+           << " reject=" << rejectReasonName(evaluation.reject_reason)
+           << "]";
+  }
+  stream << " summary{usable=" << usable_count
+         << ", low_score=" << score_reject_count
+         << ", frame=" << frame_reject_count
+         << ", class_or_id=" << class_reject_count
+         << ", stale=" << age_reject_count
+         << ", far_from_layout=" << distance_reject_count
+         << "}";
+  return stream.str();
 }
 
 bool applyVisionDetectionToTarget(

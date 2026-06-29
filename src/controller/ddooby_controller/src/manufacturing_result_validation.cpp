@@ -15,10 +15,12 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "ddooby_controller/manufacturing_task_common.hpp"
-#include "manufacturing_task_node.hpp"
+#include "manufacturing_task_node_private.hpp"
 
 namespace ddooby_controller
 {
+
+using namespace manufacturing_task;
 
 namespace
 {
@@ -252,6 +254,48 @@ bool validateMinimumDistance(
   return ok;
 }
 
+bool validateInsideFootprint(
+  const rclcpp::Logger & logger,
+  const std::string & label,
+  const Eigen::Vector3d & position,
+  const TargetObject & target,
+  double margin_m)
+{
+  if (target.size.x() <= 1e-6 || target.size.y() <= 1e-6) {
+    return validateDistance(
+      logger,
+      label,
+      xyDistance(position, target.xyz),
+      margin_m);
+  }
+
+  const double dx = std::abs(position.x() - target.xyz.x());
+  const double dy = std::abs(position.y() - target.xyz.y());
+  const double max_x = target.size.x() * 0.5 + margin_m;
+  const double max_y = target.size.y() * 0.5 + margin_m;
+  const bool ok = dx <= max_x && dy <= max_y;
+  if (ok) {
+    RCLCPP_INFO(
+      logger,
+      "Gazebo result validation OK: %s dx=%.3fm/%.3fm dy=%.3fm/%.3fm",
+      label.c_str(),
+      dx,
+      max_x,
+      dy,
+      max_y);
+  } else {
+    RCLCPP_ERROR(
+      logger,
+      "Gazebo result validation FAILED: %s dx=%.3fm/%.3fm dy=%.3fm/%.3fm",
+      label.c_str(),
+      dx,
+      max_x,
+      dy,
+      max_y);
+  }
+  return ok;
+}
+
 }  // namespace
 
 bool HotdogMakingNode::shouldValidateGazeboResult() const
@@ -406,11 +450,13 @@ bool HotdogMakingNode::validateFinalBeveragePlacement(ManufacturingTarget bevera
   logModelPosition(get_logger(), beverage_model, beverage_pose_it->second);
 
   bool ok = true;
-  ok &= validateDistance(
+  constexpr double kPickupZoneFootprintMarginM = 0.05;
+  ok &= validateInsideFootprint(
     get_logger(),
-    beverage_model + " near pickup_zone",
-    xyDistance(beverage_pose_it->second, pickup_zone_layout.xyz),
-    result_validation_beverage_pickup_xy_tolerance_m_);
+    beverage_model + " inside pickup_zone footprint",
+    beverage_pose_it->second,
+    pickup_zone_layout,
+    kPickupZoneFootprintMarginM);
 
   constexpr double kMinimumMovedDistanceM = 0.20;
   ok &= validateMinimumDistance(

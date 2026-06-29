@@ -30,10 +30,10 @@ using namespace std::chrono_literals;
 using Manifacture = custom_msg::action::Manifacture;
 using GoalHandleManifacture = rclcpp_action::ServerGoalHandle<Manifacture>;
 
-struct BeverageRun
+struct ManufactureTaskRun
 {
   std::string item_name;
-  std::string ingredient_model;
+  std::string task_name;
   int item_run_index;
   int item_run_count;
 };
@@ -52,14 +52,6 @@ struct CommandResult
   int exit_code;
   std::string output;
   std::string message;
-};
-
-struct GazeboResetPose
-{
-  std::string name;
-  double x;
-  double y;
-  double z;
 };
 
 std::string toLowerAscii(const std::string & value)
@@ -82,13 +74,13 @@ bool containsAny(const std::string & value, const std::vector<std::string> & nee
   return false;
 }
 
-std::optional<std::string> manufactureBackendForItem(const std::string & item_name)
+std::optional<std::string> taskNameForItem(const std::string & item_name)
 {
   const std::string lowered = toLowerAscii(item_name);
   if (lowered == "hotdog" || lowered == "hot dog" ||
     containsAny(lowered, {"new york", "핫도그", "뉴욕"}))
   {
-    return "hotdog_placeholder";
+    return "hotdog";
   }
   if (lowered == "coke" || lowered == "cola" || containsAny(lowered, {"콜라"})) {
     return "coke";
@@ -97,11 +89,6 @@ std::optional<std::string> manufactureBackendForItem(const std::string & item_na
     return "coffee";
   }
   return std::nullopt;
-}
-
-bool isHotdogPlaceholder(const BeverageRun & run)
-{
-  return run.ingredient_model == "hotdog_placeholder";
 }
 
 std::string joinCommandForLog(const std::vector<std::string> & args)
@@ -125,27 +112,9 @@ void trimProcessOutputTail(std::string & output)
   }
 }
 
-bool containsBeverageSuccessMarker(const std::string & output)
-{
-  return output.find("Beverage task manager sequence completed") != std::string::npos;
-}
-
-bool containsBeverageFailureMarker(const std::string & output)
-{
-  return output.find("process has died") != std::string::npos ||
-         output.find("failed to exec") != std::string::npos ||
-         output.find("Gazebo set pose service") != std::string::npos ||
-         output.find("Timed out resetting Gazebo model") != std::string::npos ||
-         output.find("Gazebo rejected reset pose") != std::string::npos ||
-         output.find("RuntimeError:") != std::string::npos ||
-         output.find("Traceback (most recent call last)") != std::string::npos;
-}
-
 void readAvailableProcessOutput(
   int output_fd,
-  std::string & output_tail,
-  bool & saw_success_marker,
-  bool & saw_failure_marker)
+  std::string & output_tail)
 {
   char buffer[4096];
   while (true) {
@@ -156,8 +125,6 @@ void readAvailableProcessOutput(
 
       output_tail.append(buffer, static_cast<size_t>(bytes_read));
       trimProcessOutputTail(output_tail);
-      saw_success_marker = saw_success_marker || containsBeverageSuccessMarker(output_tail);
-      saw_failure_marker = saw_failure_marker || containsBeverageFailureMarker(output_tail);
       continue;
     }
     if (bytes_read == 0) {
@@ -181,42 +148,12 @@ public:
   {
     action_name_ = declare_parameter<std::string>("action_name", "ddooby/manifacture");
     ros2_executable_ = declare_parameter<std::string>("ros2_executable", "ros2");
-    gz_executable_ = declare_parameter<std::string>("gz_executable", "gz");
-    beverage_launch_package_ =
-      declare_parameter<std::string>("beverage_launch_package", "ddooby_controller");
-    beverage_launch_file_ =
-      declare_parameter<std::string>("beverage_launch_file", "beverage_making_test.launch.py");
     hotdog_launch_package_ =
       declare_parameter<std::string>("hotdog_launch_package", "ddooby_controller");
     hotdog_launch_file_ =
       declare_parameter<std::string>("hotdog_launch_file", "hotdog_making.launch.py");
     hotdog_use_sim_time_ = declare_parameter<bool>("hotdog_use_sim_time", true);
-    reset_world_on_start_ = declare_parameter<bool>("reset_world_on_start", true);
-    use_gz_cli_reset_ = declare_parameter<bool>("use_gz_cli_reset", true);
-    gazebo_set_pose_service_ =
-      declare_parameter<std::string>("gazebo_set_pose_service", "/world/default/set_pose");
-    gazebo_reset_timeout_ms_ = declare_parameter<int>("gazebo_reset_timeout_ms", 3000);
-    gazebo_reset_settle_sec_ = declare_parameter<double>("gazebo_reset_settle_sec", 1.0);
-    start_step_ = declare_parameter<std::string>("start_step", "");
-    end_step_ = declare_parameter<std::string>("end_step", "");
     command_timeout_sec_ = declare_parameter<double>("command_timeout_sec", 0.0);
-    execution_backend_ =
-      declare_parameter<std::string>("execution_backend", "temporary_beverage_test");
-    hotdog_task_executable_ =
-      declare_parameter<std::string>("hotdog_task_executable", "hotdog_making_node");
-    drink_task_executable_ =
-      declare_parameter<std::string>("drink_task_executable", "drink_serving_node");
-    scenario_step_delay_ms_ = declare_parameter<int>("scenario_step_delay_ms", 150);
-
-    if (execution_backend_ != "temporary_beverage_test" &&
-        execution_backend_ != "scenario_task_nodes")
-    {
-      RCLCPP_WARN(
-        get_logger(),
-        "Unknown execution_backend '%s'; falling back to temporary_beverage_test",
-        execution_backend_.c_str());
-      execution_backend_ = "temporary_beverage_test";
-    }
 
     using std::placeholders::_1;
     using std::placeholders::_2;
@@ -280,7 +217,7 @@ private:
   {
     ActiveGoalGuard guard(*this);
 
-    std::vector<BeverageRun> run_plan;
+    std::vector<ManufactureTaskRun> run_plan;
     std::string plan_error;
     if (!buildRunPlan(goal_handle->get_goal(), run_plan, plan_error)) {
       finishAborted(goal_handle, plan_error);
@@ -293,20 +230,13 @@ private:
 
     for (size_t index = 0; index < run_plan.size(); ++index) {
       if (goal_handle->is_canceling()) {
-        finishCanceled(goal_handle, "manufacture canceled before next beverage test run");
+        finishCanceled(goal_handle, "manufacture canceled before next task run");
         return;
       }
 
       const auto & run = run_plan[index];
       std::ostringstream status;
-      status << "manufacturing " << run.item_name << " with ";
-      if (isHotdogPlaceholder(run)) {
-        status << hotdog_task_executable_;
-      } else if (useScenarioTaskNodes()) {
-        status << drink_task_executable_;
-      } else {
-        status << run.ingredient_model;
-      }
+      status << "manufacturing " << run.item_name << " with " << hotdog_launch_file_;
       status << " (run " << (index + 1) << "/" << run_plan.size() << ", item "
              << run.item_run_index << "/" << run.item_run_count << ")";
       publishStatus(goal_handle, status.str());
@@ -337,7 +267,7 @@ private:
 
   bool buildRunPlan(
     const std::shared_ptr<const Manifacture::Goal> & goal,
-    std::vector<BeverageRun> & run_plan,
+    std::vector<ManufactureTaskRun> & run_plan,
     std::string & error) const
   {
     if (goal->items.empty()) {
@@ -354,8 +284,8 @@ private:
         continue;
       }
 
-      const auto ingredient_model = manufactureBackendForItem(item.name);
-      if (!ingredient_model.has_value()) {
+      const auto task_name = taskNameForItem(item.name);
+      if (!task_name.has_value()) {
         error =
           "unsupported manufacture item '" + item.name +
           "': backend supports hotdog, coke, and coffee items only";
@@ -363,9 +293,9 @@ private:
       }
 
       for (int run_index = 1; run_index <= item.count; ++run_index) {
-        run_plan.push_back(BeverageRun{
+        run_plan.push_back(ManufactureTaskRun{
           item.name,
-          ingredient_model.value(),
+          task_name.value(),
           run_index,
           item.count,
         });
@@ -377,15 +307,6 @@ private:
       return false;
     }
     return true;
-  }
-
-  std::string makeGzSetPoseRequest(const GazeboResetPose & pose) const
-  {
-    std::ostringstream request;
-    request << "name: \"" << pose.name << "\" "
-            << "position { x: " << pose.x << " y: " << pose.y << " z: " << pose.z << " } "
-            << "orientation { w: 1.0 }";
-    return request.str();
   }
 
   CommandResult runCommandAndCollectOutput(
@@ -438,18 +359,14 @@ private:
 
     setpgid(pid, pid);
     std::string output_tail;
-    bool ignored_success_marker = false;
-    bool ignored_failure_marker = false;
     const auto start_time = std::chrono::steady_clock::now();
     while (rclcpp::ok()) {
-      readAvailableProcessOutput(
-        output_pipe[0], output_tail, ignored_success_marker, ignored_failure_marker);
+      readAvailableProcessOutput(output_pipe[0], output_tail);
 
       int status = 0;
       const pid_t wait_result = waitpid(pid, &status, WNOHANG);
       if (wait_result == pid) {
-        readAvailableProcessOutput(
-          output_pipe[0], output_tail, ignored_success_marker, ignored_failure_marker);
+        readAvailableProcessOutput(output_pipe[0], output_tail);
         if (WIFEXITED(status)) {
           const int exit_code = WEXITSTATUS(status);
           return finish(CommandResult{
@@ -494,85 +411,16 @@ private:
     return finish(CommandResult{false, true, -1, output_tail, "ROS shutdown requested"});
   }
 
-  ProcessResult resetGazeboObjectsWithGzCli(
-    const std::shared_ptr<GoalHandleManifacture> & goal_handle) const
-  {
-    const std::vector<GazeboResetPose> poses{
-      {"espresso_cup", 0.38, 0.21, 0.425},
-      {"ade_cup", 0.38, 0.07, 0.425},
-      {"mixing_cup", 0.38, -0.08, 0.425},
-      {"water_cup", 0.38, -0.22, 0.425},
-      {"stir_stick_holder", 0.38, 0.36, 0.37},
-      {"stir_stick", 0.38, 0.36, 0.48},
-      {"pickup_zone", 0.025, -0.50, 0.35},
-    };
-
-    const double timeout_sec = static_cast<double>(gazebo_reset_timeout_ms_) / 1000.0 + 1.0;
-    for (const auto & pose : poses) {
-      std::vector<std::string> args{
-        gz_executable_,
-        "service",
-        "-s",
-        gazebo_set_pose_service_,
-        "--reqtype",
-        "gz.msgs.Pose",
-        "--reptype",
-        "gz.msgs.Boolean",
-        "--timeout",
-        std::to_string(gazebo_reset_timeout_ms_),
-        "--req",
-        makeGzSetPoseRequest(pose),
-      };
-      RCLCPP_INFO(get_logger(), "Resetting Gazebo model with CLI: %s", pose.name.c_str());
-      const auto command_result = runCommandAndCollectOutput(args, goal_handle, timeout_sec);
-      if (command_result.canceled) {
-        return ProcessResult{false, true, "manufacture canceled while resetting Gazebo objects"};
-      }
-      if (!command_result.success || command_result.output.find("data: true") == std::string::npos) {
-        return ProcessResult{
-          false,
-          false,
-          "failed to reset Gazebo model '" + pose.name + "' through gz service: " +
-            command_result.message};
-      }
-    }
-
-    if (gazebo_reset_settle_sec_ > 0.0) {
-      std::this_thread::sleep_for(std::chrono::duration<double>(gazebo_reset_settle_sec_));
-    }
-    return ProcessResult{true, false, "Gazebo beverage objects reset"};
-  }
-
-  bool useScenarioTaskNodes() const
-  {
-    return execution_backend_ == "scenario_task_nodes";
-  }
-
   ProcessResult runManufactureTask(
     const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    const BeverageRun & run) const
+    const ManufactureTaskRun & run) const
   {
-    if (isHotdogPlaceholder(run) || run.ingredient_model == "coke" ||
-      run.ingredient_model == "coffee")
-    {
-      return runHotdogTaskLaunch(goal_handle, run);
-    }
-
-    if (useScenarioTaskNodes()) {
-      return runScenarioTaskProcess(
-        goal_handle,
-        run,
-        drink_task_executable_,
-        "Drink serving scenario completed",
-        run.ingredient_model);
-    }
-
-    return runBeverageTestProcess(goal_handle, run);
+    return runManufacturingTaskLaunch(goal_handle, run);
   }
 
-  ProcessResult runHotdogTaskLaunch(
+  ProcessResult runManufacturingTaskLaunch(
     const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    const BeverageRun & run) const
+    const ManufactureTaskRun & run) const
   {
     std::vector<std::string> args{
       ros2_executable_,
@@ -581,237 +429,38 @@ private:
       "--show-all-subprocesses-output",
       hotdog_launch_package_,
       hotdog_launch_file_,
-      "task:=" + (isHotdogPlaceholder(run) ? std::string("hotdog") : run.ingredient_model),
+      "task:=" + run.task_name,
       std::string("use_sim_time:=") + (hotdog_use_sim_time_ ? "true" : "false"),
     };
 
-    const std::string task_name = isHotdogPlaceholder(run) ? std::string("hotdog") : run.ingredient_model;
-    const std::string success_marker = isHotdogPlaceholder(run) ?
+    const std::string success_marker = run.task_name == "hotdog" ?
       "New York hotdog assembly completed" :
-      "Beverage " + task_name + " serving completed";
+      "Beverage " + run.task_name + " serving completed";
 
     RCLCPP_INFO(
       get_logger(),
       "Starting manufacture process for %s: %s",
-      task_name.c_str(),
+      run.task_name.c_str(),
       joinCommandForLog(args).c_str());
     const auto command_result = runCommandAndCollectOutput(args, goal_handle, command_timeout_sec_);
     if (command_result.canceled) {
-      return ProcessResult{false, true, "manufacture canceled while running " + task_name + " task"};
+      return ProcessResult{false, true, "manufacture canceled while running " + run.task_name + " task"};
     }
     if (!command_result.success) {
       return ProcessResult{
         false,
         false,
-        task_name + " manufacture failed for item '" + run.item_name + "': " +
+        run.task_name + " manufacture failed for item '" + run.item_name + "': " +
           command_result.message};
     }
     if (command_result.output.find(success_marker) == std::string::npos) {
       return ProcessResult{
         false,
         false,
-        task_name + " manufacture exited without completion marker for item '" + run.item_name + "'"};
+        run.task_name + " manufacture exited without completion marker for item '" + run.item_name + "'"};
     }
 
-    return ProcessResult{true, false, task_name + " manufacture completed"};
-  }
-
-  ProcessResult runScenarioTaskProcess(
-    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    const BeverageRun & run,
-    const std::string & executable,
-    const std::string & success_marker,
-    const std::string & drink_model) const
-  {
-    std::vector<std::string> args{
-      ros2_executable_,
-      "run",
-      "ddooby_controller",
-      executable,
-      "--ros-args",
-      "-p",
-      "item_name:=" + run.item_name,
-      "-p",
-      "scenario_only:=true",
-      "-p",
-      "step_delay_ms:=" + std::to_string(scenario_step_delay_ms_),
-    };
-    if (!drink_model.empty()) {
-      args.push_back("-p");
-      args.push_back("drink_model:=" + drink_model);
-    }
-
-    RCLCPP_INFO(get_logger(), "Starting scenario task process: %s", joinCommandForLog(args).c_str());
-    const auto command_result = runCommandAndCollectOutput(args, goal_handle, command_timeout_sec_);
-    if (command_result.canceled) {
-      return ProcessResult{false, true, "manufacture canceled while running " + executable};
-    }
-    if (!command_result.success) {
-      return ProcessResult{
-        false,
-        false,
-        executable + " failed for item '" + run.item_name + "': " + command_result.message};
-    }
-    if (command_result.output.find(success_marker) == std::string::npos) {
-      return ProcessResult{
-        false,
-        false,
-        executable + " exited without success marker for item '" + run.item_name + "'"};
-    }
-
-    return ProcessResult{true, false, executable + " completed"};
-  }
-
-  ProcessResult runBeverageTestProcess(
-    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    const BeverageRun & run) const
-  {
-    if (isHotdogPlaceholder(run)) {
-      return runScenarioTaskProcess(
-        goal_handle,
-        run,
-        hotdog_task_executable_,
-        "Hotdog task scenario completed",
-        "");
-    }
-
-    if (reset_world_on_start_ && use_gz_cli_reset_) {
-      const auto reset_result = resetGazeboObjectsWithGzCli(goal_handle);
-      if (!reset_result.success || reset_result.canceled) {
-        return reset_result;
-      }
-    }
-
-    const bool beverage_node_reset = reset_world_on_start_ && !use_gz_cli_reset_;
-    std::vector<std::string> args{
-      ros2_executable_,
-      "launch",
-      "--noninteractive",
-      "--show-all-subprocesses-output",
-      beverage_launch_package_,
-      beverage_launch_file_,
-      "ingredient_model:=" + run.ingredient_model,
-      std::string("reset_world_on_start:=") + (beverage_node_reset ? "true" : "false"),
-    };
-    if (!start_step_.empty()) {
-      args.push_back("start_step:=" + start_step_);
-    }
-    if (!end_step_.empty()) {
-      args.push_back("end_step:=" + end_step_);
-    }
-
-    RCLCPP_INFO(get_logger(), "Starting beverage test process: %s", joinCommandForLog(args).c_str());
-
-    int output_pipe[2];
-    if (pipe(output_pipe) != 0) {
-      return ProcessResult{false, false, "failed to create beverage test process output pipe"};
-    }
-
-    const int flags = fcntl(output_pipe[0], F_GETFL, 0);
-    if (flags >= 0) {
-      fcntl(output_pipe[0], F_SETFL, flags | O_NONBLOCK);
-    }
-
-    const pid_t pid = fork();
-    if (pid < 0) {
-      close(output_pipe[0]);
-      close(output_pipe[1]);
-      return ProcessResult{false, false, "failed to fork beverage test process"};
-    }
-
-    if (pid == 0) {
-      setpgid(0, 0);
-      close(output_pipe[0]);
-      dup2(output_pipe[1], STDOUT_FILENO);
-      dup2(output_pipe[1], STDERR_FILENO);
-      if (output_pipe[1] > STDERR_FILENO) {
-        close(output_pipe[1]);
-      }
-
-      std::vector<char *> argv;
-      argv.reserve(args.size() + 1);
-      for (auto & arg : args) {
-        argv.push_back(const_cast<char *>(arg.c_str()));
-      }
-      argv.push_back(nullptr);
-      execvp(argv[0], argv.data());
-      std::fprintf(stderr, "failed to exec %s: %s\n", argv[0], std::strerror(errno));
-      _exit(127);
-    }
-
-    close(output_pipe[1]);
-    auto finish = [&](ProcessResult result) {
-      close(output_pipe[0]);
-      return result;
-    };
-
-    setpgid(pid, pid);
-    std::string process_output_tail;
-    bool saw_success_marker = false;
-    bool saw_failure_marker = false;
-    const auto start_time = std::chrono::steady_clock::now();
-    while (rclcpp::ok()) {
-      readAvailableProcessOutput(
-        output_pipe[0], process_output_tail, saw_success_marker, saw_failure_marker);
-
-      int status = 0;
-      const pid_t wait_result = waitpid(pid, &status, WNOHANG);
-      if (wait_result == pid) {
-        readAvailableProcessOutput(
-          output_pipe[0], process_output_tail, saw_success_marker, saw_failure_marker);
-
-        if (saw_failure_marker) {
-          return finish(ProcessResult{
-            false,
-            false,
-            "beverage test launch reported child process failure for item '" + run.item_name + "'"});
-        }
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-          if (saw_success_marker) {
-            return finish(ProcessResult{true, false, "beverage test process completed"});
-          }
-          return finish(ProcessResult{
-            false,
-            false,
-            "beverage test launch exited without success marker for item '" + run.item_name + "'"});
-        }
-        if (WIFEXITED(status)) {
-          return finish(ProcessResult{
-            false,
-            false,
-            "beverage test process exited with code " + std::to_string(WEXITSTATUS(status))});
-        }
-        if (WIFSIGNALED(status)) {
-          return finish(ProcessResult{
-            false,
-            false,
-            "beverage test process terminated by signal " + std::to_string(WTERMSIG(status))});
-        }
-        return finish(ProcessResult{false, false, "beverage test process failed"});
-      }
-      if (wait_result < 0 && errno != EINTR) {
-        return finish(ProcessResult{false, false, "failed while waiting for beverage test process"});
-      }
-
-      if (goal_handle->is_canceling()) {
-        terminateProcessGroup(pid);
-        return finish(ProcessResult{false, true, "manufacture canceled; beverage test process stopped"});
-      }
-
-      if (command_timeout_sec_ > 0.0) {
-        const auto elapsed =
-          std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time).count();
-        if (elapsed > command_timeout_sec_) {
-          terminateProcessGroup(pid);
-          return finish(ProcessResult{false, false, "beverage test process timed out"});
-        }
-      }
-
-      std::this_thread::sleep_for(200ms);
-    }
-
-    terminateProcessGroup(pid);
-    return finish(ProcessResult{false, true, "ROS shutdown requested; beverage test process stopped"});
+    return ProcessResult{true, false, run.task_name + " manufacture completed"};
   }
 
   void terminateProcessGroup(pid_t pid) const
@@ -875,24 +524,10 @@ private:
 
   std::string action_name_;
   std::string ros2_executable_;
-  std::string gz_executable_;
-  std::string beverage_launch_package_;
-  std::string beverage_launch_file_;
   std::string hotdog_launch_package_;
   std::string hotdog_launch_file_;
   bool hotdog_use_sim_time_;
-  bool reset_world_on_start_;
-  bool use_gz_cli_reset_;
-  std::string gazebo_set_pose_service_;
-  int gazebo_reset_timeout_ms_;
-  double gazebo_reset_settle_sec_;
-  std::string start_step_;
-  std::string end_step_;
   double command_timeout_sec_;
-  std::string execution_backend_;
-  std::string hotdog_task_executable_;
-  std::string drink_task_executable_;
-  int scenario_step_delay_ms_;
   rclcpp_action::Server<Manifacture>::SharedPtr action_server_;
   mutable std::mutex active_goal_mutex_;
   bool active_goal_{false};

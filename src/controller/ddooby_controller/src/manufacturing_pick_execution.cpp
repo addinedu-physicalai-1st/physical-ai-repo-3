@@ -26,7 +26,7 @@
 #include "ddooby_controller/manufacturing_pose_utils.hpp"
 #include "ddooby_controller/manufacturing_stage_motion.hpp"
 #include "ddooby_controller/manufacturing_task_common.hpp"
-#include "manufacturing_task_node.hpp"
+#include "manufacturing_task_node_private.hpp"
 #include "ddooby_controller/manufacturing_task_runner.hpp"
 #include "ddooby_controller/moveit_task_utils.hpp"
 #include "ddooby_controller/planning_scene_utils.hpp"
@@ -35,6 +35,7 @@
 namespace ddooby_controller
 {
 using namespace std::chrono_literals;
+using namespace manufacturing_task;
 
 bool HotdogMakingNode::prepareAndRunPickMotion(
     const PickMotionConfig & config,

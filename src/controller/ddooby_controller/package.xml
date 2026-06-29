@@ -2,7 +2,7 @@
 <package format="3">
   <name>ddooby_controller</name>
   <version>0.0.0</version>
-  <description>DDooby beverage controller package for OpenArm simulation.</description>
+  <description>OpenArm bimanual manufacturing controller for hotdog assembly and beverage serving.</description>
   <maintainer email="placeholder@example.com">DDooby Maintainer</maintainer>
   <license>MIT</license>
 

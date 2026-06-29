@@ -1,11 +1,12 @@
 #pragma once
 
-#include <optional>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
 
+#include <Eigen/Geometry>
 #include <geometry_msgs/msg/pose.hpp>
 #include <moveit/move_group_interface/move_group_interface.hpp>
 #include <moveit/planning_scene_interface/planning_scene_interface.hpp>
@@ -14,6 +15,7 @@
 
 #include "ddooby_controller/manufacturing_task_presets.hpp"
 #include "ddooby_controller/manufacturing_task_types.hpp"
+#include "ddooby_controller/vision_pick_adapter.hpp"
 #include "ddooby_controller/vision_pick_detection_store.hpp"
 
 namespace ddooby_controller
@@ -23,89 +25,76 @@ namespace task_presets = manufacturing_task_presets;
 using ManufacturingStage = task_presets::ManufacturingStage;
 using ManufacturingTarget = task_presets::ManufacturingTarget;
 using ArmSide = task_presets::ArmSide;
-using namespace manufacturing_task;
+using manufacturing_task::MotionStepResult;
+using manufacturing_task::OptionalStageWaypoint;
+using manufacturing_task::PickMotionConfig;
+using manufacturing_task::PickPlan;
+using manufacturing_task::PreGraspGoalMode;
+using manufacturing_task::TargetObject;
+using manufacturing_task::VisionPickDetection;
+using manufacturing_task::VisionPickMatchConfig;
+using manufacturing_task::VisionPickDetectionStore;
 
 class HotdogMakingNode : public rclcpp::Node
 {
-
 public:
   HotdogMakingNode();
 
   bool run();
 
 private:
+  // Runtime configuration and high-level task flow.
   void declareRuntimeParameters();
-
   void declareTaskSelectionParameters();
-
   void declareArmGroupParameters();
-
   void declareMotionPlanningParameters();
-
   void declareManufacturingGeometryParameters();
-
   void declareToolAndSceneParameters();
-
   void declareVisionPickParameters();
-
   void configureVisionSubscription();
-
   void parseExecutionRequest();
-
   bool runScenario();
-
   bool runHotdogAssemblyUntil(ManufacturingTarget endpoint);
-
   bool shouldStopAfter(ManufacturingStage stage) const;
-
   bool shouldStopAfterWaypoint(ManufacturingStage stage, const std::string & waypoint) const;
-
   bool shouldRunStage(ManufacturingStage stage) const;
-
   bool shouldStopAtOrBefore(ManufacturingStage stage) const;
-
   bool shouldStopAtOrBeforeWaypointStage(ManufacturingStage stage) const;
-
   bool configureTaskArm(
     moveit::planning_interface::MoveGroupInterface & arm,
     const std::string & tcp_link,
     double velocity_scaling,
     double acceleration_scaling);
-
   bool configureTaskArm(
     moveit::planning_interface::MoveGroupInterface & arm,
     const std::string & tcp_link);
-
   void configureTaskGripper(moveit::planning_interface::MoveGroupInterface & gripper);
-
   bool planAndExecuteReturnHome(
     moveit::planning_interface::MoveGroupInterface & arm,
     ManufacturingTarget target,
     ArmSide arm_side,
     const std::string & tcp_link,
     const std::string & label);
-
   bool runSingleArmReturnHome(
     ManufacturingTarget target,
     ArmSide arm_side,
     const std::string & arm_group,
     const std::string & tcp_link,
     const std::string & label);
+  void sleepStep() const;
 
+  // Generic pick execution.
   bool prepareAndRunPickMotion(
     const PickMotionConfig & config,
     const TargetObject & target,
     PickPlan pick_plan);
-
   MotionStepResult runPickHomeStage(
     const PickMotionConfig & config,
     moveit::planning_interface::MoveGroupInterface & arm);
-
   MotionStepResult runOptionalStageWaypoint(
     const PickMotionConfig & config,
     moveit::planning_interface::MoveGroupInterface & arm,
     const OptionalStageWaypoint & stage_waypoint);
-
   MotionStepResult runPickPreGraspStage(
     const PickMotionConfig & config,
     const task_presets::PickTuningPreset & tuning,
@@ -116,7 +105,6 @@ private:
     bool & gripper_opened_for_approach,
     PreGraspGoalMode & pre_grasp_goal_mode,
     geometry_msgs::msg::Pose & reached_pre_grasp_pose);
-
   MotionStepResult runPickGraspAttachAndDirectLift(
     const PickMotionConfig & config,
     const task_presets::PickTuningPreset & tuning,
@@ -127,13 +115,11 @@ private:
     bool gripper_opened_for_approach,
     const geometry_msgs::msg::Pose & grasp_pose,
     const geometry_msgs::msg::Pose & lift_pose);
-
   MotionStepResult runPickPullOutAndLift(
     const PickMotionConfig & config,
     const PickPlan & pick_plan,
     moveit::planning_interface::MoveGroupInterface & arm,
     geometry_msgs::msg::Pose & lift_pose);
-
   MotionStepResult runPickTargetAlignment(
     const PickMotionConfig & config,
     const PickPlan & pick_plan,
@@ -143,18 +129,14 @@ private:
     moveit::planning_interface::MoveGroupInterface & arm,
     geometry_msgs::msg::Pose & reached_pre_grasp_pose);
 
-  bool runBreadPick();
-
+  // Target loading, vision pick matching, and collision object synchronization.
   bool resolvePackageShareDirectory(std::string & package_share_directory);
-
   bool loadManufacturingTarget(const std::string & target_model, TargetObject & target);
-
   bool moveArmToReadyBeforeVisionPick(
     const std::string & log_label,
     const std::string & arm_group,
     const std::string & ready_pose_name,
     const std::vector<double> & ready_joints);
-
   bool loadTargetForVisionPick(
     ManufacturingTarget target_kind,
     const std::string & log_label,
@@ -163,53 +145,44 @@ private:
     const std::vector<double> & ready_joints,
     const std::string & target_model,
     TargetObject & target);
-
   void handleVisionDetections(const vision_msgs::msg::Detection3DArray::SharedPtr msg);
-
+  VisionPickMatchConfig visionPickMatchConfig() const;
   std::optional<VisionPickDetection> findVisionPickDetection(
     ManufacturingTarget target_kind,
     const std::string & target_model,
     const TargetObject & target);
-
   std::string summarizeVisionPickCandidates(
     ManufacturingTarget target_kind,
     const std::string & target_model,
     const TargetObject & target);
-
   std::optional<VisionPickDetection> waitForVisionPickDetection(
     ManufacturingTarget target_kind,
     const std::string & target_model,
     const TargetObject & target);
-
   bool applyVisionPickTarget(
     ManufacturingTarget target_kind,
     const std::string & target_model,
     TargetObject & target);
-
   bool applyVisionCollisionObjectIfNeeded(
     moveit::planning_interface::PlanningSceneInterface & planning_scene_interface,
     const TargetObject & target,
     const std::string & log_label);
-
   bool restoreTargetCollisionObject(
     moveit::planning_interface::PlanningSceneInterface & planning_scene_interface,
     const std::string & target_model,
     const std::string & log_label);
 
+  // Concrete manufacturing tasks.
+  bool runBreadPick();
   bool runCasePick();
-
   bool runSausagePick();
-
   bool runBeverageCanPick(ManufacturingTarget beverage_target);
-
   MotionStepResult runBeveragePickStageIfNeeded(ManufacturingTarget beverage_target);
-
   bool loadBeverageServeTargets(
     ManufacturingTarget beverage_target,
     std::string & beverage_target_model,
     TargetObject & beverage_target_object,
     TargetObject & pickup_zone);
-
   MotionStepResult runBeverageHandoffStage(
     ManufacturingTarget beverage_target,
     const std::string & beverage_target_model,
@@ -218,7 +191,6 @@ private:
     moveit::planning_interface::MoveGroupInterface & left_gripper,
     moveit::planning_interface::MoveGroupInterface & right_arm,
     moveit::planning_interface::MoveGroupInterface & right_gripper);
-
   MotionStepResult runBeveragePlaceStage(
     ManufacturingTarget beverage_target,
     const std::string & beverage_target_model,
@@ -227,33 +199,24 @@ private:
     moveit::planning_interface::MoveGroupInterface & left_arm,
     moveit::planning_interface::MoveGroupInterface & right_arm,
     moveit::planning_interface::MoveGroupInterface & right_gripper);
-
   bool runBeverageCanServe(ManufacturingTarget beverage_target);
-
   bool runKetchupPick();
-
   bool runBreadPlace();
-
   bool runSausagePlace();
-
   MotionStepResult runKetchupPickStageIfNeeded();
-
   bool loadKetchupSqueezeTargets(
     std::string & ketchup_target_model,
     TargetObject & sausage_target,
     TargetObject & bread_target,
     TargetObject & case_target,
     TargetObject & ketchup_target);
-
   bool runKetchupSqueeze();
-
   MotionStepResult runCompletedHotdogCarryWaypoints(
     moveit::planning_interface::MoveGroupInterface & right_arm,
     const geometry_msgs::msg::Pose & current_pose,
     const geometry_msgs::msg::Pose & release_pose,
     bool release_pose_preset_configured,
     double carry_min_duration_sec);
-
   MotionStepResult runCompletedHotdogApproachAndLower(
     moveit::planning_interface::MoveGroupInterface & right_arm,
     const geometry_msgs::msg::Pose & approach_pose,
@@ -262,7 +225,6 @@ private:
     double carry_velocity_scaling,
     double carry_acceleration_scaling,
     double carry_min_duration_sec);
-
   MotionStepResult runCompletedHotdogReleaseAndReturn(
     moveit::planning_interface::MoveGroupInterface & right_arm,
     moveit::planning_interface::MoveGroupInterface & right_gripper,
@@ -271,18 +233,13 @@ private:
     double carry_velocity_scaling,
     double carry_acceleration_scaling,
     double carry_min_duration_sec);
-
   bool runCompletedHotdogPlace();
 
+  // Headless Gazebo result validation.
   bool shouldValidateGazeboResult() const;
-
   std::optional<std::map<std::string, Eigen::Vector3d>> readGazeboModelPositions() const;
-
   bool validateFinalHotdogPlacement();
-
   bool validateFinalBeveragePlacement(ManufacturingTarget beverage_target);
-
-  void sleepStep() const;
 
   std::string item_name_;
   bool scenario_only_{true};

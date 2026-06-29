@@ -26,7 +26,7 @@
 #include "ddooby_controller/manufacturing_pose_utils.hpp"
 #include "ddooby_controller/manufacturing_stage_motion.hpp"
 #include "ddooby_controller/manufacturing_task_common.hpp"
-#include "manufacturing_task_node.hpp"
+#include "manufacturing_task_node_private.hpp"
 #include "ddooby_controller/manufacturing_task_runner.hpp"
 #include "ddooby_controller/moveit_task_utils.hpp"
 #include "ddooby_controller/planning_scene_utils.hpp"
@@ -35,6 +35,7 @@
 namespace ddooby_controller
 {
 using namespace std::chrono_literals;
+using namespace manufacturing_task;
 
 
 bool HotdogMakingNode::resolvePackageShareDirectory(std::string & package_share_directory)
@@ -123,20 +124,27 @@ void HotdogMakingNode::handleVisionDetections(const vision_msgs::msg::Detection3
     RCLCPP_DEBUG(get_logger(), "Vision pick received %zu detections", msg->detections.size());
   }
 
+VisionPickMatchConfig HotdogMakingNode::visionPickMatchConfig() const
+{
+    return VisionPickMatchConfig{
+      vision_pick_min_score_,
+      vision_pick_max_age_sec_,
+      vision_pick_max_distance_m_};
+  }
+
 std::optional<VisionPickDetection> HotdogMakingNode::findVisionPickDetection(
     ManufacturingTarget target_kind,
     const std::string & target_model,
     const TargetObject & target)
 {
-    return vision_pick_store_.findMatching(
+    return manufacturing_task::findMatchingVisionPickDetection(
       get_logger(),
       *get_clock(),
+      vision_pick_store_.snapshot(),
       target_kind,
       target_model,
       target,
-      vision_pick_min_score_,
-      vision_pick_max_age_sec_,
-      vision_pick_max_distance_m_);
+      visionPickMatchConfig());
   }
 
 std::string HotdogMakingNode::summarizeVisionPickCandidates(
@@ -144,13 +152,12 @@ std::string HotdogMakingNode::summarizeVisionPickCandidates(
     const std::string & target_model,
     const TargetObject & target)
 {
-    return vision_pick_store_.summarizeCandidates(
+    return manufacturing_task::summarizeVisionPickCandidates(
+      vision_pick_store_.snapshot(),
       target_kind,
       target_model,
       target,
-      vision_pick_min_score_,
-      vision_pick_max_age_sec_,
-      vision_pick_max_distance_m_,
+      visionPickMatchConfig(),
       get_clock()->now());
   }
 

@@ -15,9 +15,6 @@ find_package(sensor_msgs REQUIRED)
 find_package(shape_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
-find_package(gz-msgs10 REQUIRED)
-find_package(gz-transport13 REQUIRED)
-find_package(ros_gz_interfaces REQUIRED)
 
 
 add_executable(manifacture_action_server_node src/manifacture_action_server_node.cpp)
@@ -69,11 +66,6 @@ target_link_libraries(hotdog_making_node
   ddooby_manufacturing_task_core
 )
 
-add_executable(drink_serving_node src/drink_serving_node.cpp)
-ament_target_dependencies(drink_serving_node
-  rclcpp
-)
-
 add_executable(forward_joint_trajectory_bridge_node src/forward_joint_trajectory_bridge_node.cpp)
 ament_target_dependencies(forward_joint_trajectory_bridge_node
   control_msgs
@@ -84,21 +76,7 @@ ament_target_dependencies(forward_joint_trajectory_bridge_node
   trajectory_msgs
 )
 
-add_executable(beverage_making_test_node src/beverage_making_test_node.cpp)
-ament_target_dependencies(beverage_making_test_node
-  rclcpp
-  trajectory_msgs
-  moveit_ros_planning_interface
-  ros_gz_interfaces
-)
-target_link_libraries(beverage_making_test_node
-  gz-msgs10::core
-  gz-transport13::core
-)
-
 install(TARGETS
-  beverage_making_test_node
-  drink_serving_node
   forward_joint_trajectory_bridge_node
   hotdog_making_node
   manifacture_action_server_node

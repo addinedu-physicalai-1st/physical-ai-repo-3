@@ -1,9 +1,12 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
+#include <rclcpp/clock.hpp>
 #include <rclcpp/logger.hpp>
+#include <rclcpp/time.hpp>
 
 #include "ddooby_controller/manufacturing_task_presets.hpp"
 #include "ddooby_controller/manufacturing_task_types.hpp"
@@ -29,6 +32,30 @@ bool visionClassMatches(
 bool visionObjectIdMatchesTargetModel(
   const std::string & object_id,
   const std::string & target_model);
+
+struct VisionPickMatchConfig
+{
+  double min_score{0.0};
+  double max_age_sec{0.0};
+  double max_distance_m{0.0};
+};
+
+std::optional<VisionPickDetection> findMatchingVisionPickDetection(
+  const rclcpp::Logger & logger,
+  rclcpp::Clock & clock,
+  const std::vector<VisionPickDetection> & detections,
+  task_presets::ManufacturingTarget target_kind,
+  const std::string & target_model,
+  const TargetObject & target,
+  const VisionPickMatchConfig & config);
+
+std::string summarizeVisionPickCandidates(
+  const std::vector<VisionPickDetection> & detections,
+  task_presets::ManufacturingTarget target_kind,
+  const std::string & target_model,
+  const TargetObject & target,
+  const VisionPickMatchConfig & config,
+  const rclcpp::Time & now);
 
 bool applyVisionDetectionToTarget(
   const rclcpp::Logger & logger,

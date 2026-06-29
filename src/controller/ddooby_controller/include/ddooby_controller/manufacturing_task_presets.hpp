@@ -719,7 +719,7 @@ inline constexpr std::array<StageWaypointPosePreset, 53> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Work,
     "handoff",
-    {true, 0.186, 0.028, 0.553, 0.503, -0.504, 0.480, 0.512}
+    {true, 0.186, 0.028, 0.436, 0.503, -0.504, 0.480, 0.512}
   },
   // 커피 work stage: 오른팔이 캔을 넘겨받기 전 진입 가이드 pose.
   {
@@ -735,7 +735,7 @@ inline constexpr std::array<StageWaypointPosePreset, 53> kStageWaypointPosePrese
     ArmSide::Left,
     ManufacturingStage::Work,
     "left_pull_out",
-    {true, 0.187, 0.060, 0.553, 0.503, -0.504, 0.480, 0.512}
+    {true, 0.187, 0.060, 0.436, 0.503, -0.504, 0.480, 0.512}
   },
   // 커피 place stage: pickup zone release pose로 가기 전 오른팔 중간 경유 pose.
   {
@@ -789,7 +789,7 @@ inline constexpr double kRightCaseGraspWorldZOffsetM = 0.004;
 inline constexpr PickTuningPreset kLeftSausagePickTuning{
   0.000,
   {true, 0.030},
-  {true, 0.010}
+  {true, 0.008}
 };
 
 // 케첩 pick 파지 세부 조정값.
