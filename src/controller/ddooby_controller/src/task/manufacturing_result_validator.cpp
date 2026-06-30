@@ -7,7 +7,6 @@
 #include <cstdlib>
 #include <map>
 #include <memory>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -52,7 +51,7 @@ std::string readCommandOutput(const char * command)
   return output;
 }
 
-std::optional<size_t> matchingBraceEnd(const std::string & text, size_t opening_brace)
+bool matchingBraceEnd(const std::string & text, size_t opening_brace, size_t & closing_brace)
 {
   int depth = 0;
   for (size_t i = opening_brace; i < text.size(); ++i) {
@@ -61,67 +60,72 @@ std::optional<size_t> matchingBraceEnd(const std::string & text, size_t opening_
     } else if (text[i] == '}') {
       --depth;
       if (depth == 0) {
-        return i;
+        closing_brace = i;
+        return true;
       }
     }
   }
-  return std::nullopt;
+  return false;
 }
 
-std::optional<std::string> extractQuotedValue(
+bool extractQuotedValue(
   const std::string & text,
-  const std::string & key)
+  const std::string & key,
+  std::string & value)
 {
   const std::string marker = key + ": \"";
   const size_t begin = text.find(marker);
   if (begin == std::string::npos) {
-    return std::nullopt;
+    return false;
   }
   const size_t value_begin = begin + marker.size();
   const size_t value_end = text.find('"', value_begin);
   if (value_end == std::string::npos) {
-    return std::nullopt;
+    return false;
   }
-  return text.substr(value_begin, value_end - value_begin);
+  value = text.substr(value_begin, value_end - value_begin);
+  return true;
 }
 
-std::optional<double> extractScalarValue(
+bool extractScalarValue(
   const std::string & text,
-  const std::string & key)
+  const std::string & key,
+  double & value)
 {
   const std::string marker = key + ":";
   const size_t begin = text.find(marker);
   if (begin == std::string::npos) {
-    return std::nullopt;
+    return false;
   }
 
   std::istringstream stream(text.substr(begin + marker.size()));
-  double value = 0.0;
   stream >> value;
   if (!stream) {
-    return std::nullopt;
+    return false;
   }
-  return value;
+  return true;
 }
 
-std::optional<std::string> extractBlock(
+bool extractBlock(
   const std::string & text,
-  const std::string & key)
+  const std::string & key,
+  std::string & block)
 {
   const std::string marker = key + " {";
   const size_t block_begin = text.find(marker);
   if (block_begin == std::string::npos) {
-    return std::nullopt;
+    return false;
   }
   const size_t brace_begin = text.find('{', block_begin);
   if (brace_begin == std::string::npos) {
-    return std::nullopt;
+    return false;
   }
-  const auto brace_end = matchingBraceEnd(text, brace_begin);
-  if (!brace_end.has_value()) {
-    return std::nullopt;
+  size_t brace_end = 0;
+  if (!matchingBraceEnd(text, brace_begin, brace_end)) {
+    return false;
   }
-  return text.substr(brace_begin + 1, brace_end.value() - brace_begin - 1);
+  block = text.substr(brace_begin + 1, brace_end - brace_begin - 1);
+  return true;
 }
 
 std::map<std::string, Eigen::Vector3d> parseGazeboPoseInfo(const std::string & text)
@@ -138,25 +142,28 @@ std::map<std::string, Eigen::Vector3d> parseGazeboPoseInfo(const std::string & t
     if (brace_begin == std::string::npos) {
       break;
     }
-    const auto pose_end = matchingBraceEnd(text, brace_begin);
-    if (!pose_end.has_value()) {
+    size_t pose_end = 0;
+    if (!matchingBraceEnd(text, brace_begin, pose_end)) {
       break;
     }
 
     const std::string pose_block =
-      text.substr(brace_begin + 1, pose_end.value() - brace_begin - 1);
-    const auto name = extractQuotedValue(pose_block, "name");
-    const auto position_block = extractBlock(pose_block, "position");
-    if (name.has_value() && position_block.has_value()) {
-      const auto x = extractScalarValue(position_block.value(), "x");
-      const auto y = extractScalarValue(position_block.value(), "y");
-      const auto z = extractScalarValue(position_block.value(), "z");
-      if (x.has_value() && y.has_value() && z.has_value()) {
-        poses[name.value()] = Eigen::Vector3d{x.value(), y.value(), z.value()};
+      text.substr(brace_begin + 1, pose_end - brace_begin - 1);
+    std::string name;
+    std::string position_block;
+    if (extractQuotedValue(pose_block, "name", name) && extractBlock(pose_block, "position", position_block)) {
+      double x = 0.0;
+      double y = 0.0;
+      double z = 0.0;
+      if (extractScalarValue(position_block, "x", x) &&
+        extractScalarValue(position_block, "y", y) &&
+        extractScalarValue(position_block, "z", z))
+      {
+        poses[name] = Eigen::Vector3d{x, y, z};
       }
     }
 
-    search_from = pose_end.value() + 1;
+    search_from = pose_end + 1;
   }
 
   return poses;
@@ -316,8 +323,8 @@ bool ManufacturingResultValidator::shouldValidate() const
          !config_.has_partial_waypoint_limit;
 }
 
-std::optional<std::map<std::string, Eigen::Vector3d>>
-ManufacturingResultValidator::readGazeboModelPositions() const
+bool ManufacturingResultValidator::readGazeboModelPositions(
+  std::map<std::string, Eigen::Vector3d> & poses) const
 {
   const std::string output =
     readCommandOutput("timeout 5s gz topic -e -t /world/default/pose/info -n 1 2>/dev/null");
@@ -325,18 +332,18 @@ ManufacturingResultValidator::readGazeboModelPositions() const
     RCLCPP_ERROR(
       logger_,
       "Gazebo result validation failed: unable to read /world/default/pose/info");
-    return std::nullopt;
+    return false;
   }
 
-  auto poses = parseGazeboPoseInfo(output);
+  poses = parseGazeboPoseInfo(output);
   if (poses.empty()) {
     RCLCPP_ERROR(
       logger_,
       "Gazebo result validation failed: /world/default/pose/info did not contain model poses");
-    return std::nullopt;
+    return false;
   }
 
-  return poses;
+  return true;
 }
 
 bool ManufacturingResultValidator::loadTarget(
@@ -365,8 +372,8 @@ bool ManufacturingResultValidator::validateHotdogPlacement()
     std::this_thread::sleep_for(std::chrono::milliseconds(config_.settle_ms));
   }
 
-  const auto poses = readGazeboModelPositions();
-  if (!poses.has_value()) {
+  std::map<std::string, Eigen::Vector3d> poses;
+  if (!readGazeboModelPositions(poses)) {
     return false;
   }
 
@@ -378,25 +385,28 @@ bool ManufacturingResultValidator::validateHotdogPlacement()
     return false;
   }
 
-  auto find_pose = [&](const std::string & model_name) -> std::optional<Eigen::Vector3d> {
-      const auto pose = poses->find(model_name);
-      if (pose == poses->end()) {
+  auto find_pose = [&](const std::string & model_name, Eigen::Vector3d & position) {
+      const auto pose = poses.find(model_name);
+      if (pose == poses.end()) {
         RCLCPP_ERROR(
           logger_,
           "Gazebo result validation failed: model '%s' was not found in Gazebo poses",
           model_name.c_str());
-        return std::nullopt;
+        return false;
       }
       logModelPosition(logger_, model_name, pose->second);
-      return pose->second;
+      position = pose->second;
+      return true;
     };
 
-  const auto case_pose = find_pose(config_.case_target_model);
-  const auto bread_pose = find_pose(config_.bread_target_model);
-  const auto sausage_pose = find_pose(config_.sausage_target_model);
-  const auto ketchup_pose = find_pose(config_.ketchup_target_model);
-  if (!case_pose.has_value() || !bread_pose.has_value() ||
-    !sausage_pose.has_value() || !ketchup_pose.has_value())
+  Eigen::Vector3d case_pose;
+  Eigen::Vector3d bread_pose;
+  Eigen::Vector3d sausage_pose;
+  Eigen::Vector3d ketchup_pose;
+  if (!find_pose(config_.case_target_model, case_pose) ||
+    !find_pose(config_.bread_target_model, bread_pose) ||
+    !find_pose(config_.sausage_target_model, sausage_pose) ||
+    !find_pose(config_.ketchup_target_model, ketchup_pose))
   {
     return false;
   }
@@ -405,27 +415,27 @@ bool ManufacturingResultValidator::validateHotdogPlacement()
   ok &= validateDistance(
     logger_,
     config_.bread_target_model + " near " + config_.case_target_model,
-    xyDistance(bread_pose.value(), case_pose.value()),
+    xyDistance(bread_pose, case_pose),
     config_.hotdog_item_xy_tolerance_m);
   ok &= validateDistance(
     logger_,
     config_.sausage_target_model + " near " + config_.case_target_model,
-    xyDistance(sausage_pose.value(), case_pose.value()),
+    xyDistance(sausage_pose, case_pose),
     config_.hotdog_item_xy_tolerance_m);
   ok &= validateDistance(
     logger_,
     config_.case_target_model + " near pickup_zone",
-    xyDistance(case_pose.value(), pickup_zone_layout.xyz),
+    xyDistance(case_pose, pickup_zone_layout.xyz),
     config_.beverage_pickup_xy_tolerance_m);
   ok &= validateDistance(
     logger_,
     config_.ketchup_target_model + " returned near layout pose",
-    xyDistance(ketchup_pose.value(), ketchup_layout.xyz),
+    xyDistance(ketchup_pose, ketchup_layout.xyz),
     config_.ketchup_return_xy_tolerance_m);
   ok &= validateAbsDelta(
     logger_,
     config_.ketchup_target_model + " returned near layout height",
-    ketchup_pose->z() - ketchup_layout.xyz.z(),
+    ketchup_pose.z() - ketchup_layout.xyz.z(),
     config_.ketchup_return_z_tolerance_m);
 
   if (!ok) {
@@ -448,8 +458,8 @@ bool ManufacturingResultValidator::validateBeveragePlacement(
     std::this_thread::sleep_for(std::chrono::milliseconds(config_.settle_ms));
   }
 
-  const auto poses = readGazeboModelPositions();
-  if (!poses.has_value()) {
+  std::map<std::string, Eigen::Vector3d> poses;
+  if (!readGazeboModelPositions(poses)) {
     return false;
   }
 
@@ -463,8 +473,8 @@ bool ManufacturingResultValidator::validateBeveragePlacement(
     return false;
   }
 
-  const auto beverage_pose_it = poses->find(beverage_model);
-  if (beverage_pose_it == poses->end()) {
+  const auto beverage_pose_it = poses.find(beverage_model);
+  if (beverage_pose_it == poses.end()) {
     RCLCPP_ERROR(
       logger_,
       "Gazebo result validation failed: model '%s' was not found in Gazebo poses",
@@ -516,7 +526,7 @@ bool HotdogMakingNode::shouldValidateGazeboResult() const
 {
   return validate_gazebo_result_ &&
          !dry_run_ &&
-         !play_to_stage_.has_value() &&
+         !has_play_to_stage_ &&
          play_to_waypoint_.empty();
 }
 
@@ -531,7 +541,7 @@ bool HotdogMakingNode::validateFinalHotdogPlacement()
     ManufacturingResultValidatorConfig{
       validate_gazebo_result_,
       dry_run_,
-      play_to_stage_.has_value(),
+      has_play_to_stage_,
       !play_to_waypoint_.empty(),
       result_validation_settle_ms_,
       result_validation_hotdog_item_xy_tolerance_m_,
@@ -561,7 +571,7 @@ bool HotdogMakingNode::validateFinalBeveragePlacement(ManufacturingTarget bevera
     ManufacturingResultValidatorConfig{
       validate_gazebo_result_,
       dry_run_,
-      play_to_stage_.has_value(),
+      has_play_to_stage_,
       !play_to_waypoint_.empty(),
       result_validation_settle_ms_,
       result_validation_hotdog_item_xy_tolerance_m_,

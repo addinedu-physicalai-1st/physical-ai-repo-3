@@ -44,6 +44,8 @@ public:
   ManufacturingMotionPrimitives(
     const rclcpp::Logger & logger,
     MotionPrimitiveConfig config);
+  ManufacturingMotionPrimitives(const ManufacturingMotionPrimitives &) = delete;
+  ManufacturingMotionPrimitives & operator=(const ManufacturingMotionPrimitives &) = delete;
 
   // ready/home/open 같은 named joint target으로 이동한다.
   bool moveToNamed(

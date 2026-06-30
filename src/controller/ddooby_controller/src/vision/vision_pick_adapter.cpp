@@ -6,7 +6,6 @@
 #include <cmath>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <sstream>
 
 #include "ddooby_controller/task/manufacturing_task_common.hpp"
@@ -18,7 +17,6 @@
 namespace ddooby_controller::manufacturing_task
 {
 
-using namespace std::chrono_literals;
 
 namespace
 {
@@ -205,14 +203,15 @@ bool visionObjectIdMatchesTargetModel(
          normalizeStageName(object_id) == normalizeStageName(target_model);
 }
 
-std::optional<VisionPickDetection> findMatchingVisionPickDetection(
+bool findMatchingVisionPickDetection(
   const rclcpp::Logger & logger,
   rclcpp::Clock & clock,
   const std::vector<VisionPickDetection> & detections,
   task_presets::ManufacturingTarget target_kind,
   const std::string & target_model,
   const TargetObject & target,
-  const VisionPickMatchConfig & config)
+  const VisionPickMatchConfig & config,
+  VisionPickDetection & matched_detection)
 {
   if (detections.empty()) {
     RCLCPP_WARN_THROTTLE(
@@ -220,12 +219,13 @@ std::optional<VisionPickDetection> findMatchingVisionPickDetection(
       clock,
       1000,
       "Vision pick has no received detections yet");
-    return std::nullopt;
+    return false;
   }
 
   const rclcpp::Time now = clock.now();
   double best_distance = std::numeric_limits<double>::infinity();
-  std::optional<VisionPickDetection> best_detection;
+  bool found_best_detection = false;
+  VisionPickDetection best_detection;
 
   for (const auto & detection : detections) {
     const auto evaluation = evaluateVisionPickCandidate(
@@ -293,10 +293,15 @@ std::optional<VisionPickDetection> findMatchingVisionPickDetection(
     if (evaluation.distance_m < best_distance) {
       best_distance = evaluation.distance_m;
       best_detection = detection;
+      found_best_detection = true;
     }
   }
 
-  return best_detection;
+  if (!found_best_detection) {
+    return false;
+  }
+  matched_detection = best_detection;
+  return true;
 }
 
 std::string summarizeVisionPickCandidates(
@@ -457,10 +462,11 @@ void VisionPickAdapter::handleDetections(
     msg->detections.size());
 }
 
-std::optional<VisionPickDetection> VisionPickAdapter::findDetection(
+bool VisionPickAdapter::findDetection(
   task_presets::ManufacturingTarget target_kind,
   const std::string & target_model,
-  const TargetObject & target)
+  const TargetObject & target,
+  VisionPickDetection & detection)
 {
   return findMatchingVisionPickDetection(
     node_.get_logger(),
@@ -469,13 +475,15 @@ std::optional<VisionPickDetection> VisionPickAdapter::findDetection(
     target_kind,
     target_model,
     target,
-    config_.match);
+    config_.match,
+    detection);
 }
 
-std::optional<VisionPickDetection> VisionPickAdapter::waitForDetection(
+bool VisionPickAdapter::waitForDetection(
   task_presets::ManufacturingTarget target_kind,
   const std::string & target_model,
-  const TargetObject & target)
+  const TargetObject & target,
+  VisionPickDetection & detection)
 {
   const auto deadline = std::chrono::steady_clock::now() +
     std::chrono::duration<double>(config_.timeout_sec);
@@ -492,8 +500,8 @@ std::optional<VisionPickDetection> VisionPickAdapter::waitForDetection(
     [](vision_msgs::msg::Detection3DArray::ConstSharedPtr) {});
 
   while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
-    if (const auto detection = findDetection(target_kind, target_model, target)) {
-      return detection;
+    if (findDetection(target_kind, target_model, target, detection)) {
+      return true;
     }
 
     vision_msgs::msg::Detection3DArray msg;
@@ -501,16 +509,16 @@ std::optional<VisionPickDetection> VisionPickAdapter::waitForDetection(
         msg,
         waiter_subscription,
         node_.get_node_options().context(),
-        100ms))
+        std::chrono::milliseconds{100}))
     {
       handleDetections(std::make_shared<vision_msgs::msg::Detection3DArray>(std::move(msg)));
-      if (const auto detection = findDetection(target_kind, target_model, target)) {
-        return detection;
+      if (findDetection(target_kind, target_model, target, detection)) {
+        return true;
       }
     }
   }
 
-  return findDetection(target_kind, target_model, target);
+  return findDetection(target_kind, target_model, target, detection);
 }
 
 std::string VisionPickAdapter::summarizeCandidates(
@@ -542,8 +550,8 @@ bool VisionPickAdapter::applyTarget(
     config_.timeout_sec,
     task_presets::targetName(target_kind),
     target_model.c_str());
-  const auto detection = waitForDetection(target_kind, target_model, target);
-  if (!detection.has_value()) {
+  VisionPickDetection detection;
+  if (!waitForDetection(target_kind, target_model, target, detection)) {
     const std::string message =
       "Vision pick: no matching detection for " +
       std::string(task_presets::targetName(target_kind)) +
@@ -560,7 +568,7 @@ bool VisionPickAdapter::applyTarget(
     node_.get_logger(),
     target_kind,
     target_model,
-    *detection,
+    detection,
     config_.use_detection_size,
     target);
 }

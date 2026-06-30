@@ -1,6 +1,5 @@
 #pragma once
 
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,7 +24,7 @@ std::vector<double> parseDoubles(const std::string & text);
 
 Eigen::Vector3d extractVector3Value(const std::string & text, const std::string & key);
 
-std::optional<std::string> extractTagText(const std::string & text, const std::string & tag);
+bool extractTagText(const std::string & text, const std::string & tag, std::string & value);
 
 std::string extractJsonObjectForModel(
   const std::string & layout_text,

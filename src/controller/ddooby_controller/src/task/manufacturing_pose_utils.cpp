@@ -75,8 +75,8 @@ double resolvePoseAxisValue(
   const char * label)
 {
   if (source == task_presets::PoseAxisSource::CaseTcp) {
-    if (references.case_position.has_value()) {
-      return references.case_position.value()[axis_index];
+    if (references.has_case_position) {
+      return references.case_position[axis_index];
     }
     RCLCPP_WARN(
       logger,
@@ -86,8 +86,8 @@ double resolvePoseAxisValue(
   }
 
   if (source == task_presets::PoseAxisSource::TargetObject) {
-    if (references.target_position.has_value()) {
-      return references.target_position.value()[axis_index];
+    if (references.has_target_position) {
+      return references.target_position[axis_index];
     }
     RCLCPP_WARN(
       logger,
@@ -163,7 +163,7 @@ void applyLocalTcpZRoll(geometry_msgs::msg::Pose & pose, double roll_deg)
 
 Eigen::Vector3d rpyFromRotation(const Eigen::Matrix3d & rotation)
 {
-  const double pitch = std::asin(std::clamp(-rotation(2, 0), -1.0, 1.0));
+  const double pitch = std::asin(std::max(-1.0, std::min(-rotation(2, 0), 1.0)));
   const double cos_pitch = std::cos(pitch);
   double roll = 0.0;
   double yaw = 0.0;
@@ -207,7 +207,7 @@ double poseOrientationDistanceRad(
   const Eigen::Quaterniond first_orientation = poseOrientation(first);
   const Eigen::Quaterniond second_orientation = poseOrientation(second);
   const double dot = std::abs(first_orientation.dot(second_orientation));
-  return 2.0 * std::acos(std::clamp(dot, -1.0, 1.0));
+  return 2.0 * std::acos(std::max(-1.0, std::min(dot, 1.0)));
 }
 
 }  // namespace ddooby_controller::manufacturing_task

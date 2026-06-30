@@ -1,10 +1,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <functional>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -35,62 +33,11 @@
 namespace ddooby_controller
 {
 
-namespace
-{
+using namespace manufacturing_task;
 
-struct HotdogAssemblyStep
-{
-  ManufacturingTarget target;
-  std::string model_name;
-  std::string description;
-  std::function<bool()> run;
-};
-
-bool runHotdogAssemblySteps(
-  const rclcpp::Logger & logger,
-  ManufacturingTarget endpoint,
-  const std::vector<HotdogAssemblyStep> & steps,
-  const std::function<bool()> & run_completed_hotdog_place,
-  const std::function<bool()> & return_left_arm_home_if_needed,
-  const std::function<bool()> & validate_result)
-{
-  const int endpoint_order = manufacturing_task::hotdogAssemblyStepOrder(endpoint);
-  if (endpoint_order <= 0) {
-    RCLCPP_ERROR(logger, "Unsupported hotdog assembly endpoint: %s", task_presets::targetName(endpoint));
-    return false;
-  }
-
-  RCLCPP_INFO(logger, "New York hotdog assembly started: endpoint=%s", task_presets::targetName(endpoint));
-
-  for (std::size_t index = 0; index < steps.size(); ++index) {
-    const auto & step = steps[index];
-    RCLCPP_INFO(logger, "Hotdog assembly step %zu/5: %s (%s)", index + 1, step.description.c_str(), step.model_name.c_str());
-    if (!step.run()) {
-      return false;
-    }
-
-    if (endpoint_order == manufacturing_task::hotdogAssemblyStepOrder(step.target)) {
-      RCLCPP_INFO(logger, "New York hotdog assembly stopped at %s endpoint", task_presets::targetName(step.target));
-      return true;
-    }
-  }
-
-  RCLCPP_INFO(logger, "Hotdog assembly step 5/5: place completed hotdog at pickup zone");
-  if (!run_completed_hotdog_place()) {
-    return false;
-  }
-  if (!return_left_arm_home_if_needed()) {
-    return false;
-  }
-  if (!validate_result()) {
-    return false;
-  }
-
-  RCLCPP_INFO(logger, "New York hotdog assembly completed");
-  return true;
-}
-
-}  // namespace
+// ---------------------------------------------------------------------------
+// 전체 task 조립부
+// ---------------------------------------------------------------------------
 
 bool HotdogMakingNode::runHotdogAssemblyUntil(ManufacturingTarget endpoint)
 {
@@ -114,65 +61,96 @@ bool HotdogMakingNode::runHotdogAssemblyUntil(ManufacturingTarget endpoint)
 
     const std::string saved_target_model = target_model_;
     const ManufacturingStage saved_start_stage = start_stage_;
+    const bool saved_has_play_to_stage = has_play_to_stage_;
     const auto saved_play_to_stage = play_to_stage_;
 
     auto restore_state = [&]() {
       target_model_ = saved_target_model;
       start_stage_ = saved_start_stage;
+      has_play_to_stage_ = saved_has_play_to_stage;
       play_to_stage_ = saved_play_to_stage;
     };
 
     auto run_endpoint_step = [&](ManufacturingTarget step, const std::string & model, auto && runner) {
       target_model_ = model;
-      play_to_stage_ = step == endpoint ? saved_play_to_stage : std::optional<ManufacturingStage>{};
+      has_play_to_stage_ = step == endpoint && saved_has_play_to_stage;
+      play_to_stage_ = saved_play_to_stage;
       return runner();
     };
 
     start_stage_ = ManufacturingStage::Home;
 
-    // 전체 핫도그 제조 흐름은 여기에서만 조립한다.
-    const bool success = runHotdogAssemblySteps(
-      get_logger(),
-      endpoint,
-      {
-        HotdogAssemblyStep{
-          ManufacturingTarget::Case,
-          case_target_model_,
-          "pick and present case",
-          [&]() {return run_endpoint_step(ManufacturingTarget::Case, case_target_model_, [&]() {return runCasePick();});}},
-        HotdogAssemblyStep{
-          ManufacturingTarget::Bread,
-          bread_target_model_,
-          "pick and place bread",
-          [&]() {return run_endpoint_step(ManufacturingTarget::Bread, bread_target_model_, [&]() {return runBreadPlace();});}},
-        HotdogAssemblyStep{
-          ManufacturingTarget::Sausage,
-          sausage_target_model_,
-          "pick and place sausage",
-          [&]() {return run_endpoint_step(ManufacturingTarget::Sausage, sausage_target_model_, [&]() {return runSausagePlace();});}},
-        HotdogAssemblyStep{
-          ManufacturingTarget::Ketchup,
-          ketchup_target_model_,
-          "pick, aim, and squeeze ketchup",
-          [&]() {return run_endpoint_step(ManufacturingTarget::Ketchup, ketchup_target_model_, [&]() {return runKetchupSqueeze();});}},
-      },
-      [&]() {
-        play_to_stage_ = saved_play_to_stage;
-        return runCompletedHotdogPlace();
-      },
-      [&]() {
-        if (shouldStopAtOrBefore(ManufacturingStage::Place)) {
-          return true;
-        }
-        RCLCPP_INFO(get_logger(), "Hotdog assembly final step: return left arm home");
-        return runSingleArmReturnHome(
-          ManufacturingTarget::Hotdog,
-          ArmSide::Left,
-          left_arm_group_,
-          left_tcp_link_,
-          "Final left arm");
-      },
-      [&]() {return validateFinalHotdogPlacement();});
+    bool success = true;
+    RCLCPP_INFO(get_logger(), "New York hotdog assembly started: endpoint=%s", task_presets::targetName(endpoint));
+
+    RCLCPP_INFO(get_logger(), "Hotdog assembly step 1/5: pick and present case (%s)", case_target_model_.c_str());
+    if (!run_endpoint_step(ManufacturingTarget::Case, case_target_model_, [&]() {return runCasePick();})) {
+      success = false;
+    } else if (endpoint_order == manufacturing_task::hotdogAssemblyStepOrder(ManufacturingTarget::Case)) {
+      RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at %s endpoint", task_presets::targetName(ManufacturingTarget::Case));
+      restore_state();
+      return true;
+    }
+
+    if (success) {
+      RCLCPP_INFO(get_logger(), "Hotdog assembly step 2/5: pick and place bread (%s)", bread_target_model_.c_str());
+      if (!run_endpoint_step(ManufacturingTarget::Bread, bread_target_model_, [&]() {return runBreadPlace();})) {
+        success = false;
+      } else if (endpoint_order == manufacturing_task::hotdogAssemblyStepOrder(ManufacturingTarget::Bread)) {
+        RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at %s endpoint", task_presets::targetName(ManufacturingTarget::Bread));
+        restore_state();
+        return true;
+      }
+    }
+
+    if (success) {
+      RCLCPP_INFO(get_logger(), "Hotdog assembly step 3/5: pick and place sausage (%s)", sausage_target_model_.c_str());
+      if (!run_endpoint_step(ManufacturingTarget::Sausage, sausage_target_model_, [&]() {return runSausagePlace();})) {
+        success = false;
+      } else if (endpoint_order == manufacturing_task::hotdogAssemblyStepOrder(ManufacturingTarget::Sausage)) {
+        RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at %s endpoint", task_presets::targetName(ManufacturingTarget::Sausage));
+        restore_state();
+        return true;
+      }
+    }
+
+    if (success) {
+      RCLCPP_INFO(get_logger(), "Hotdog assembly step 4/5: pick, aim, and squeeze ketchup (%s)", ketchup_target_model_.c_str());
+      if (!run_endpoint_step(ManufacturingTarget::Ketchup, ketchup_target_model_, [&]() {return runKetchupSqueeze();})) {
+        success = false;
+      } else if (endpoint_order == manufacturing_task::hotdogAssemblyStepOrder(ManufacturingTarget::Ketchup)) {
+        RCLCPP_INFO(get_logger(), "New York hotdog assembly stopped at %s endpoint", task_presets::targetName(ManufacturingTarget::Ketchup));
+        restore_state();
+        return true;
+      }
+    }
+
+    if (success) {
+      RCLCPP_INFO(get_logger(), "Hotdog assembly step 5/5: place completed hotdog at pickup zone");
+      has_play_to_stage_ = saved_has_play_to_stage;
+      play_to_stage_ = saved_play_to_stage;
+      if (!runCompletedHotdogPlace()) {
+        success = false;
+      }
+    }
+
+    if (success && !shouldStopAtOrBefore(ManufacturingStage::Place)) {
+      RCLCPP_INFO(get_logger(), "Hotdog assembly final step: return left arm home");
+      success = runSingleArmReturnHome(
+        ManufacturingTarget::Hotdog,
+        ArmSide::Left,
+        left_arm_group_,
+        left_tcp_link_,
+        "Final left arm");
+    }
+
+    if (success) {
+      success = validateFinalHotdogPlacement();
+    }
+
+    if (success) {
+      RCLCPP_INFO(get_logger(), "New York hotdog assembly completed");
+    }
 
     restore_state();
     return success;
@@ -249,11 +227,12 @@ bool HotdogMakingNode::runBeverageCanServe(ManufacturingTarget beverage_target)
     }
 
     RCLCPP_INFO(get_logger(), "Beverage %s serving completed", task_presets::targetName(beverage_target));
-    return true;
+  return true;
 }
 
-using namespace std::chrono_literals;
-using namespace manufacturing_task;
+// ---------------------------------------------------------------------------
+// 핫도그 재료 pick/place 호출부
+// ---------------------------------------------------------------------------
 
 bool HotdogMakingNode::runBreadPick()
 {
@@ -456,9 +435,12 @@ bool HotdogMakingNode::runBreadPlace()
     const std::string bread_target_model = selectTargetModelOverride(target_model_, bread_target_model_);
 
     if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
+      const bool requested_has_play_to_stage = has_play_to_stage_;
       const auto requested_play_to_stage = play_to_stage_;
+      has_play_to_stage_ = true;
       play_to_stage_ = ManufacturingStage::Pick;
       const bool bread_pick_ok = runBreadPick();
+      has_play_to_stage_ = requested_has_play_to_stage;
       play_to_stage_ = requested_play_to_stage;
       if (!bread_pick_ok) {
         return false;
@@ -505,6 +487,7 @@ bool HotdogMakingNode::runBreadPlace()
       if (work_preset != nullptr) {
         left_work_pose_configured = true;
         PoseAxisReferenceValues references;
+        references.has_case_position = true;
         references.case_position =
           heldCaseCenterFromTcpPose(right_arm.getCurrentPose(right_tcp_link_).pose);
         const geometry_msgs::msg::Pose work_pose =
@@ -534,7 +517,7 @@ bool HotdogMakingNode::runBreadPlace()
     {
       return false;
     }
-    rclcpp::sleep_for(300ms);
+    rclcpp::sleep_for(std::chrono::milliseconds{300});
 
     if (!detachTargetCollisionObject(
         get_logger(),
@@ -593,9 +576,12 @@ bool HotdogMakingNode::runSausagePlace()
       selectTargetModelOverride(target_model_, sausage_target_model_);
 
     if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
+      const bool requested_has_play_to_stage = has_play_to_stage_;
       const auto requested_play_to_stage = play_to_stage_;
+      has_play_to_stage_ = true;
       play_to_stage_ = ManufacturingStage::Pick;
       const bool sausage_pick_ok = runSausagePick();
+      has_play_to_stage_ = requested_has_play_to_stage;
       play_to_stage_ = requested_play_to_stage;
       if (!sausage_pick_ok) {
         return false;
@@ -643,7 +629,7 @@ bool HotdogMakingNode::runSausagePlace()
     moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
     bool right_work_pose_configured = false;
     bool left_work_pose_configured = false;
-    std::optional<geometry_msgs::msg::Pose> left_work_pose;
+    geometry_msgs::msg::Pose left_work_pose;
     if (shouldRunStage(ManufacturingStage::Work)) {
       if (!planAndExecuteStageWaypointPoseIfConfigured(
           get_logger(),
@@ -675,8 +661,10 @@ bool HotdogMakingNode::runSausagePlace()
       if (left_work_preset != nullptr) {
         left_work_pose_configured = true;
         PoseAxisReferenceValues references;
+        references.has_case_position = true;
         references.case_position =
           heldCaseCenterFromTcpPose(right_arm.getCurrentPose(right_tcp_link_).pose);
+        references.has_target_position = true;
         references.target_position = sausage_target.xyz;
         const geometry_msgs::msg::Pose work_pose =
           makePoseFromWaypointPreset(
@@ -716,6 +704,7 @@ bool HotdogMakingNode::runSausagePlace()
         case_target,
         case_center,
         left_current_pose,
+        left_work_pose_configured,
         left_work_pose,
         place_approach_height_,
         case_sausage_place_clearance_);
@@ -749,7 +738,7 @@ bool HotdogMakingNode::runSausagePlace()
     {
       return false;
     }
-    rclcpp::sleep_for(300ms);
+    rclcpp::sleep_for(std::chrono::milliseconds{300});
 
     if (!detachTargetCollisionObject(
         get_logger(),
@@ -800,19 +789,22 @@ bool HotdogMakingNode::runSausagePlace()
     return true;
   }
 
-using namespace std::chrono_literals;
-using namespace manufacturing_task;
+// ---------------------------------------------------------------------------
+// 케첩 도포 호출부
+// ---------------------------------------------------------------------------
 
 MotionStepResult HotdogMakingNode::runKetchupPickStageIfNeeded()
 {
     if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
+      const bool requested_has_play_to_stage = has_play_to_stage_;
       const auto requested_play_to_stage = play_to_stage_;
-      if (requested_play_to_stage.has_value() &&
-        stageOrder(requested_play_to_stage.value()) > stageOrder(ManufacturingStage::Pick))
+      if (requested_has_play_to_stage &&
+        stageOrder(requested_play_to_stage) > stageOrder(ManufacturingStage::Pick))
       {
-        play_to_stage_.reset();
+        has_play_to_stage_ = false;
       }
       const bool ketchup_pick_ok = runKetchupPick();
+      has_play_to_stage_ = requested_has_play_to_stage;
       play_to_stage_ = requested_play_to_stage;
       if (!ketchup_pick_ok) {
         return MotionStepResult::Failed;
@@ -1231,8 +1223,9 @@ bool HotdogMakingNode::runKetchupSqueeze()
     return true;
   }
 
-using namespace std::chrono_literals;
-using namespace manufacturing_task;
+// ---------------------------------------------------------------------------
+// 완성 핫도그 pickup zone 배치 호출부
+// ---------------------------------------------------------------------------
 
 MotionStepResult HotdogMakingNode::runCompletedHotdogCarryWaypoints(
     moveit::planning_interface::MoveGroupInterface & right_arm,
@@ -1352,7 +1345,7 @@ MotionStepResult HotdogMakingNode::runCompletedHotdogReleaseAndReturn(
     {
       return MotionStepResult::Failed;
     }
-    rclcpp::sleep_for(300ms);
+    rclcpp::sleep_for(std::chrono::milliseconds{300});
     if (!detachTargetCollisionObject(
         get_logger(),
         right_arm,
@@ -1493,8 +1486,9 @@ bool HotdogMakingNode::runCompletedHotdogPlace()
     return true;
   }
 
-using namespace std::chrono_literals;
-using namespace manufacturing_task;
+// ---------------------------------------------------------------------------
+// 음료 제공 호출부
+// ---------------------------------------------------------------------------
 
 bool HotdogMakingNode::runBeverageCanPick(ManufacturingTarget beverage_target)
 {
@@ -1552,13 +1546,16 @@ bool HotdogMakingNode::runBeverageCanPick(ManufacturingTarget beverage_target)
 MotionStepResult HotdogMakingNode::runBeveragePickStageIfNeeded(ManufacturingTarget beverage_target)
 {
     if (stageOrder(start_stage_) <= stageOrder(ManufacturingStage::Pick)) {
+      const bool requested_has_play_to_stage = has_play_to_stage_;
       const auto requested_play_to_stage = play_to_stage_;
-      if (requested_play_to_stage.has_value() &&
-        stageOrder(requested_play_to_stage.value()) > stageOrder(ManufacturingStage::Pick))
+      if (requested_has_play_to_stage &&
+        stageOrder(requested_play_to_stage) > stageOrder(ManufacturingStage::Pick))
       {
+        has_play_to_stage_ = true;
         play_to_stage_ = ManufacturingStage::Pick;
       }
       const bool pick_ok = runBeverageCanPick(beverage_target);
+      has_play_to_stage_ = requested_has_play_to_stage;
       play_to_stage_ = requested_play_to_stage;
       if (!pick_ok) {
         return MotionStepResult::Failed;
@@ -1704,7 +1701,7 @@ MotionStepResult HotdogMakingNode::runBeverageHandoffStage(
     {
       return MotionStepResult::Failed;
     }
-    rclcpp::sleep_for(300ms);
+    rclcpp::sleep_for(std::chrono::milliseconds{300});
     if (shouldStopAfterWaypoint(ManufacturingStage::Work, "receive_open")) {
       return MotionStepResult::Stop;
     }
@@ -1723,7 +1720,7 @@ MotionStepResult HotdogMakingNode::runBeverageHandoffStage(
     {
       return MotionStepResult::Failed;
     }
-    rclcpp::sleep_for(300ms);
+    rclcpp::sleep_for(std::chrono::milliseconds{300});
     if (!detachTargetCollisionObject(
         get_logger(),
         left_arm,
@@ -1755,7 +1752,7 @@ MotionStepResult HotdogMakingNode::runBeverageHandoffStage(
     {
       return MotionStepResult::Failed;
     }
-    rclcpp::sleep_for(300ms);
+    rclcpp::sleep_for(std::chrono::milliseconds{300});
 
     const auto * left_pull_out_preset =
       task_presets::findStageWaypointPosePreset(
@@ -1859,7 +1856,7 @@ MotionStepResult HotdogMakingNode::runBeveragePlaceStage(
     {
       return MotionStepResult::Failed;
     }
-    rclcpp::sleep_for(300ms);
+    rclcpp::sleep_for(std::chrono::milliseconds{300});
     if (!detachTargetCollisionObject(
         get_logger(),
         right_arm,

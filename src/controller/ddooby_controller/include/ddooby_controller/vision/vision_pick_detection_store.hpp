@@ -14,6 +14,10 @@ namespace ddooby_controller::manufacturing_task
 class VisionPickDetectionStore
 {
 public:
+  VisionPickDetectionStore() = default;
+  VisionPickDetectionStore(const VisionPickDetectionStore &) = delete;
+  VisionPickDetectionStore & operator=(const VisionPickDetectionStore &) = delete;
+
   void updateFromMessage(
     const rclcpp::Time & received_stamp,
     const vision_msgs::msg::Detection3DArray & msg);

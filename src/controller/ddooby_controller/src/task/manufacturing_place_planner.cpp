@@ -19,7 +19,8 @@ SausagePlacePlan makeSausagePlacePlan(
   const TargetObject & case_target,
   const Eigen::Vector3d & held_case_center,
   const geometry_msgs::msg::Pose & left_current_pose,
-  const std::optional<geometry_msgs::msg::Pose> & completed_left_work_pose,
+  bool has_completed_left_work_pose,
+  const geometry_msgs::msg::Pose & completed_left_work_pose,
   double place_approach_height_m,
   double case_sausage_place_clearance_m)
 {
@@ -55,13 +56,15 @@ SausagePlacePlan makeSausagePlacePlan(
       "release");
 
   if (work_preset != nullptr) {
-    if (completed_left_work_pose.has_value()) {
-      plan.approach_pose = completed_left_work_pose.value();
+    if (has_completed_left_work_pose) {
+      plan.approach_pose = completed_left_work_pose;
       plan.approach_reuses_completed_work_pose = true;
       RCLCPP_INFO(logger, "Sausage place approach reuses completed work pose");
     } else {
       PoseAxisReferenceValues references;
+      references.has_case_position = true;
       references.case_position = held_case_center;
+      references.has_target_position = true;
       references.target_position = sausage_target.xyz;
       plan.approach_pose =
         makePoseFromWaypointPreset(
@@ -79,7 +82,9 @@ SausagePlacePlan makeSausagePlacePlan(
 
   if (place_preset != nullptr) {
     PoseAxisReferenceValues references;
+    references.has_case_position = true;
     references.case_position = held_case_center;
+    references.has_target_position = true;
     references.target_position = sausage_target.xyz;
     plan.release_pose =
       makePoseFromWaypointPreset(logger, *place_preset, references, "Sausage place release");
@@ -98,7 +103,7 @@ SausagePlacePlan makeSausagePlacePlan(
       task_presets::kLeftSausageReleaseYOffsetFromApproachM);
   }
 
-  if (completed_left_work_pose.has_value() && place_preset == nullptr) {
+  if (has_completed_left_work_pose && place_preset == nullptr) {
     RCLCPP_INFO(
       logger,
       "Sausage place release keeps completed work xy and lowers vertically to computed release height");

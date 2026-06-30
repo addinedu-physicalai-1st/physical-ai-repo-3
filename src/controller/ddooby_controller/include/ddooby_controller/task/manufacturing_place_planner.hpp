@@ -1,7 +1,5 @@
 #pragma once
 
-#include <optional>
-
 #include <Eigen/Geometry>
 #include <geometry_msgs/msg/pose.hpp>
 #include <rclcpp/logger.hpp>
@@ -67,7 +65,8 @@ SausagePlacePlan makeSausagePlacePlan(
   const TargetObject & case_target,
   const Eigen::Vector3d & held_case_center,
   const geometry_msgs::msg::Pose & left_current_pose,
-  const std::optional<geometry_msgs::msg::Pose> & completed_left_work_pose,
+  bool has_completed_left_work_pose,
+  const geometry_msgs::msg::Pose & completed_left_work_pose,
   double place_approach_height_m,
   double case_sausage_place_clearance_m);
 

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -58,18 +57,22 @@ public:
   VisionPickAdapter(
     rclcpp::Node & node,
     const VisionPickAdapterConfig & config);
+  VisionPickAdapter(const VisionPickAdapter &) = delete;
+  VisionPickAdapter & operator=(const VisionPickAdapter &) = delete;
 
   void handleDetections(const vision_msgs::msg::Detection3DArray::SharedPtr msg);
 
-  std::optional<VisionPickDetection> findDetection(
+  bool findDetection(
     task_presets::ManufacturingTarget target_kind,
     const std::string & target_model,
-    const TargetObject & target);
+    const TargetObject & target,
+    VisionPickDetection & detection);
 
-  std::optional<VisionPickDetection> waitForDetection(
+  bool waitForDetection(
     task_presets::ManufacturingTarget target_kind,
     const std::string & target_model,
-    const TargetObject & target);
+    const TargetObject & target,
+    VisionPickDetection & detection);
 
   std::string summarizeCandidates(
     task_presets::ManufacturingTarget target_kind,
@@ -88,14 +91,15 @@ private:
   rclcpp::Subscription<vision_msgs::msg::Detection3DArray>::SharedPtr subscription_;
 };
 
-std::optional<VisionPickDetection> findMatchingVisionPickDetection(
+bool findMatchingVisionPickDetection(
   const rclcpp::Logger & logger,
   rclcpp::Clock & clock,
   const std::vector<VisionPickDetection> & detections,
   task_presets::ManufacturingTarget target_kind,
   const std::string & target_model,
   const TargetObject & target,
-  const VisionPickMatchConfig & config);
+  const VisionPickMatchConfig & config,
+  VisionPickDetection & matched_detection);
 
 std::string summarizeVisionPickCandidates(
   const std::vector<VisionPickDetection> & detections,

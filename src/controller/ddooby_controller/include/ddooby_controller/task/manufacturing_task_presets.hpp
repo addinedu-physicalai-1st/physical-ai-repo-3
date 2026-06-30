@@ -2,7 +2,7 @@
 
 #include <array>
 #include <cstddef>
-#include <string_view>
+#include <string>
 
 namespace ddooby_controller::manufacturing_task_presets
 {
@@ -851,7 +851,7 @@ inline const StageWaypointPosePreset * findStageWaypointPosePreset(
 {
   for (const auto & preset : kStageWaypointPosePresets) {
     if (preset.target == target && preset.arm == arm && preset.stage == stage &&
-      preset.name == std::string_view{name} && preset.pose.enabled)
+      std::string{preset.name} == name && preset.pose.enabled)
     {
       return &preset;
     }

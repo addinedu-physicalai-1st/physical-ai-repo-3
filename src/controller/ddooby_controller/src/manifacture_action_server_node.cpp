@@ -1,4 +1,5 @@
 #include <chrono>
+#include <array>
 #include <cerrno>
 #include <csignal>
 #include <cctype>
@@ -8,7 +9,6 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -25,7 +25,6 @@
 
 namespace
 {
-using namespace std::chrono_literals;
 
 using Manifacture = custom_msg::action::Manifacture;
 using GoalHandleManifacture = rclcpp_action::ServerGoalHandle<Manifacture>;
@@ -74,31 +73,36 @@ bool containsAny(const std::string & value, const std::vector<std::string> & nee
   return false;
 }
 
-std::optional<std::string> taskNameForItem(const std::string & item_name)
+bool taskNameForItem(const std::string & item_name, std::string & task_name)
 {
   const std::string lowered = toLowerAscii(item_name);
   if (lowered == "hotdog" || lowered == "hot dog" ||
     containsAny(lowered, {"new york", "핫도그", "뉴욕"}))
   {
-    return "hotdog";
+    task_name = "hotdog";
+    return true;
   }
   if (lowered == "coke" || lowered == "cola" || containsAny(lowered, {"콜라"})) {
-    return "coke";
+    task_name = "coke";
+    return true;
   }
   if (lowered == "coffee" || containsAny(lowered, {"커피"})) {
-    return "coffee";
+    task_name = "coffee";
+    return true;
   }
-  return std::nullopt;
+  return false;
 }
 
 std::string joinCommandForLog(const std::vector<std::string> & args)
 {
   std::ostringstream stream;
-  for (size_t i = 0; i < args.size(); ++i) {
-    if (i > 0) {
+  bool first = true;
+  for (const auto & arg : args) {
+    if (!first) {
       stream << ' ';
     }
-    stream << args[i];
+    first = false;
+    stream << arg;
   }
   return stream.str();
 }
@@ -166,6 +170,8 @@ public:
 
     RCLCPP_INFO(get_logger(), "DDooby manufacture action server ready: %s", action_name_.c_str());
   }
+  ManifactureActionServer(const ManifactureActionServer &) = delete;
+  ManifactureActionServer & operator=(const ManifactureActionServer &) = delete;
 
 private:
   class ActiveGoalGuard
@@ -175,6 +181,8 @@ private:
     : server_(server)
     {
     }
+    ActiveGoalGuard(const ActiveGoalGuard &) = delete;
+    ActiveGoalGuard & operator=(const ActiveGoalGuard &) = delete;
 
     ~ActiveGoalGuard()
     {
@@ -284,8 +292,8 @@ private:
         continue;
       }
 
-      const auto task_name = taskNameForItem(item.name);
-      if (!task_name.has_value()) {
+      std::string task_name;
+      if (!taskNameForItem(item.name, task_name)) {
         error =
           "unsupported manufacture item '" + item.name +
           "': backend supports hotdog, coke, and coffee items only";
@@ -295,7 +303,7 @@ private:
       for (int run_index = 1; run_index <= item.count; ++run_index) {
         run_plan.push_back(ManufactureTaskRun{
           item.name,
-          task_name.value(),
+          task_name,
           run_index,
           item.count,
         });
@@ -314,8 +322,8 @@ private:
     const std::shared_ptr<GoalHandleManifacture> & goal_handle,
     double timeout_sec) const
   {
-    int output_pipe[2];
-    if (pipe(output_pipe) != 0) {
+    std::array<int, 2> output_pipe{};
+    if (pipe(output_pipe.data()) != 0) {
       return CommandResult{false, false, -1, "", "failed to create process output pipe"};
     }
 
@@ -404,7 +412,7 @@ private:
         }
       }
 
-      std::this_thread::sleep_for(100ms);
+      std::this_thread::sleep_for(std::chrono::milliseconds{100});
     }
 
     terminateProcessGroup(pid);
@@ -472,7 +480,7 @@ private:
       if (wait_result == pid) {
         return;
       }
-      std::this_thread::sleep_for(200ms);
+      std::this_thread::sleep_for(std::chrono::milliseconds{200});
     }
 
     kill(-pid, SIGTERM);
@@ -482,7 +490,7 @@ private:
       if (wait_result == pid) {
         return;
       }
-      std::this_thread::sleep_for(200ms);
+      std::this_thread::sleep_for(std::chrono::milliseconds{200});
     }
 
     kill(-pid, SIGKILL);

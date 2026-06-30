@@ -3,12 +3,11 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <thread>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -241,7 +240,7 @@ private:
     const std::vector<double> & to,
     double ratio) const
   {
-    ratio = std::clamp(ratio, 0.0, 1.0);
+    ratio = std::max(0.0, std::min(ratio, 1.0));
     std::vector<double> output;
     output.reserve(from.size());
     for (std::size_t i = 0; i < from.size(); ++i) {
@@ -347,7 +346,8 @@ private:
     const auto start = std::chrono::steady_clock::now();
     const auto timeout = std::chrono::duration<double>(goal_settle_timeout_sec_);
     const auto required = std::chrono::duration<double>(goal_settle_required_sec_);
-    std::optional<std::chrono::steady_clock::time_point> within_since;
+    bool has_within_since = false;
+    std::chrono::steady_clock::time_point within_since;
     double last_error = std::numeric_limits<double>::infinity();
 
     while (rclcpp::ok()) {
@@ -358,14 +358,15 @@ private:
       const auto now_time = std::chrono::steady_clock::now();
       last_error = maxPositionError(goal_positions);
       if (last_error <= goal_tolerance_rad_) {
-        if (!within_since.has_value()) {
+        if (!has_within_since) {
           within_since = now_time;
+          has_within_since = true;
         }
-        if (now_time - within_since.value() >= required) {
+        if (now_time - within_since >= required) {
           return true;
         }
       } else {
-        within_since.reset();
+        has_within_since = false;
       }
 
       if (now_time - start >= timeout) {
@@ -537,7 +538,7 @@ private:
 
   std::mutex state_mutex_;
   bool received_state_{false};
-  std::unordered_map<std::string, double> latest_positions_;
+  std::map<std::string, double> latest_positions_;
   std::atomic_bool executing_{false};
 
   std::mutex command_mutex_;

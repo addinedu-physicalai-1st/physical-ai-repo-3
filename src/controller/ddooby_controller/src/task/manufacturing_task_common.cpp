@@ -23,31 +23,37 @@ std::string normalizeStageName(const std::string & value)
   return normalized;
 }
 
-std::optional<task_presets::ManufacturingStage> parsePlayToStage(const std::string & value)
+bool parsePlayToStage(const std::string & value, task_presets::ManufacturingStage & stage)
 {
   const std::string normalized = normalizeStageName(value);
   if (normalized.empty() || normalized == "complete" || normalized == "all" ||
     normalized == "none")
   {
-    return std::nullopt;
+    return false;
   }
   if (normalized == "home") {
-    return task_presets::ManufacturingStage::Home;
+    stage = task_presets::ManufacturingStage::Home;
+    return true;
   }
   if (normalized == "pick") {
-    return task_presets::ManufacturingStage::Pick;
+    stage = task_presets::ManufacturingStage::Pick;
+    return true;
   }
   if (normalized == "work") {
-    return task_presets::ManufacturingStage::Work;
+    stage = task_presets::ManufacturingStage::Work;
+    return true;
   }
   if (normalized == "place") {
-    return task_presets::ManufacturingStage::Place;
+    stage = task_presets::ManufacturingStage::Place;
+    return true;
   }
   if (normalized == "returnhome") {
-    return task_presets::ManufacturingStage::ReturnHome;
+    stage = task_presets::ManufacturingStage::ReturnHome;
+    return true;
   }
   if (normalized == "pregrasp" || normalized == "pullout") {
-    return task_presets::ManufacturingStage::Pick;
+    stage = task_presets::ManufacturingStage::Pick;
+    return true;
   }
   throw std::invalid_argument("unsupported play_to_stage '" + value + "'");
 }
@@ -79,17 +85,19 @@ task_presets::ManufacturingTarget parseManufacturingTask(const std::string & val
   throw std::invalid_argument("unsupported task '" + value + "'");
 }
 
-std::optional<task_presets::ArmSide> parseArmSide(const std::string & value)
+bool parseArmSide(const std::string & value, task_presets::ArmSide & arm)
 {
   const std::string normalized = normalizeStageName(value);
   if (normalized.empty() || normalized == "auto") {
-    return std::nullopt;
+    return false;
   }
   if (normalized == "left") {
-    return task_presets::ArmSide::Left;
+    arm = task_presets::ArmSide::Left;
+    return true;
   }
   if (normalized == "right") {
-    return task_presets::ArmSide::Right;
+    arm = task_presets::ArmSide::Right;
+    return true;
   }
   throw std::invalid_argument("unsupported arm '" + value + "'");
 }
@@ -164,38 +172,45 @@ int hotdogAssemblyStepOrder(task_presets::ManufacturingTarget target)
   return 0;
 }
 
-std::optional<task_presets::ManufacturingStage> stageEndpointFromWaypointName(
-  const std::string & value)
+bool stageEndpointFromWaypointName(
+  const std::string & value,
+  task_presets::ManufacturingStage & stage)
 {
   const std::string normalized = normalizeStageName(value);
   if (normalized.empty() || normalized == "complete" || normalized == "all" ||
     normalized == "none")
   {
-    return std::nullopt;
+    return false;
   }
   if (normalized == "home") {
-    return task_presets::ManufacturingStage::Home;
+    stage = task_presets::ManufacturingStage::Home;
+    return true;
   }
   if (normalized == "pick") {
-    return task_presets::ManufacturingStage::Pick;
+    stage = task_presets::ManufacturingStage::Pick;
+    return true;
   }
   if (normalized == "work") {
-    return task_presets::ManufacturingStage::Work;
+    stage = task_presets::ManufacturingStage::Work;
+    return true;
   }
   if (normalized == "place") {
-    return task_presets::ManufacturingStage::Place;
+    stage = task_presets::ManufacturingStage::Place;
+    return true;
   }
   if (normalized == "returnhome") {
-    return task_presets::ManufacturingStage::ReturnHome;
+    stage = task_presets::ManufacturingStage::ReturnHome;
+    return true;
   }
-  return std::nullopt;
+  return false;
 }
 
-std::optional<task_presets::ManufacturingStage> stageHintFromWaypointName(
-  const std::string & value)
+bool stageHintFromWaypointName(
+  const std::string & value,
+  task_presets::ManufacturingStage & stage)
 {
-  if (const auto stage_endpoint = stageEndpointFromWaypointName(value)) {
-    return stage_endpoint;
+  if (stageEndpointFromWaypointName(value, stage)) {
+    return true;
   }
 
   const std::string normalized = normalizeStageName(value);
@@ -203,21 +218,24 @@ std::optional<task_presets::ManufacturingStage> stageHintFromWaypointName(
     normalized == "grasp" || normalized == "close" || normalized == "pullout" ||
     normalized == "lift")
   {
-    return task_presets::ManufacturingStage::Pick;
+    stage = task_presets::ManufacturingStage::Pick;
+    return true;
   }
   if (normalized == "casepresent" || normalized == "aim" || normalized == "squeezestart" ||
     normalized == "squeeze" || normalized == "handoff" || normalized == "prereceive" ||
     normalized == "receiveopen" || normalized == "receive" || normalized == "receiveclose" ||
     normalized == "leftpullout" || normalized == "leftretreat")
   {
-    return task_presets::ManufacturingStage::Work;
+    stage = task_presets::ManufacturingStage::Work;
+    return true;
   }
   if (normalized == "move1" || normalized == "move2" || normalized == "approach" ||
     normalized == "returnpose" || normalized == "releasepose" || normalized == "release")
   {
-    return task_presets::ManufacturingStage::Place;
+    stage = task_presets::ManufacturingStage::Place;
+    return true;
   }
-  return std::nullopt;
+  return false;
 }
 
 int stageOrder(task_presets::ManufacturingStage stage)
@@ -245,11 +263,12 @@ bool shouldRunManufacturingStage(
 }
 
 bool shouldStopAtOrBeforeStage(
-  const std::optional<task_presets::ManufacturingStage> & play_to_stage,
+  bool has_play_to_stage,
+  task_presets::ManufacturingStage play_to_stage,
   task_presets::ManufacturingStage stage)
 {
-  return play_to_stage.has_value() &&
-         stageOrder(play_to_stage.value()) <= stageOrder(stage);
+  return has_play_to_stage &&
+         stageOrder(play_to_stage) <= stageOrder(stage);
 }
 
 bool shouldStopAtOrBeforeWaypointStage(
@@ -260,8 +279,9 @@ bool shouldStopAtOrBeforeWaypointStage(
     return false;
   }
 
-  if (const auto waypoint_stage = stageHintFromWaypointName(play_to_waypoint)) {
-    return stageOrder(waypoint_stage.value()) <= stageOrder(stage);
+  task_presets::ManufacturingStage waypoint_stage = task_presets::ManufacturingStage::Home;
+  if (stageHintFromWaypointName(play_to_waypoint, waypoint_stage)) {
+    return stageOrder(waypoint_stage) <= stageOrder(stage);
   }
 
   for (const auto candidate_stage : {

@@ -33,7 +33,6 @@
 
 namespace ddooby_controller
 {
-using namespace std::chrono_literals;
 using namespace manufacturing_task;
 
 bool HotdogMakingNode::prepareAndRunPickMotion(
@@ -433,7 +432,7 @@ MotionStepResult HotdogMakingNode::runPickGraspAttachAndDirectLift(
       restore_target_gripper_collision();
       return MotionStepResult::Failed;
     }
-    rclcpp::sleep_for(300ms);
+    rclcpp::sleep_for(std::chrono::milliseconds{300});
     if (gripper_touch_links.empty()) {
       gripper_touch_links = makeGripperTouchLinks(gripper, config.tcp_link);
     }

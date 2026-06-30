@@ -106,8 +106,10 @@ enum class MotionStepResult
 
 struct PoseAxisReferenceValues
 {
-  std::optional<Eigen::Vector3d> case_position;
-  std::optional<Eigen::Vector3d> target_position;
+  bool has_case_position{false};
+  Eigen::Vector3d case_position{Eigen::Vector3d::Zero()};
+  bool has_target_position{false};
+  Eigen::Vector3d target_position{Eigen::Vector3d::Zero()};
 };
 
 struct OptionalStageWaypoint

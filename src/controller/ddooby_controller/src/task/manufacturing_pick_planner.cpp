@@ -250,6 +250,7 @@ void applyPickStageWaypointPresets(
     hasStageWaypointPosePreset(target_kind, arm, task_presets::ManufacturingStage::Pick, "grasp");
 
   PoseAxisReferenceValues pick_axis_references;
+  pick_axis_references.has_target_position = true;
   pick_axis_references.target_position = objectWorldCenter(target);
   if (pre_grasp_pose_configured) {
     applyStageWaypointPosePreset(

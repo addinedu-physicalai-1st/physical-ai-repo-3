@@ -2,7 +2,6 @@
 
 #include <map>
 #include <memory>
-#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -42,6 +41,8 @@ class HotdogMakingNode : public rclcpp::Node
 {
 public:
   HotdogMakingNode();
+  HotdogMakingNode(const HotdogMakingNode &) = delete;
+  HotdogMakingNode & operator=(const HotdogMakingNode &) = delete;
 
   bool run();
 
@@ -249,12 +250,14 @@ private:
   ManufacturingStage start_stage_{ManufacturingStage::Home};
   std::string play_to_stage_name_;
   std::string start_from_waypoint_name_;
-  std::optional<ManufacturingStage> play_to_stage_;
+  bool has_play_to_stage_{false};
+  ManufacturingStage play_to_stage_{ManufacturingStage::Home};
   std::string play_to_waypoint_name_;
   std::string play_to_waypoint_;
   bool play_range_valid_{true};
   std::string layout_path_;
-  std::optional<std::string> package_share_directory_;
+  bool has_package_share_directory_{false};
+  std::string package_share_directory_;
   std::string left_arm_group_;
   std::string left_gripper_group_;
   std::string left_tcp_link_;

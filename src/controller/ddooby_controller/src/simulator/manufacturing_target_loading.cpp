@@ -3,7 +3,6 @@
 #include <cmath>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -31,20 +30,20 @@
 
 namespace ddooby_controller
 {
-using namespace std::chrono_literals;
 using namespace manufacturing_task;
 
 
 bool HotdogMakingNode::resolvePackageShareDirectory(std::string & package_share_directory)
 {
-    if (package_share_directory_.has_value()) {
-      package_share_directory = package_share_directory_.value();
+    if (has_package_share_directory_) {
+      package_share_directory = package_share_directory_;
       return true;
     }
 
     try {
       package_share_directory = ament_index_cpp::get_package_share_directory("ddooby_controller");
       package_share_directory_ = package_share_directory;
+      has_package_share_directory_ = true;
     } catch (const std::exception & error) {
       RCLCPP_ERROR(get_logger(), "Failed to resolve ddooby_controller share directory: %s", error.what());
       return false;

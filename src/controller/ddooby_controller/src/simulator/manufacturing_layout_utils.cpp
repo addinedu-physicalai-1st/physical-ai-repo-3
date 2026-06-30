@@ -91,20 +91,21 @@ Eigen::Vector3d extractVector3Value(const std::string & text, const std::string 
   return Eigen::Vector3d(values[0], values[1], values[2]);
 }
 
-std::optional<std::string> extractTagText(const std::string & text, const std::string & tag)
+bool extractTagText(const std::string & text, const std::string & tag, std::string & value)
 {
   const std::string open_tag = "<" + tag + ">";
   const std::string close_tag = "</" + tag + ">";
   const auto open_pos = text.find(open_tag);
   if (open_pos == std::string::npos) {
-    return std::nullopt;
+    return false;
   }
   const auto value_start = open_pos + open_tag.size();
   const auto close_pos = text.find(close_tag, value_start);
   if (close_pos == std::string::npos) {
-    return std::nullopt;
+    return false;
   }
-  return text.substr(value_start, close_pos - value_start);
+  value = text.substr(value_start, close_pos - value_start);
+  return true;
 }
 
 std::string extractJsonObjectForModel(
@@ -156,19 +157,20 @@ std::vector<CollisionPrimitiveSpec> parseCollisionPrimitives(const std::string &
 
     CollisionPrimitiveSpec primitive;
     bool has_geometry = false;
-    if (const auto size_text = extractTagText(block, "size")) {
-      const auto size_values = parseDoubles(size_text.value());
+    std::string size_text;
+    if (extractTagText(block, "size", size_text)) {
+      const auto size_values = parseDoubles(size_text);
       if (size_values.size() == 3) {
         primitive.type = CollisionPrimitiveSpec::Type::Box;
         primitive.size = Eigen::Vector3d(size_values[0], size_values[1], size_values[2]);
         has_geometry = true;
       }
     } else {
-      const auto radius_text = extractTagText(block, "radius");
-      const auto length_text = extractTagText(block, "length");
-      if (radius_text.has_value() && length_text.has_value()) {
-        const auto radius_values = parseDoubles(radius_text.value());
-        const auto length_values = parseDoubles(length_text.value());
+      std::string radius_text;
+      std::string length_text;
+      if (extractTagText(block, "radius", radius_text) && extractTagText(block, "length", length_text)) {
+        const auto radius_values = parseDoubles(radius_text);
+        const auto length_values = parseDoubles(length_text);
         if (radius_values.size() == 1 && length_values.size() == 1) {
           const double diameter = radius_values[0] * 2.0;
           primitive.type = CollisionPrimitiveSpec::Type::Cylinder;
@@ -183,9 +185,9 @@ std::vector<CollisionPrimitiveSpec> parseCollisionPrimitives(const std::string &
       continue;
     }
 
-    const auto pose_text = extractTagText(block, "pose");
-    if (pose_text.has_value()) {
-      const auto pose_values = parseDoubles(pose_text.value());
+    std::string pose_text;
+    if (extractTagText(block, "pose", pose_text)) {
+      const auto pose_values = parseDoubles(pose_text);
       if (pose_values.size() >= 3) {
         primitive.center = Eigen::Vector3d(pose_values[0], pose_values[1], pose_values[2]);
       }

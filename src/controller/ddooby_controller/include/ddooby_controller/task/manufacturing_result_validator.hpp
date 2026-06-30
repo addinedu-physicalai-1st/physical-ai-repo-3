@@ -1,7 +1,6 @@
 #pragma once
 
 #include <map>
-#include <optional>
 #include <string>
 
 #include <Eigen/Geometry>
@@ -45,7 +44,7 @@ public:
     ManufacturingResultValidatorConfig config);
 
   bool shouldValidate() const;
-  std::optional<std::map<std::string, Eigen::Vector3d>> readGazeboModelPositions() const;
+  bool readGazeboModelPositions(std::map<std::string, Eigen::Vector3d> & poses) const;
   bool validateHotdogPlacement();
   bool validateBeveragePlacement(task_presets::ManufacturingTarget beverage_target);
 

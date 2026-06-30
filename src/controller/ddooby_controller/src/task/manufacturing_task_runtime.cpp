@@ -32,7 +32,6 @@
 
 namespace ddooby_controller
 {
-using namespace std::chrono_literals;
 using namespace manufacturing_task;
 
 HotdogMakingNode::HotdogMakingNode()
@@ -59,9 +58,10 @@ bool HotdogMakingNode::run()
       "Manufacturing request: task=%s, start_stage=%s, play_to_stage=%s",
       task_presets::targetName(target_),
       task_presets::stageName(start_stage_),
-      play_to_stage_.has_value() ? task_presets::stageName(play_to_stage_.value()) : "complete");
+      has_play_to_stage_ ? task_presets::stageName(play_to_stage_) : "complete");
 
-    if (parseArmSide(arm_name_).has_value()) {
+    ArmSide parsed_arm = ArmSide::Left;
+    if (parseArmSide(arm_name_, parsed_arm)) {
       RCLCPP_WARN(
         get_logger(),
         "arm:=%s is deprecated for manufacturing tasks; task determines the required arm sequence",
@@ -282,9 +282,11 @@ void HotdogMakingNode::parseExecutionRequest()
     try {
       start_stage_ = ManufacturingStage::Home;
       if (!normalizeStageName(start_from_waypoint_name_).empty()) {
-        if (const auto start_stage = stageHintFromWaypointName(start_from_waypoint_name_)) {
-          start_stage_ = start_stage.value();
-          if (!stageEndpointFromWaypointName(start_from_waypoint_name_)) {
+        ManufacturingStage start_stage = ManufacturingStage::Home;
+        if (stageHintFromWaypointName(start_from_waypoint_name_, start_stage)) {
+          start_stage_ = start_stage;
+          ManufacturingStage endpoint_stage = ManufacturingStage::Home;
+          if (!stageEndpointFromWaypointName(start_from_waypoint_name_, endpoint_stage)) {
             RCLCPP_WARN(
               get_logger(),
               "start_from_waypoint='%s' starts from containing stage '%s'; "
@@ -298,13 +300,19 @@ void HotdogMakingNode::parseExecutionRequest()
         }
       }
 
-      play_to_stage_ = parsePlayToStage(play_to_stage_name_);
+      ManufacturingStage parsed_play_to_stage = ManufacturingStage::Home;
+      if (parsePlayToStage(play_to_stage_name_, parsed_play_to_stage)) {
+        play_to_stage_ = parsed_play_to_stage;
+        has_play_to_stage_ = true;
+      } else {
+        has_play_to_stage_ = false;
+      }
 
       play_to_waypoint_ = normalizeStageName(play_to_waypoint_name_);
-      if (const auto waypoint_stage_endpoint =
-          stageEndpointFromWaypointName(play_to_waypoint_name_))
-      {
+      ManufacturingStage waypoint_stage_endpoint = ManufacturingStage::Home;
+      if (stageEndpointFromWaypointName(play_to_waypoint_name_, waypoint_stage_endpoint)) {
         play_to_stage_ = waypoint_stage_endpoint;
+        has_play_to_stage_ = true;
         play_to_waypoint_.clear();
       }
       if (play_to_waypoint_ == "complete" || play_to_waypoint_ == "all" ||
@@ -313,9 +321,10 @@ void HotdogMakingNode::parseExecutionRequest()
         play_to_waypoint_.clear();
       }
       target_ = parseManufacturingTask(task_name_);
-      arm_ = parseArmSide(arm_name_).value_or(defaultArmForTarget(target_));
-      if (play_to_stage_.has_value() &&
-        stageOrder(play_to_stage_.value()) < stageOrder(start_stage_))
+      ArmSide requested_arm = ArmSide::Left;
+      arm_ = parseArmSide(arm_name_, requested_arm) ? requested_arm : defaultArmForTarget(target_);
+      if (has_play_to_stage_ &&
+        stageOrder(play_to_stage_) < stageOrder(start_stage_))
       {
         throw std::invalid_argument(
                 "play_to_stage must be the same as or later than start_from_waypoint");
@@ -357,7 +366,7 @@ bool HotdogMakingNode::runScenario()
 
 bool HotdogMakingNode::shouldStopAfter(ManufacturingStage stage) const
 {
-    if (!play_to_stage_.has_value() || play_to_stage_.value() != stage) {
+    if (!has_play_to_stage_ || play_to_stage_ != stage) {
       return false;
     }
 
@@ -389,7 +398,7 @@ bool HotdogMakingNode::shouldRunStage(ManufacturingStage stage) const
 
 bool HotdogMakingNode::shouldStopAtOrBefore(ManufacturingStage stage) const
 {
-    return shouldStopAtOrBeforeStage(play_to_stage_, stage);
+    return shouldStopAtOrBeforeStage(has_play_to_stage_, play_to_stage_, stage);
   }
 
 bool HotdogMakingNode::shouldStopAtOrBeforeWaypointStage(ManufacturingStage stage) const

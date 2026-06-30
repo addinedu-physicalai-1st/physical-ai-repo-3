@@ -14,7 +14,6 @@
 namespace ddooby_controller::manufacturing_task
 {
 
-using namespace std::chrono_literals;
 
 void setBoundedStartState(moveit::planning_interface::MoveGroupInterface & group)
 {
@@ -143,7 +142,7 @@ bool planAndExecute(
           label.c_str(),
           attempt,
           max_attempts);
-        rclcpp::sleep_for(300ms);
+        rclcpp::sleep_for(std::chrono::milliseconds{300});
         setBoundedStartState(group);
         continue;
       }
@@ -167,7 +166,7 @@ bool planAndExecute(
         label.c_str(),
         attempt,
         max_attempts);
-      rclcpp::sleep_for(500ms);
+      rclcpp::sleep_for(std::chrono::milliseconds{500});
       setBoundedStartState(group);
       continue;
     }

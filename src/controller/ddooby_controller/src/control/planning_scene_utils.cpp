@@ -5,7 +5,6 @@
 #include <future>
 #include <memory>
 #include <stdexcept>
-#include <string_view>
 
 #include <moveit_msgs/msg/allowed_collision_entry.hpp>
 #include <moveit_msgs/msg/planning_scene.hpp>
@@ -20,7 +19,6 @@
 namespace ddooby_controller::manufacturing_task
 {
 
-using namespace std::chrono_literals;
 
 moveit_msgs::msg::CollisionObject makeCollisionObjectFromSdf(
   const std::string & package_share_directory,
@@ -135,7 +133,7 @@ std::vector<std::string> makeGripperTouchLinks(
   std::vector<std::string> touch_links = gripper.getLinkNames();
   touch_links.push_back(tcp_link);
 
-  constexpr std::string_view kHandTcpSuffix = "_hand_tcp";
+  const std::string kHandTcpSuffix{"_hand_tcp"};
   if (tcp_link.size() > kHandTcpSuffix.size() &&
     tcp_link.compare(
       tcp_link.size() - kHandTcpSuffix.size(),
@@ -168,7 +166,7 @@ bool applyTargetGripperAllowedCollision(
   }
 
   auto client = node->create_client<moveit_msgs::srv::GetPlanningScene>("get_planning_scene");
-  if (!client->wait_for_service(2s)) {
+  if (!client->wait_for_service(std::chrono::seconds{2})) {
     RCLCPP_ERROR(logger, "MoveIt get_planning_scene service is not available");
     return false;
   }
@@ -177,7 +175,7 @@ bool applyTargetGripperAllowedCollision(
   request->components.components =
     moveit_msgs::msg::PlanningSceneComponents::ALLOWED_COLLISION_MATRIX;
   auto future = client->async_send_request(request);
-  if (future.wait_for(2s) != std::future_status::ready) {
+  if (future.wait_for(std::chrono::seconds{2}) != std::future_status::ready) {
     RCLCPP_ERROR(logger, "Timed out while reading MoveIt allowed collision matrix");
     return false;
   }
