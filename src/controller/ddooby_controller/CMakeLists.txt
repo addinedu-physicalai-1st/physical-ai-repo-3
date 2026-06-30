@@ -25,30 +25,33 @@ ament_target_dependencies(manifacture_action_server_node
 )
 
 add_library(ddooby_manufacturing_task_core STATIC
-  src/manufacturing_beverage_task.cpp
-  src/manufacturing_completed_hotdog_task.cpp
-  src/manufacturing_hotdog_steps.cpp
-  src/manufacturing_ketchup_task.cpp
-  src/manufacturing_layout_utils.cpp
-  src/manufacturing_pick_planner.cpp
-  src/manufacturing_pick_execution.cpp
-  src/manufacturing_place_planner.cpp
-  src/manufacturing_result_validation.cpp
-  src/manufacturing_result_validator.cpp
-  src/manufacturing_task_common.cpp
-  src/manufacturing_pose_utils.cpp
-  src/manufacturing_stage_motion.cpp
-  src/manufacturing_target_loading.cpp
-  src/manufacturing_task_runtime.cpp
-  src/manufacturing_task_sequence_runner.cpp
+  src/task/manufacturing_beverage_task.cpp
+  src/task/manufacturing_completed_hotdog_task.cpp
+  src/task/manufacturing_hotdog_steps.cpp
+  src/task/manufacturing_ketchup_task.cpp
+  src/task/manufacturing_pick_planner.cpp
+  src/task/manufacturing_pick_execution.cpp
+  src/task/manufacturing_place_planner.cpp
+  src/task/manufacturing_pose_utils.cpp
+  src/task/manufacturing_result_validation.cpp
+  src/task/manufacturing_result_validator.cpp
+  src/task/manufacturing_task_assembly.cpp
+  src/task/manufacturing_task_common.cpp
+  src/task/manufacturing_task_runtime.cpp
+  src/task/manufacturing_task_sequence_runner.cpp
+  src/control/manufacturing_motion_primitives.cpp
+  src/control/manufacturing_stage_motion.cpp
+  src/control/moveit_task_utils.cpp
+  src/control/planning_scene_utils.cpp
+  src/simulator/manufacturing_layout_utils.cpp
+  src/simulator/manufacturing_target_loading.cpp
   src/manufacturing_task_runner.cpp
-  src/moveit_task_utils.cpp
-  src/planning_scene_utils.cpp
-  src/vision_pick_adapter.cpp
-  src/vision_pick_detection_store.cpp
+  src/vision/vision_pick_adapter.cpp
+  src/vision/vision_pick_detection_store.cpp
 )
-target_include_directories(ddooby_manufacturing_task_core PUBLIC
-  include
+target_include_directories(ddooby_manufacturing_task_core
+  PUBLIC include
+  PRIVATE src
 )
 ament_target_dependencies(ddooby_manufacturing_task_core
   ament_index_cpp
@@ -68,7 +71,7 @@ target_link_libraries(hotdog_making_node
   ddooby_manufacturing_task_core
 )
 
-add_executable(forward_joint_trajectory_bridge_node src/forward_joint_trajectory_bridge_node.cpp)
+add_executable(forward_joint_trajectory_bridge_node src/control/forward_joint_trajectory_bridge_node.cpp)
 ament_target_dependencies(forward_joint_trajectory_bridge_node
   control_msgs
   rclcpp

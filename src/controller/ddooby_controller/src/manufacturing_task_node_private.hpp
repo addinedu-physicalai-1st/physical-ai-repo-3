@@ -14,9 +14,10 @@
 #include <rclcpp/rclcpp.hpp>
 #include <vision_msgs/msg/detection3_d_array.hpp>
 
-#include "ddooby_controller/manufacturing_task_presets.hpp"
-#include "ddooby_controller/manufacturing_task_types.hpp"
-#include "ddooby_controller/vision_pick_adapter.hpp"
+#include "ddooby_controller/task/manufacturing_task_presets.hpp"
+#include "ddooby_controller/task/manufacturing_task_types.hpp"
+#include "ddooby_controller/control/manufacturing_motion_primitives.hpp"
+#include "ddooby_controller/vision/vision_pick_adapter.hpp"
 
 namespace ddooby_controller
 {
@@ -26,6 +27,8 @@ using ManufacturingStage = task_presets::ManufacturingStage;
 using ManufacturingTarget = task_presets::ManufacturingTarget;
 using ArmSide = task_presets::ArmSide;
 using manufacturing_task::MotionStepResult;
+using manufacturing_task::ManufacturingMotionPrimitives;
+using manufacturing_task::MotionPrimitiveConfig;
 using manufacturing_task::OptionalStageWaypoint;
 using manufacturing_task::PickMotionConfig;
 using manufacturing_task::PickPlan;
@@ -69,6 +72,8 @@ private:
     moveit::planning_interface::MoveGroupInterface & arm,
     const std::string & tcp_link);
   void configureTaskGripper(moveit::planning_interface::MoveGroupInterface & gripper);
+  MotionPrimitiveConfig motionPrimitiveConfig() const;
+  ManufacturingMotionPrimitives makeMotionPrimitives() const;
   bool planAndExecuteReturnHome(
     moveit::planning_interface::MoveGroupInterface & arm,
     ManufacturingTarget target,

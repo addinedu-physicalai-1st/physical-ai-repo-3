@@ -3,7 +3,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include "ddooby_controller/manufacturing_task_runner.hpp"
+#include "ddooby_controller/task/manufacturing_task_runner.hpp"
 #include "manufacturing_task_node_private.hpp"
 
 namespace ddooby_controller

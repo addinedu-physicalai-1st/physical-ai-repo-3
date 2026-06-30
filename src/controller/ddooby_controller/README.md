@@ -17,12 +17,22 @@ src/controller/ddooby_controller/
 │   └── manifacture_action_server.launch.py
 ├── assets/
 ├── src/
-│   ├── manufacturing_* task modules
-│   ├── moveit_task_utils.cpp
-│   ├── planning_scene_utils.cpp
-│   ├── vision_pick_adapter.cpp
+│   ├── task/
+│   │   └── 제조 task 조립, pick/place 계획, 결과 검증
+│   ├── control/
+│   │   └── MoveIt 실행, motion primitive, planning scene 조작
+│   ├── vision/
+│   │   └── YOLO-seg 기반 detection store와 vision pick adapter
+│   ├── simulator/
+│   │   └── Gazebo layout/object loading utility
 │   ├── hotdog_making_node.cpp
+│   ├── manufacturing_task_runner.cpp
 │   └── manifacture_action_server_node.cpp
+├── modeling/
+│   ├── world.blend
+│   ├── LOCAL_RUN.md
+│   ├── start_local_gazebo_task.sh
+│   └── stop_local_gazebo_task.sh
 ├── tools/
 │   ├── legacy_beverage_test/
 │   └── physics_contact_tests/
@@ -51,7 +61,19 @@ manifacture_action_server_node
 
 hotdog_making_node
   - 뉴욕 핫도그 제조 및 coke/coffee 음료 제공 task 실행
-  - MoveIt planning, Cartesian path, planning scene, vision pick adapter를 조합
+  - 얇은 entrypoint이며 ManufacturingTaskRunner를 생성해 실행
+
+src/task
+  - 제조 task 순서 조립, pick/place 계획, 결과 검증 담당
+
+src/control
+  - MoveIt planning/execution, Cartesian path, gripper, planning scene, motion primitive 담당
+
+src/vision
+  - YOLO-seg detection 구독, class/id 매칭, PCA 기반 pick pose 제공 담당
+
+src/simulator
+  - Gazebo layout/SDF 기반 제조 오브젝트 정보 로딩 담당
 
 tools/legacy_beverage_test
   - 이전 음료 제조 검증 코드와 scenario/demo node를 보관
