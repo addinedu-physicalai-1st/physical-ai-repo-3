@@ -105,6 +105,34 @@ bool visionPickCandidateUsable(const VisionPickCandidateEvaluation & evaluation)
   return evaluation.reject_reason == VisionPickRejectReason::Usable;
 }
 
+double normalizeYaw(double yaw)
+{
+  constexpr double kPi = 3.14159265358979323846;
+  while (yaw > kPi) {
+    yaw -= 2.0 * kPi;
+  }
+  while (yaw < -kPi) {
+    yaw += 2.0 * kPi;
+  }
+  return yaw;
+}
+
+double yawDistance(double first_yaw, double second_yaw)
+{
+  return std::abs(normalizeYaw(first_yaw - second_yaw));
+}
+
+double choosePcaYawClosestToLayout(double pca_yaw, double layout_yaw)
+{
+  constexpr double kPi = 3.14159265358979323846;
+  const double direct_yaw = normalizeYaw(pca_yaw);
+  const double flipped_yaw = normalizeYaw(pca_yaw + kPi);
+  if (yawDistance(flipped_yaw, layout_yaw) < yawDistance(direct_yaw, layout_yaw)) {
+    return flipped_yaw;
+  }
+  return direct_yaw;
+}
+
 }  // namespace
 
 std::vector<std::string> visionClassAliases(
@@ -404,7 +432,16 @@ bool applyVisionDetectionToTarget(
       target_model.c_str());
     return false;
   }
-  target_object.rpy.z() = std::atan2(horizontal_x.y(), horizontal_x.x());
+
+  const double layout_yaw = target_object.rpy.z();
+  const double pca_yaw = std::atan2(horizontal_x.y(), horizontal_x.x());
+  const bool align_pca_yaw_to_layout =
+    target == task_presets::ManufacturingTarget::Case;
+  if (align_pca_yaw_to_layout) {
+    target_object.rpy.z() = choosePcaYawClosestToLayout(pca_yaw, layout_yaw);
+  } else {
+    target_object.rpy.z() = pca_yaw;
+  }
 
   if (use_detection_size &&
     detection.size.x() > 0.005 &&
@@ -434,6 +471,15 @@ bool applyVisionDetectionToTarget(
     target_object.xyz.y(),
     target_object.xyz.z(),
     target_object.rpy.z());
+  if (align_pca_yaw_to_layout) {
+    RCLCPP_INFO(
+      logger,
+      "Vision pick target '%s': case PCA yaw %.3f aligned to layout yaw %.3f -> %.3f",
+      target_object.name.c_str(),
+      pca_yaw,
+      layout_yaw,
+      target_object.rpy.z());
+  }
   return true;
 }
 

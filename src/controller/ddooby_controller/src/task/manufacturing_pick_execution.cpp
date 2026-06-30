@@ -3,7 +3,6 @@
 #include <cmath>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>

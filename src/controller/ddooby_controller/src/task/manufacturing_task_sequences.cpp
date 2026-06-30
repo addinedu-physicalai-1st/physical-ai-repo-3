@@ -35,6 +35,189 @@ namespace ddooby_controller
 
 using namespace manufacturing_task;
 
+namespace
+{
+
+double rotatedLocalBoxMinZOffset(const TargetObject & target)
+{
+  const Eigen::Matrix3d rotation = rotationFromRpy(target.rpy);
+  const Eigen::Vector3d half_size = target.size * 0.5;
+  double min_z = std::numeric_limits<double>::infinity();
+  for (int x_sign = -1; x_sign <= 1; x_sign += 2) {
+    for (int y_sign = -1; y_sign <= 1; y_sign += 2) {
+      for (int z_sign = -1; z_sign <= 1; z_sign += 2) {
+        const Eigen::Vector3d local_corner =
+          target.local_center +
+          Eigen::Vector3d(
+            x_sign * half_size.x(),
+            y_sign * half_size.y(),
+            z_sign * half_size.z());
+        min_z = std::min(min_z, (rotation * local_corner).z());
+      }
+    }
+  }
+  return min_z;
+}
+
+TargetObject makeObjectSettledOnHeldCase(
+  const TargetObject & object_target,
+  const Eigen::Vector3d & held_case_center,
+  const Eigen::Vector2d & object_center_xy,
+  double case_support_surface_local_z_m,
+  double height_below_object_m,
+  double place_clearance_m,
+  double settled_yaw)
+{
+  TargetObject settled_target = object_target;
+  settled_target.rpy.z() = settled_yaw;
+
+  const double target_bottom_z =
+    held_case_center.z() +
+    case_support_surface_local_z_m +
+    height_below_object_m +
+    place_clearance_m;
+  const Eigen::Vector3d local_center_offset =
+    rotationFromRpy(settled_target.rpy) * settled_target.local_center;
+
+  settled_target.xyz.x() = object_center_xy.x() - local_center_offset.x();
+  settled_target.xyz.y() = object_center_xy.y() - local_center_offset.y();
+  settled_target.xyz.z() = target_bottom_z - rotatedLocalBoxMinZOffset(settled_target);
+  return settled_target;
+}
+
+TargetObject makeObjectSettledOnHeldCase(
+  const TargetObject & object_target,
+  const Eigen::Vector3d & held_case_center,
+  const Eigen::Vector2d & object_center_xy,
+  double case_support_surface_local_z_m,
+  double height_below_object_m,
+  double place_clearance_m,
+  const geometry_msgs::msg::Pose & release_pose)
+{
+  const Eigen::Matrix3d release_rotation = poseOrientation(release_pose).toRotationMatrix();
+  const double release_yaw = std::atan2(release_rotation(1, 0), release_rotation(0, 0));
+  return makeObjectSettledOnHeldCase(
+    object_target,
+    held_case_center,
+    object_center_xy,
+    case_support_surface_local_z_m,
+    height_below_object_m,
+    place_clearance_m,
+    release_yaw);
+}
+
+double caseSupportSurfaceLocalZ(
+  const std::string & package_share_directory,
+  const TargetObject & case_target)
+{
+  const std::string sdf_path =
+    joinPath(joinPath(package_share_directory, "assets"), joinPath(case_target.model_dir, "model.sdf"));
+  const std::vector<CollisionPrimitiveSpec> primitives =
+    parseCollisionPrimitives(readTextFile(sdf_path));
+
+  double best_area = -1.0;
+  double support_z = case_target.local_center.z() - case_target.size.z() * 0.5;
+  for (const CollisionPrimitiveSpec & primitive : primitives) {
+    if (primitive.type != CollisionPrimitiveSpec::Type::Box) {
+      continue;
+    }
+    const double area = primitive.size.x() * primitive.size.y();
+    const bool is_floor_like = primitive.size.z() <= 0.010;
+    if (is_floor_like && area > best_area) {
+      best_area = area;
+      support_z = primitive.center.z() + primitive.size.z() * 0.5;
+    }
+  }
+  return support_z;
+}
+
+TargetObject makeTargetSettledOnWorldSurface(
+  const TargetObject & object_target,
+  const Eigen::Vector2d & object_center_xy,
+  double support_surface_world_z_m,
+  double height_below_object_m,
+  double place_clearance_m,
+  double settled_yaw)
+{
+  TargetObject settled_target = object_target;
+  settled_target.rpy.z() = settled_yaw;
+
+  const double target_bottom_z =
+    support_surface_world_z_m + height_below_object_m + place_clearance_m;
+  const Eigen::Vector3d local_center_offset =
+    rotationFromRpy(settled_target.rpy) * settled_target.local_center;
+
+  settled_target.xyz.x() = object_center_xy.x() - local_center_offset.x();
+  settled_target.xyz.y() = object_center_xy.y() - local_center_offset.y();
+  settled_target.xyz.z() = target_bottom_z - rotatedLocalBoxMinZOffset(settled_target);
+  return settled_target;
+}
+
+TargetObject makeCaseSettledAtReleasePose(
+  const TargetObject & pickup_zone,
+  const TargetObject & case_target,
+  const geometry_msgs::msg::Pose & release_pose)
+{
+  const Eigen::Matrix3d pickup_rotation = rotationFromRpy(pickup_zone.rpy);
+  const Eigen::Vector3d pickup_center =
+    pickup_zone.xyz + pickup_rotation * pickup_zone.local_center;
+  const double pickup_top_z = pickup_center.z() + pickup_zone.size.z() * 0.5;
+  const Eigen::Vector3d release_case_center = heldCaseCenterFromTcpPose(release_pose);
+  constexpr double kHalfPi = 1.57079632679489661923;
+  const double settled_yaw = pickup_zone.rpy.z() + case_target.rpy.z() - kHalfPi;
+  return makeTargetSettledOnWorldSurface(
+    case_target,
+    Eigen::Vector2d(release_case_center.x(), release_case_center.y()),
+    pickup_top_z,
+    0.0,
+    task_presets::kCompletedHotdogPickupPlaceClearanceM,
+    settled_yaw);
+}
+
+std::vector<std::string> makeArmAndGripperCollisionLinks(
+  moveit::planning_interface::MoveGroupInterface & arm,
+  moveit::planning_interface::MoveGroupInterface & gripper,
+  const std::string & tcp_link)
+{
+  std::vector<std::string> links = arm.getLinkNames();
+  const std::vector<std::string> gripper_links = makeGripperTouchLinks(gripper, tcp_link);
+  links.insert(links.end(), gripper_links.begin(), gripper_links.end());
+  std::sort(links.begin(), links.end());
+  links.erase(std::unique(links.begin(), links.end()), links.end());
+  return links;
+}
+
+bool disallowTargetCollisionWithArm(
+  const rclcpp::Node::SharedPtr & node,
+  const rclcpp::Logger & logger,
+  moveit::planning_interface::PlanningSceneInterface & planning_scene_interface,
+  const std::string & target_model,
+  moveit::planning_interface::MoveGroupInterface & arm,
+  moveit::planning_interface::MoveGroupInterface & gripper,
+  const std::string & tcp_link,
+  const std::string & log_label,
+  int settle_ms)
+{
+  const std::vector<std::string> links =
+    makeArmAndGripperCollisionLinks(arm, gripper, tcp_link);
+  RCLCPP_INFO(
+    logger,
+    "%s: enforcing '%s' as obstacle for %zu non-holding arm links",
+    log_label.c_str(),
+    target_model.c_str(),
+    links.size());
+  return applyTargetGripperAllowedCollision(
+    node,
+    logger,
+    planning_scene_interface,
+    target_model,
+    links,
+    false,
+    settle_ms);
+}
+
+}  // namespace
+
 // ---------------------------------------------------------------------------
 // 전체 task 조립부
 // ---------------------------------------------------------------------------
@@ -142,6 +325,36 @@ bool HotdogMakingNode::runHotdogAssemblyUntil(ManufacturingTarget endpoint)
         left_arm_group_,
         left_tcp_link_,
         "Final left arm");
+      if (success) {
+        moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+        if (!removeTargetCollisionObject(
+            get_logger(),
+            planning_scene_interface,
+            case_target_model_,
+            "Hotdog assembly completed",
+            collision_scene_settle_ms_))
+        {
+          success = false;
+        }
+        if (success && !removeTargetCollisionObject(
+            get_logger(),
+            planning_scene_interface,
+            bread_target_model_,
+            "Hotdog assembly completed",
+            collision_scene_settle_ms_))
+        {
+          success = false;
+        }
+        if (success && !removeTargetCollisionObject(
+            get_logger(),
+            planning_scene_interface,
+            sausage_target_model_,
+            "Hotdog assembly completed",
+            collision_scene_settle_ms_))
+        {
+          success = false;
+        }
+      }
     }
 
     if (success) {
@@ -310,7 +523,7 @@ bool HotdogMakingNode::runCasePick()
         task_presets::kRightCasePickTuning.grasp_tcp_z_offset_m);
     offsetPickPlanGraspAndLiftWorldZ(pick_plan, task_presets::kRightCaseGraspWorldZOffsetM);
 
-    return prepareAndRunPickMotion(
+    const bool picked = prepareAndRunPickMotion(
       PickMotionConfig{
         ManufacturingTarget::Case,
         ArmSide::Right,
@@ -326,6 +539,24 @@ bool HotdogMakingNode::runCasePick()
         false},
       target,
       pick_plan);
+    if (!picked) {
+      return false;
+    }
+
+    auto self = shared_from_this();
+    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+    moveit::planning_interface::MoveGroupInterface left_arm(self, left_arm_group_);
+    moveit::planning_interface::MoveGroupInterface left_gripper(self, left_gripper_group_);
+    return disallowTargetCollisionWithArm(
+      self,
+      get_logger(),
+      planning_scene_interface,
+      case_target_model,
+      left_arm,
+      left_gripper,
+      left_tcp_link_,
+      "Case pick payload",
+      collision_scene_settle_ms_);
   }
 
 bool HotdogMakingNode::runSausagePick()
@@ -461,10 +692,12 @@ bool HotdogMakingNode::runBreadPlace()
     moveit::planning_interface::MoveGroupInterface left_arm(self, left_arm_group_);
     moveit::planning_interface::MoveGroupInterface left_gripper(self, left_gripper_group_);
     moveit::planning_interface::MoveGroupInterface right_arm(self, right_arm_group_);
+    moveit::planning_interface::MoveGroupInterface right_gripper(self, right_gripper_group_);
 
     configureTaskArm(left_arm, left_tcp_link_);
     configureTaskArm(right_arm, right_tcp_link_);
     configureTaskGripper(left_gripper);
+    configureTaskGripper(right_gripper);
     const auto motions = makeMotionPrimitives();
 
     RCLCPP_INFO(
@@ -529,11 +762,66 @@ bool HotdogMakingNode::runBreadPlace()
     {
       return false;
     }
-    if (!removeTargetCollisionObject(
+
+    TargetObject released_bread_target;
+    TargetObject case_target;
+    if (!loadManufacturingTarget(bread_target_model, released_bread_target) ||
+      !loadManufacturingTarget("case", case_target))
+    {
+      return false;
+    }
+    const geometry_msgs::msg::Pose bread_release_pose =
+      left_arm.getCurrentPose(left_tcp_link_).pose;
+    const Eigen::Vector3d held_case_center =
+      heldCaseCenterFromTcpPose(right_arm.getCurrentPose(right_tcp_link_).pose);
+    std::string package_share_directory;
+    if (!resolvePackageShareDirectory(package_share_directory)) {
+      return false;
+    }
+    const double support_surface_local_z =
+      caseSupportSurfaceLocalZ(package_share_directory, case_target);
+    released_bread_target =
+      makeObjectSettledOnHeldCase(
+        released_bread_target,
+        held_case_center,
+        Eigen::Vector2d(held_case_center.x(), held_case_center.y()),
+        support_surface_local_z,
+        0.0,
+        case_bread_place_clearance_,
+        bread_release_pose);
+
+    if (!applyVisionTargetCollisionObject(
+        get_logger(),
+        planning_scene_interface,
+        package_share_directory,
+        released_bread_target,
+        "Bread place released collision update",
+        collision_scene_settle_ms_))
+    {
+      return false;
+    }
+    const auto right_touch_links = makeGripperTouchLinks(right_gripper, right_tcp_link_);
+    if (!attachTargetCollisionObject(
+        get_logger(),
+        right_arm,
+        attached_collision_objects_,
+        bread_target_model,
+        right_tcp_link_,
+        right_touch_links,
+        "Bread place payload follows held case",
+        collision_scene_settle_ms_))
+    {
+      return false;
+    }
+    if (!disallowTargetCollisionWithArm(
+        shared_from_this(),
         get_logger(),
         planning_scene_interface,
         bread_target_model,
-        "Bread place",
+        left_arm,
+        left_gripper,
+        left_tcp_link_,
+        "Bread place payload",
         collision_scene_settle_ms_))
     {
       return false;
@@ -612,10 +900,12 @@ bool HotdogMakingNode::runSausagePlace()
     moveit::planning_interface::MoveGroupInterface left_arm(self, left_arm_group_);
     moveit::planning_interface::MoveGroupInterface left_gripper(self, left_gripper_group_);
     moveit::planning_interface::MoveGroupInterface right_arm(self, right_arm_group_);
+    moveit::planning_interface::MoveGroupInterface right_gripper(self, right_gripper_group_);
 
     configureTaskArm(left_arm, left_tcp_link_);
     configureTaskArm(right_arm, right_tcp_link_);
     configureTaskGripper(left_gripper);
+    configureTaskGripper(right_gripper);
     const auto motions = makeMotionPrimitives();
 
     RCLCPP_INFO(
@@ -754,16 +1044,67 @@ bool HotdogMakingNode::runSausagePlace()
       get_logger(),
       "Sausage place: keeping released sausage collision object in planning scene");
 
-    RCLCPP_INFO(get_logger(), "Sausage place: vertical retreat before any home/ready motion");
-    if (!motions.cartesianMoveToPose(left_arm, sausage_place_plan.approach_pose, "sausage place vertical retreat", false))
+    TargetObject released_sausage_target = sausage_target;
+    const Eigen::Vector3d sausage_release_position =
+      posePosition(sausage_place_plan.release_pose);
+    std::string package_share_directory;
+    if (!resolvePackageShareDirectory(package_share_directory)) {
+      return false;
+    }
+    const double support_surface_local_z =
+      caseSupportSurfaceLocalZ(package_share_directory, case_target);
+    released_sausage_target =
+      makeObjectSettledOnHeldCase(
+        released_sausage_target,
+        case_center,
+        Eigen::Vector2d(sausage_release_position.x(), sausage_release_position.y()),
+        support_surface_local_z,
+        topDownPlaceThickness(bread_target),
+        case_sausage_place_clearance_,
+        sausage_place_plan.release_pose);
+
+    if (!applyVisionTargetCollisionObject(
+        get_logger(),
+        planning_scene_interface,
+        package_share_directory,
+        released_sausage_target,
+        "Sausage place released collision update",
+        collision_scene_settle_ms_))
     {
       return false;
     }
-    logCurrentTcpPose(get_logger(), left_arm, left_tcp_link_, "Sausage place vertical retreat");
+    const auto right_touch_links = makeGripperTouchLinks(right_gripper, right_tcp_link_);
+    if (!attachTargetCollisionObject(
+        get_logger(),
+        right_arm,
+        attached_collision_objects_,
+        sausage_target_model,
+        right_tcp_link_,
+        right_touch_links,
+        "Sausage place payload follows held case",
+        collision_scene_settle_ms_))
+    {
+      return false;
+    }
+    if (!disallowTargetCollisionWithArm(
+        shared_from_this(),
+        get_logger(),
+        planning_scene_interface,
+        sausage_target_model,
+        left_arm,
+        left_gripper,
+        left_tcp_link_,
+        "Sausage place payload",
+        collision_scene_settle_ms_))
+    {
+      return false;
+    }
 
     if (shouldStopAfter(ManufacturingStage::Place)) {
       return true;
     }
+
+    RCLCPP_INFO(get_logger(), "Sausage place: release completed without extra retreat");
 
     bool return_home_pose_configured = false;
     if (shouldRunStage(ManufacturingStage::ReturnHome)) {
@@ -1356,6 +1697,101 @@ MotionStepResult HotdogMakingNode::runCompletedHotdogReleaseAndReturn(
     {
       return MotionStepResult::Failed;
     }
+    if (!detachTargetCollisionObject(
+        get_logger(),
+        right_arm,
+        attached_collision_objects_,
+        bread_target_model_,
+        "Completed hotdog place",
+        collision_scene_settle_ms_))
+    {
+      return MotionStepResult::Failed;
+    }
+    if (!detachTargetCollisionObject(
+        get_logger(),
+        right_arm,
+        attached_collision_objects_,
+        sausage_target_model_,
+        "Completed hotdog place",
+        collision_scene_settle_ms_))
+    {
+      return MotionStepResult::Failed;
+    }
+
+    TargetObject pickup_zone;
+    TargetObject case_target;
+    TargetObject bread_target;
+    TargetObject sausage_target;
+    if (!loadManufacturingTarget("pickup_zone", pickup_zone) ||
+      !loadManufacturingTarget(case_target_model_, case_target) ||
+      !loadManufacturingTarget(bread_target_model_, bread_target) ||
+      !loadManufacturingTarget(sausage_target_model_, sausage_target))
+    {
+      return MotionStepResult::Failed;
+    }
+
+    std::string package_share_directory;
+    if (!resolvePackageShareDirectory(package_share_directory)) {
+      return MotionStepResult::Failed;
+    }
+
+    moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+    const TargetObject placed_case_target =
+      makeCaseSettledAtReleasePose(pickup_zone, case_target, release_pose);
+    const Eigen::Vector3d placed_case_center = objectWorldCenter(placed_case_target);
+    const double placed_case_yaw = placed_case_target.rpy.z();
+    const double support_surface_local_z =
+      caseSupportSurfaceLocalZ(package_share_directory, case_target);
+    const TargetObject placed_bread_target =
+      makeObjectSettledOnHeldCase(
+        bread_target,
+        placed_case_center,
+        Eigen::Vector2d(placed_case_center.x(), placed_case_center.y()),
+        support_surface_local_z,
+        0.0,
+        case_bread_place_clearance_,
+        placed_case_yaw);
+    const TargetObject placed_sausage_target =
+      makeObjectSettledOnHeldCase(
+        sausage_target,
+        placed_case_center,
+        Eigen::Vector2d(placed_case_center.x(), placed_case_center.y()),
+        support_surface_local_z,
+        topDownPlaceThickness(bread_target),
+        case_sausage_place_clearance_,
+        placed_case_yaw);
+
+    if (!applyVisionTargetCollisionObject(
+        get_logger(),
+        planning_scene_interface,
+        package_share_directory,
+        placed_case_target,
+        "Completed hotdog pickup settled case collision update",
+        collision_scene_settle_ms_))
+    {
+      return MotionStepResult::Failed;
+    }
+    if (!applyVisionTargetCollisionObject(
+        get_logger(),
+        planning_scene_interface,
+        package_share_directory,
+        placed_bread_target,
+        "Completed hotdog pickup settled bread collision update",
+        collision_scene_settle_ms_))
+    {
+      return MotionStepResult::Failed;
+    }
+    if (!applyVisionTargetCollisionObject(
+        get_logger(),
+        planning_scene_interface,
+        package_share_directory,
+        placed_sausage_target,
+        "Completed hotdog pickup settled sausage collision update",
+        collision_scene_settle_ms_))
+    {
+      return MotionStepResult::Failed;
+    }
+
     if (shouldStopAfterWaypoint(ManufacturingStage::Place, "release")) {
       return MotionStepResult::Stop;
     }
@@ -1408,6 +1844,8 @@ bool HotdogMakingNode::runCompletedHotdogPlace()
     auto self = shared_from_this();
     moveit::planning_interface::MoveGroupInterface right_arm(self, right_arm_group_);
     moveit::planning_interface::MoveGroupInterface right_gripper(self, right_gripper_group_);
+    moveit::planning_interface::MoveGroupInterface left_arm(self, left_arm_group_);
+    moveit::planning_interface::MoveGroupInterface left_gripper(self, left_gripper_group_);
     const double carry_velocity_scaling = task_presets::kCompletedHotdogCarryVelocityScaling;
     const double carry_acceleration_scaling = task_presets::kCompletedHotdogCarryAccelerationScaling;
     const double carry_min_duration_sec = task_presets::kCompletedHotdogCarryMinDurationSec;
@@ -1416,11 +1854,53 @@ bool HotdogMakingNode::runCompletedHotdogPlace()
     configureTaskGripper(right_gripper);
 
     moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
-    if (!removeTargetCollisionObject(
+    const auto right_touch_links = makeGripperTouchLinks(right_gripper, right_tcp_link_);
+    if (!attachTargetCollisionObject(
+        get_logger(),
+        right_arm,
+        attached_collision_objects_,
+        bread_target_model_,
+        right_tcp_link_,
+        right_touch_links,
+        "Completed hotdog bread payload",
+        collision_scene_settle_ms_))
+    {
+      return false;
+    }
+    if (!disallowTargetCollisionWithArm(
+        self,
+        get_logger(),
+        planning_scene_interface,
+        bread_target_model_,
+        left_arm,
+        left_gripper,
+        left_tcp_link_,
+        "Completed hotdog bread payload",
+        collision_scene_settle_ms_))
+    {
+      return false;
+    }
+    if (!attachTargetCollisionObject(
+        get_logger(),
+        right_arm,
+        attached_collision_objects_,
+        sausage_target_model_,
+        right_tcp_link_,
+        right_touch_links,
+        "Completed hotdog sausage payload",
+        collision_scene_settle_ms_))
+    {
+      return false;
+    }
+    if (!disallowTargetCollisionWithArm(
+        self,
         get_logger(),
         planning_scene_interface,
         sausage_target_model_,
-        "Completed hotdog place",
+        left_arm,
+        left_gripper,
+        left_tcp_link_,
+        "Completed hotdog sausage payload",
         collision_scene_settle_ms_))
     {
       return false;
