@@ -1,51 +1,46 @@
-#include <chrono>
-#include <array>
-#include <cerrno>
-#include <csignal>
-#include <cctype>
-#include <cstdio>
-#include <cstdlib>
-#include <functional>
-#include <cstring>
-#include <memory>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <thread>
-#include <vector>
-
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <array>
+#include <cctype>
+#include <cerrno>
+#include <chrono>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <custom_msg/action/manifacture.hpp>
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
 
-namespace
-{
+namespace {
 
 using Manifacture = custom_msg::action::Manifacture;
 using GoalHandleManifacture = rclcpp_action::ServerGoalHandle<Manifacture>;
 
-struct ManufactureTaskRun
-{
+struct ManufactureTaskRun {
   std::string item_name;
   std::string task_name;
   int item_run_index;
   int item_run_count;
 };
 
-struct ProcessResult
-{
+struct ProcessResult {
   bool success;
   bool canceled;
   std::string message;
 };
 
-struct CommandResult
-{
+struct CommandResult {
   bool success;
   bool canceled;
   int exit_code;
@@ -53,8 +48,7 @@ struct CommandResult
   std::string message;
 };
 
-std::string toLowerAscii(const std::string & value)
-{
+std::string toLowerAscii(const std::string& value) {
   std::string lowered;
   lowered.reserve(value.size());
   for (const unsigned char ch : value) {
@@ -63,9 +57,8 @@ std::string toLowerAscii(const std::string & value)
   return lowered;
 }
 
-bool containsAny(const std::string & value, const std::vector<std::string> & needles)
-{
-  for (const auto & needle : needles) {
+bool containsAny(const std::string& value, const std::vector<std::string>& needles) {
+  for (const auto& needle : needles) {
     if (value.find(needle) != std::string::npos) {
       return true;
     }
@@ -73,12 +66,10 @@ bool containsAny(const std::string & value, const std::vector<std::string> & nee
   return false;
 }
 
-bool taskNameForItem(const std::string & item_name, std::string & task_name)
-{
+bool taskNameForItem(const std::string& item_name, std::string& task_name) {
   const std::string lowered = toLowerAscii(item_name);
   if (lowered == "hotdog" || lowered == "hot dog" ||
-    containsAny(lowered, {"new york", "핫도그", "뉴욕"}))
-  {
+      containsAny(lowered, {"new york", "핫도그", "뉴욕"})) {
     task_name = "hotdog";
     return true;
   }
@@ -93,11 +84,10 @@ bool taskNameForItem(const std::string & item_name, std::string & task_name)
   return false;
 }
 
-std::string joinCommandForLog(const std::vector<std::string> & args)
-{
+std::string joinCommandForLog(const std::vector<std::string>& args) {
   std::ostringstream stream;
   bool first = true;
-  for (const auto & arg : args) {
+  for (const auto& arg : args) {
     if (!first) {
       stream << ' ';
     }
@@ -107,19 +97,14 @@ std::string joinCommandForLog(const std::vector<std::string> & args)
   return stream.str();
 }
 
-
-void trimProcessOutputTail(std::string & output)
-{
+void trimProcessOutputTail(std::string& output) {
   constexpr size_t kMaxProcessOutputTail = 8192;
   if (output.size() > kMaxProcessOutputTail) {
     output.erase(0, output.size() - kMaxProcessOutputTail);
   }
 }
 
-void readAvailableProcessOutput(
-  int output_fd,
-  std::string & output_tail)
-{
+void readAvailableProcessOutput(int output_fd, std::string& output_tail) {
   char buffer[4096];
   while (true) {
     const ssize_t bytes_read = read(output_fd, buffer, sizeof(buffer));
@@ -144,60 +129,48 @@ void readAvailableProcessOutput(
   }
 }
 
-class ManifactureActionServer : public rclcpp::Node
-{
-public:
-  ManifactureActionServer()
-  : Node("ddooby_manifacture_action_server")
-  {
+class ManifactureActionServer : public rclcpp::Node {
+ public:
+  ManifactureActionServer() : Node("ddooby_manifacture_action_server") {
     action_name_ = declare_parameter<std::string>("action_name", "ddooby/manifacture");
     ros2_executable_ = declare_parameter<std::string>("ros2_executable", "ros2");
     hotdog_launch_package_ =
-      declare_parameter<std::string>("hotdog_launch_package", "ddooby_controller");
+        declare_parameter<std::string>("hotdog_launch_package", "ddooby_controller");
     hotdog_launch_file_ =
-      declare_parameter<std::string>("hotdog_launch_file", "hotdog_making.launch.py");
+        declare_parameter<std::string>("hotdog_launch_file", "hotdog_making.launch.py");
     hotdog_use_sim_time_ = declare_parameter<bool>("hotdog_use_sim_time", true);
     command_timeout_sec_ = declare_parameter<double>("command_timeout_sec", 0.0);
 
     using std::placeholders::_1;
     using std::placeholders::_2;
     action_server_ = rclcpp_action::create_server<Manifacture>(
-      this,
-      action_name_,
-      std::bind(&ManifactureActionServer::handleGoal, this, _1, _2),
-      std::bind(&ManifactureActionServer::handleCancel, this, _1),
-      std::bind(&ManifactureActionServer::handleAccepted, this, _1));
+        this, action_name_, std::bind(&ManifactureActionServer::handleGoal, this, _1, _2),
+        std::bind(&ManifactureActionServer::handleCancel, this, _1),
+        std::bind(&ManifactureActionServer::handleAccepted, this, _1));
 
     RCLCPP_INFO(get_logger(), "DDooby manufacture action server ready: %s", action_name_.c_str());
   }
-  ManifactureActionServer(const ManifactureActionServer &) = delete;
-  ManifactureActionServer & operator=(const ManifactureActionServer &) = delete;
+  ManifactureActionServer(const ManifactureActionServer&) = delete;
+  ManifactureActionServer& operator=(const ManifactureActionServer&) = delete;
 
-private:
-  class ActiveGoalGuard
-  {
-  public:
-    explicit ActiveGoalGuard(ManifactureActionServer & server)
-    : server_(server)
-    {
-    }
-    ActiveGoalGuard(const ActiveGoalGuard &) = delete;
-    ActiveGoalGuard & operator=(const ActiveGoalGuard &) = delete;
+ private:
+  class ActiveGoalGuard {
+   public:
+    explicit ActiveGoalGuard(ManifactureActionServer& server) : server_(server) {}
+    ActiveGoalGuard(const ActiveGoalGuard&) = delete;
+    ActiveGoalGuard& operator=(const ActiveGoalGuard&) = delete;
 
-    ~ActiveGoalGuard()
-    {
+    ~ActiveGoalGuard() {
       std::lock_guard<std::mutex> lock(server_.active_goal_mutex_);
       server_.active_goal_ = false;
     }
 
-  private:
-    ManifactureActionServer & server_;
+   private:
+    ManifactureActionServer& server_;
   };
 
-  rclcpp_action::GoalResponse handleGoal(
-    const rclcpp_action::GoalUUID &,
-    std::shared_ptr<const Manifacture::Goal> goal)
-  {
+  rclcpp_action::GoalResponse handleGoal(const rclcpp_action::GoalUUID&,
+                                         std::shared_ptr<const Manifacture::Goal> goal) {
     std::lock_guard<std::mutex> lock(active_goal_mutex_);
     if (active_goal_) {
       RCLCPP_WARN(get_logger(), "Rejecting manufacture goal because another goal is active");
@@ -205,24 +178,21 @@ private:
     }
     active_goal_ = true;
 
-    RCLCPP_INFO(get_logger(), "Accepted manufacture goal with %zu item entries", goal->items.size());
+    RCLCPP_INFO(get_logger(), "Accepted manufacture goal with %zu item entries",
+                goal->items.size());
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
   }
 
-  rclcpp_action::CancelResponse handleCancel(
-    const std::shared_ptr<GoalHandleManifacture>)
-  {
+  rclcpp_action::CancelResponse handleCancel(const std::shared_ptr<GoalHandleManifacture>) {
     RCLCPP_INFO(get_logger(), "Cancel requested for active manufacture goal");
     return rclcpp_action::CancelResponse::ACCEPT;
   }
 
-  void handleAccepted(const std::shared_ptr<GoalHandleManifacture> goal_handle)
-  {
+  void handleAccepted(const std::shared_ptr<GoalHandleManifacture> goal_handle) {
     std::thread{std::bind(&ManifactureActionServer::executeGoal, this, goal_handle)}.detach();
   }
 
-  void executeGoal(const std::shared_ptr<GoalHandleManifacture> goal_handle)
-  {
+  void executeGoal(const std::shared_ptr<GoalHandleManifacture> goal_handle) {
     ActiveGoalGuard guard(*this);
 
     std::vector<ManufactureTaskRun> run_plan;
@@ -232,9 +202,8 @@ private:
       return;
     }
 
-    publishStatus(
-      goal_handle,
-      "manufacture started: " + std::to_string(run_plan.size()) + " task(s)");
+    publishStatus(goal_handle,
+                  "manufacture started: " + std::to_string(run_plan.size()) + " task(s)");
 
     for (size_t index = 0; index < run_plan.size(); ++index) {
       if (goal_handle->is_canceling()) {
@@ -242,11 +211,11 @@ private:
         return;
       }
 
-      const auto & run = run_plan[index];
+      const auto& run = run_plan[index];
       std::ostringstream status;
       status << "manufacturing " << run.item_name << " with " << hotdog_launch_file_;
-      status << " (run " << (index + 1) << "/" << run_plan.size() << ", item "
-             << run.item_run_index << "/" << run.item_run_count << ")";
+      status << " (run " << (index + 1) << "/" << run_plan.size() << ", item " << run.item_run_index
+             << "/" << run.item_run_count << ")";
       publishStatus(goal_handle, status.str());
 
       const ProcessResult process_result = runManufactureTask(goal_handle, run);
@@ -259,31 +228,26 @@ private:
         return;
       }
 
-      publishStatus(
-        goal_handle,
-        "completed " + run.item_name + " run " + std::to_string(run.item_run_index) + "/" +
-          std::to_string(run.item_run_count));
+      publishStatus(goal_handle, "completed " + run.item_name + " run " +
+                                     std::to_string(run.item_run_index) + "/" +
+                                     std::to_string(run.item_run_count));
     }
 
     auto result = std::make_shared<Manifacture::Result>();
     result->success = true;
-    result->message =
-      "manufacture completed: " + std::to_string(run_plan.size()) + " task(s)";
+    result->message = "manufacture completed: " + std::to_string(run_plan.size()) + " task(s)";
     goal_handle->succeed(result);
     RCLCPP_INFO(get_logger(), "%s", result->message.c_str());
   }
 
-  bool buildRunPlan(
-    const std::shared_ptr<const Manifacture::Goal> & goal,
-    std::vector<ManufactureTaskRun> & run_plan,
-    std::string & error) const
-  {
+  bool buildRunPlan(const std::shared_ptr<const Manifacture::Goal>& goal,
+                    std::vector<ManufactureTaskRun>& run_plan, std::string& error) const {
     if (goal->items.empty()) {
       error = "manufacture goal has no items";
       return false;
     }
 
-    for (const auto & item : goal->items) {
+    for (const auto& item : goal->items) {
       if (item.count < 0) {
         error = "manufacture item '" + item.name + "' has negative count";
         return false;
@@ -294,18 +258,17 @@ private:
 
       std::string task_name;
       if (!taskNameForItem(item.name, task_name)) {
-        error =
-          "unsupported manufacture item '" + item.name +
-          "': backend supports hotdog, coke, and coffee items only";
+        error = "unsupported manufacture item '" + item.name +
+                "': backend supports hotdog, coke, and coffee items only";
         return false;
       }
 
       for (int run_index = 1; run_index <= item.count; ++run_index) {
         run_plan.push_back(ManufactureTaskRun{
-          item.name,
-          task_name,
-          run_index,
-          item.count,
+            item.name,
+            task_name,
+            run_index,
+            item.count,
         });
       }
     }
@@ -318,10 +281,8 @@ private:
   }
 
   CommandResult runCommandAndCollectOutput(
-    const std::vector<std::string> & args,
-    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    double timeout_sec) const
-  {
+      const std::vector<std::string>& args,
+      const std::shared_ptr<GoalHandleManifacture>& goal_handle, double timeout_sec) const {
     std::array<int, 2> output_pipe{};
     if (pipe(output_pipe.data()) != 0) {
       return CommandResult{false, false, -1, "", "failed to create process output pipe"};
@@ -348,10 +309,10 @@ private:
         close(output_pipe[1]);
       }
 
-      std::vector<char *> argv;
+      std::vector<char*> argv;
       argv.reserve(args.size() + 1);
-      for (const auto & arg : args) {
-        argv.push_back(const_cast<char *>(arg.c_str()));
+      for (const auto& arg : args) {
+        argv.push_back(const_cast<char*>(arg.c_str()));
       }
       argv.push_back(nullptr);
       execvp(argv[0], argv.data());
@@ -377,25 +338,19 @@ private:
         readAvailableProcessOutput(output_pipe[0], output_tail);
         if (WIFEXITED(status)) {
           const int exit_code = WEXITSTATUS(status);
-          return finish(CommandResult{
-            exit_code == 0,
-            false,
-            exit_code,
-            output_tail,
-            "process exited with code " + std::to_string(exit_code)});
+          return finish(CommandResult{exit_code == 0, false, exit_code, output_tail,
+                                      "process exited with code " + std::to_string(exit_code)});
         }
         if (WIFSIGNALED(status)) {
-          return finish(CommandResult{
-            false,
-            false,
-            -1,
-            output_tail,
-            "process terminated by signal " + std::to_string(WTERMSIG(status))});
+          return finish(
+              CommandResult{false, false, -1, output_tail,
+                            "process terminated by signal " + std::to_string(WTERMSIG(status))});
         }
         return finish(CommandResult{false, false, -1, output_tail, "process failed"});
       }
       if (wait_result < 0 && errno != EINTR) {
-        return finish(CommandResult{false, false, -1, output_tail, "failed while waiting for process"});
+        return finish(
+            CommandResult{false, false, -1, output_tail, "failed while waiting for process"});
       }
 
       if (goal_handle->is_canceling()) {
@@ -405,7 +360,7 @@ private:
 
       if (timeout_sec > 0.0) {
         const auto elapsed =
-          std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time).count();
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time).count();
         if (elapsed > timeout_sec) {
           terminateProcessGroup(pid);
           return finish(CommandResult{false, false, -1, output_tail, "process timed out"});
@@ -419,60 +374,52 @@ private:
     return finish(CommandResult{false, true, -1, output_tail, "ROS shutdown requested"});
   }
 
-  ProcessResult runManufactureTask(
-    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    const ManufactureTaskRun & run) const
-  {
+  ProcessResult runManufactureTask(const std::shared_ptr<GoalHandleManifacture>& goal_handle,
+                                   const ManufactureTaskRun& run) const {
     return runManufacturingTaskLaunch(goal_handle, run);
   }
 
   ProcessResult runManufacturingTaskLaunch(
-    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    const ManufactureTaskRun & run) const
-  {
+      const std::shared_ptr<GoalHandleManifacture>& goal_handle,
+      const ManufactureTaskRun& run) const {
     std::vector<std::string> args{
-      ros2_executable_,
-      "launch",
-      "--noninteractive",
-      "--show-all-subprocesses-output",
-      hotdog_launch_package_,
-      hotdog_launch_file_,
-      "task:=" + run.task_name,
-      std::string("use_sim_time:=") + (hotdog_use_sim_time_ ? "true" : "false"),
+        ros2_executable_,
+        "launch",
+        "--noninteractive",
+        "--show-all-subprocesses-output",
+        hotdog_launch_package_,
+        hotdog_launch_file_,
+        "task:=" + run.task_name,
+        std::string("use_sim_time:=") + (hotdog_use_sim_time_ ? "true" : "false"),
     };
 
-    const std::string success_marker = run.task_name == "hotdog" ?
-      "New York hotdog assembly completed" :
-      "Beverage " + run.task_name + " serving completed";
+    const std::string success_marker = run.task_name == "hotdog"
+                                           ? "New York hotdog assembly completed"
+                                           : "Beverage " + run.task_name + " serving completed";
 
-    RCLCPP_INFO(
-      get_logger(),
-      "Starting manufacture process for %s: %s",
-      run.task_name.c_str(),
-      joinCommandForLog(args).c_str());
+    RCLCPP_INFO(get_logger(), "Starting manufacture process for %s: %s", run.task_name.c_str(),
+                joinCommandForLog(args).c_str());
     const auto command_result = runCommandAndCollectOutput(args, goal_handle, command_timeout_sec_);
     if (command_result.canceled) {
-      return ProcessResult{false, true, "manufacture canceled while running " + run.task_name + " task"};
+      return ProcessResult{false, true,
+                           "manufacture canceled while running " + run.task_name + " task"};
     }
     if (!command_result.success) {
-      return ProcessResult{
-        false,
-        false,
-        run.task_name + " manufacture failed for item '" + run.item_name + "': " +
-          command_result.message};
+      return ProcessResult{false, false,
+                           run.task_name + " manufacture failed for item '" + run.item_name +
+                               "': " + command_result.message};
     }
     if (command_result.output.find(success_marker) == std::string::npos) {
-      return ProcessResult{
-        false,
-        false,
-        run.task_name + " manufacture exited without completion marker for item '" + run.item_name + "'"};
+      return ProcessResult{false, false,
+                           run.task_name +
+                               " manufacture exited without completion marker for item '" +
+                               run.item_name + "'"};
     }
 
     return ProcessResult{true, false, run.task_name + " manufacture completed"};
   }
 
-  void terminateProcessGroup(pid_t pid) const
-  {
+  void terminateProcessGroup(pid_t pid) const {
     kill(-pid, SIGINT);
     for (int i = 0; i < 25; ++i) {
       int status = 0;
@@ -498,20 +445,16 @@ private:
     waitpid(pid, &status, 0);
   }
 
-  void publishStatus(
-    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    const std::string & status) const
-  {
+  void publishStatus(const std::shared_ptr<GoalHandleManifacture>& goal_handle,
+                     const std::string& status) const {
     auto feedback = std::make_shared<Manifacture::Feedback>();
     feedback->status = status;
     goal_handle->publish_feedback(feedback);
     RCLCPP_INFO(get_logger(), "%s", status.c_str());
   }
 
-  void finishAborted(
-    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    const std::string & message) const
-  {
+  void finishAborted(const std::shared_ptr<GoalHandleManifacture>& goal_handle,
+                     const std::string& message) const {
     auto result = std::make_shared<Manifacture::Result>();
     result->success = false;
     result->message = message;
@@ -519,10 +462,8 @@ private:
     RCLCPP_ERROR(get_logger(), "%s", message.c_str());
   }
 
-  void finishCanceled(
-    const std::shared_ptr<GoalHandleManifacture> & goal_handle,
-    const std::string & message) const
-  {
+  void finishCanceled(const std::shared_ptr<GoalHandleManifacture>& goal_handle,
+                      const std::string& message) const {
     auto result = std::make_shared<Manifacture::Result>();
     result->success = false;
     result->message = message;
@@ -542,8 +483,7 @@ private:
 };
 }  // namespace
 
-int main(int argc, char ** argv)
-{
+int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<ManifactureActionServer>());
   rclcpp::shutdown();

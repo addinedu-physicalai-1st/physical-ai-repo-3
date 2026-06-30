@@ -1,12 +1,10 @@
 #include <memory>
-#include <thread>
-
 #include <rclcpp/rclcpp.hpp>
+#include <thread>
 
 #include "manufacturing_task_node_private.hpp"
 
-int main(int argc, char ** argv)
-{
+int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<ddooby_controller::HotdogMakingNode>();
 

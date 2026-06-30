@@ -100,7 +100,10 @@ def generate_launch_description():
         "right_command_enabled",
         default_value="true",
         choices=["true", "false"],
-        description="Enable physical command/controller spawning for the right arm. Set false when right arm hardware is disconnected.",
+        description=(
+            "Enable physical command/controller spawning for the right arm. "
+            "Set false when right arm hardware is disconnected."
+        ),
     )
     robot_controller_arg = DeclareLaunchArgument(
         "robot_controller",

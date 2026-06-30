@@ -1,21 +1,18 @@
 #pragma once
 
-#include <map>
-#include <string>
-
 #include <Eigen/Geometry>
+#include <map>
 #include <rclcpp/logger.hpp>
+#include <string>
 
 #include "ddooby_controller/task/manufacturing_task_presets.hpp"
 #include "ddooby_controller/task/manufacturing_task_types.hpp"
 
-namespace ddooby_controller::manufacturing_task
-{
+namespace ddooby_controller::manufacturing_task {
 
 namespace task_presets = ddooby_controller::manufacturing_task_presets;
 
-struct ManufacturingResultValidatorConfig
-{
+struct ManufacturingResultValidatorConfig {
   bool enabled{false};
   bool dry_run{false};
   bool has_partial_stage_limit{false};
@@ -36,20 +33,18 @@ struct ManufacturingResultValidatorConfig
   std::string target_model{"auto"};
 };
 
-class ManufacturingResultValidator
-{
-public:
-  ManufacturingResultValidator(
-    const rclcpp::Logger & logger,
-    ManufacturingResultValidatorConfig config);
+class ManufacturingResultValidator {
+ public:
+  ManufacturingResultValidator(const rclcpp::Logger& logger,
+                               ManufacturingResultValidatorConfig config);
 
   bool shouldValidate() const;
-  bool readGazeboModelPositions(std::map<std::string, Eigen::Vector3d> & poses) const;
+  bool readGazeboModelPositions(std::map<std::string, Eigen::Vector3d>& poses) const;
   bool validateHotdogPlacement();
   bool validateBeveragePlacement(task_presets::ManufacturingTarget beverage_target);
 
-private:
-  bool loadTarget(const std::string & target_model, TargetObject & target) const;
+ private:
+  bool loadTarget(const std::string& target_model, TargetObject& target) const;
 
   rclcpp::Logger logger_;
   ManufacturingResultValidatorConfig config_;

@@ -312,7 +312,6 @@ def make_pose(position: np.ndarray, quat_xyzw: np.ndarray) -> Pose:
     return pose
 
 
-
 class GazeboYoloPoseNode(Node):
     def __init__(self):
         super().__init__("gazebo_yolo_pose")
@@ -613,7 +612,6 @@ class GazeboYoloPoseNode(Node):
             pca_stabilized=detection.pca_stabilized,
             pca_hold_previous=detection.pca_hold_previous,
         )
-
 
     def _pca_state_key(self, detection: DetectionPose) -> str:
         if detection.layout_name:

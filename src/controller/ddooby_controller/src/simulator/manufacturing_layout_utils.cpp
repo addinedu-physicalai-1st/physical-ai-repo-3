@@ -5,11 +5,9 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace ddooby_controller::manufacturing_task
-{
+namespace ddooby_controller::manufacturing_task {
 
-std::string readTextFile(const std::string & path)
-{
+std::string readTextFile(const std::string& path) {
   std::ifstream stream(path);
   if (!stream) {
     throw std::runtime_error("failed to open " + path);
@@ -19,25 +17,21 @@ std::string readTextFile(const std::string & path)
   return buffer.str();
 }
 
-std::string joinPath(const std::string & left, const std::string & right)
-{
+std::string joinPath(const std::string& left, const std::string& right) {
   if (left.empty() || left.back() == '/') {
     return left + right;
   }
   return left + "/" + right;
 }
 
-std::string effectiveManufacturingLayoutPath(
-  const std::string & package_share_directory,
-  const std::string & requested_layout_path)
-{
-  return requested_layout_path.empty() ?
-    joinPath(package_share_directory, "assets/manufacturing_world/layout.json") :
-    requested_layout_path;
+std::string effectiveManufacturingLayoutPath(const std::string& package_share_directory,
+                                             const std::string& requested_layout_path) {
+  return requested_layout_path.empty()
+             ? joinPath(package_share_directory, "assets/manufacturing_world/layout.json")
+             : requested_layout_path;
 }
 
-std::string extractStringValue(const std::string & text, const std::string & key)
-{
+std::string extractStringValue(const std::string& text, const std::string& key) {
   const std::string marker = "\"" + key + "\"";
   const auto key_pos = text.find(marker);
   if (key_pos == std::string::npos) {
@@ -47,17 +41,15 @@ std::string extractStringValue(const std::string & text, const std::string & key
   const auto first_quote = text.find('"', colon_pos);
   const auto second_quote = text.find('"', first_quote + 1);
   if (colon_pos == std::string::npos || first_quote == std::string::npos ||
-    second_quote == std::string::npos)
-  {
+      second_quote == std::string::npos) {
     throw std::runtime_error("invalid string value for key '" + key + "'");
   }
   return text.substr(first_quote + 1, second_quote - first_quote - 1);
 }
 
-std::vector<double> parseDoubles(const std::string & text)
-{
+std::vector<double> parseDoubles(const std::string& text) {
   std::string normalized = text;
-  for (char & character : normalized) {
+  for (char& character : normalized) {
     if (character == ',' || character == '\n' || character == '\t') {
       character = ' ';
     }
@@ -72,8 +64,7 @@ std::vector<double> parseDoubles(const std::string & text)
   return values;
 }
 
-Eigen::Vector3d extractVector3Value(const std::string & text, const std::string & key)
-{
+Eigen::Vector3d extractVector3Value(const std::string& text, const std::string& key) {
   const std::string marker = "\"" + key + "\"";
   const auto key_pos = text.find(marker);
   if (key_pos == std::string::npos) {
@@ -91,8 +82,7 @@ Eigen::Vector3d extractVector3Value(const std::string & text, const std::string 
   return Eigen::Vector3d(values[0], values[1], values[2]);
 }
 
-bool extractTagText(const std::string & text, const std::string & tag, std::string & value)
-{
+bool extractTagText(const std::string& text, const std::string& tag, std::string& value) {
   const std::string open_tag = "<" + tag + ">";
   const std::string close_tag = "</" + tag + ">";
   const auto open_pos = text.find(open_tag);
@@ -108,10 +98,8 @@ bool extractTagText(const std::string & text, const std::string & tag, std::stri
   return true;
 }
 
-std::string extractJsonObjectForModel(
-  const std::string & layout_text,
-  const std::string & target_model)
-{
+std::string extractJsonObjectForModel(const std::string& layout_text,
+                                      const std::string& target_model) {
   const std::string marker = "\"name\": \"" + target_model + "\"";
   const auto name_pos = layout_text.find(marker);
   if (name_pos == std::string::npos) {
@@ -138,8 +126,7 @@ std::string extractJsonObjectForModel(
   throw std::runtime_error("unterminated model object for '" + target_model + "'");
 }
 
-std::vector<CollisionPrimitiveSpec> parseCollisionPrimitives(const std::string & sdf_text)
-{
+std::vector<CollisionPrimitiveSpec> parseCollisionPrimitives(const std::string& sdf_text) {
   std::vector<CollisionPrimitiveSpec> primitives;
   size_t search_pos = 0;
   while (true) {
@@ -151,8 +138,8 @@ std::vector<CollisionPrimitiveSpec> parseCollisionPrimitives(const std::string &
     if (collision_end == std::string::npos) {
       break;
     }
-    const auto block =
-      sdf_text.substr(collision_start, collision_end + std::string("</collision>").size() - collision_start);
+    const auto block = sdf_text.substr(
+        collision_start, collision_end + std::string("</collision>").size() - collision_start);
     search_pos = collision_end + std::string("</collision>").size();
 
     CollisionPrimitiveSpec primitive;
@@ -168,7 +155,8 @@ std::vector<CollisionPrimitiveSpec> parseCollisionPrimitives(const std::string &
     } else {
       std::string radius_text;
       std::string length_text;
-      if (extractTagText(block, "radius", radius_text) && extractTagText(block, "length", length_text)) {
+      if (extractTagText(block, "radius", radius_text) &&
+          extractTagText(block, "length", length_text)) {
         const auto radius_values = parseDoubles(radius_text);
         const auto length_values = parseDoubles(length_text);
         if (radius_values.size() == 1 && length_values.size() == 1) {
@@ -201,10 +189,9 @@ std::vector<CollisionPrimitiveSpec> parseCollisionPrimitives(const std::string &
   return primitives;
 }
 
-std::vector<CollisionBox> parseCollisionBoxes(const std::string & sdf_text)
-{
+std::vector<CollisionBox> parseCollisionBoxes(const std::string& sdf_text) {
   std::vector<CollisionBox> boxes;
-  for (const CollisionPrimitiveSpec & primitive : parseCollisionPrimitives(sdf_text)) {
+  for (const CollisionPrimitiveSpec& primitive : parseCollisionPrimitives(sdf_text)) {
     boxes.push_back(CollisionBox{primitive.center, primitive.size});
   }
   return boxes;

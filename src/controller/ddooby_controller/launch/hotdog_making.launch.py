@@ -39,7 +39,10 @@ def generate_launch_description():
         "arm",
         default_value="auto",
         choices=["auto", "left", "right"],
-        description="Deprecated compatibility option. Manufacturing tasks now determine the required arm sequence from task.",
+        description=(
+            "Deprecated compatibility option. Manufacturing tasks now determine "
+            "the required arm sequence from task."
+        ),
     )
     target_model_arg = DeclareLaunchArgument(
         "target_model",
@@ -128,7 +131,10 @@ def generate_launch_description():
     vision_pick_max_distance_m_arg = DeclareLaunchArgument(
         "vision_pick_max_distance_m",
         default_value="0.15",
-        description="Maximum distance from the layout target center for accepting a vision detection. Use <=0 to disable.",
+        description=(
+            "Maximum distance from the layout target center for accepting a vision detection. "
+            "Use <=0 to disable."
+        ),
     )
     vision_pick_min_score_arg = DeclareLaunchArgument(
         "vision_pick_min_score",

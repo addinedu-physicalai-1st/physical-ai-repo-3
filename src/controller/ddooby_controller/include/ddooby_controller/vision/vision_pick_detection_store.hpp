@@ -1,30 +1,26 @@
 #pragma once
 
 #include <mutex>
-#include <vector>
-
 #include <rclcpp/time.hpp>
+#include <vector>
 #include <vision_msgs/msg/detection3_d_array.hpp>
 
 #include "ddooby_controller/task/manufacturing_task_types.hpp"
 
-namespace ddooby_controller::manufacturing_task
-{
+namespace ddooby_controller::manufacturing_task {
 
-class VisionPickDetectionStore
-{
-public:
+class VisionPickDetectionStore {
+ public:
   VisionPickDetectionStore() = default;
-  VisionPickDetectionStore(const VisionPickDetectionStore &) = delete;
-  VisionPickDetectionStore & operator=(const VisionPickDetectionStore &) = delete;
+  VisionPickDetectionStore(const VisionPickDetectionStore&) = delete;
+  VisionPickDetectionStore& operator=(const VisionPickDetectionStore&) = delete;
 
-  void updateFromMessage(
-    const rclcpp::Time & received_stamp,
-    const vision_msgs::msg::Detection3DArray & msg);
+  void updateFromMessage(const rclcpp::Time& received_stamp,
+                         const vision_msgs::msg::Detection3DArray& msg);
 
   std::vector<VisionPickDetection> snapshot() const;
 
-private:
+ private:
   mutable std::mutex mutex_;
   std::vector<VisionPickDetection> detections_;
 };

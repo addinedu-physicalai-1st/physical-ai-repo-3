@@ -75,7 +75,15 @@ def set_mu(block: str, mu: float) -> str:
     return block
 
 
-def make_world(path: Path, mu: float, gx: float, gy: float, case_pitch_deg: float, bread_x: float, bread_y: float) -> None:
+def make_world(
+    path: Path,
+    mu: float,
+    gx: float,
+    gy: float,
+    case_pitch_deg: float,
+    bread_x: float,
+    bread_y: float,
+) -> None:
     case = model_block("case")
     bread = model_block("bread1")
     case = set_model_name(case, "case", "case_probe")
@@ -134,7 +142,15 @@ def terminate(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=3.0)
 
 
-def run_once(mu: float, gx: float, gy: float, duration_sec: float, case_pitch_deg: float, bread_x: float, bread_y: float) -> dict[str, object]:
+def run_once(
+    mu: float,
+    gx: float,
+    gy: float,
+    duration_sec: float,
+    case_pitch_deg: float,
+    bread_x: float,
+    bread_y: float,
+) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="ddooby_case_bread_") as tmp:
         world = Path(tmp) / f"case_bread_mu_{mu}.sdf"
         make_world(world, mu, gx, gy, case_pitch_deg, bread_x, bread_y)
@@ -205,7 +221,11 @@ def main() -> int:
             print(f"  mu={mu}: no valid runs")
             continue
         planars = [float(row["planar"]) for row in subset]
-        print(f"  mu={mu}: planar min/avg/max = {min(planars):.4f}/{sum(planars)/len(planars):.4f}/{max(planars):.4f} m")
+        planar_avg = sum(planars) / len(planars)
+        print(
+            f"  mu={mu}: planar min/avg/max = "
+            f"{min(planars):.4f}/{planar_avg:.4f}/{max(planars):.4f} m"
+        )
     return 0
 
 
