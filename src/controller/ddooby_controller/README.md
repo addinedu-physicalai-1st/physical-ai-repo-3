@@ -26,7 +26,6 @@ src/controller/ddooby_controller/
 │   ├── simulator/
 │   │   └── Gazebo layout/object loading utility
 │   ├── hotdog_making_node.cpp
-│   ├── manufacturing_task_runner.cpp
 │   └── manifacture_action_server_node.cpp
 ├── modeling/
 │   ├── world.blend

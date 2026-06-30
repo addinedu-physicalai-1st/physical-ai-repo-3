@@ -26,7 +26,6 @@
 #include "ddooby_controller/control/manufacturing_stage_motion.hpp"
 #include "ddooby_controller/task/manufacturing_task_common.hpp"
 #include "manufacturing_task_node_private.hpp"
-#include "ddooby_controller/task/manufacturing_task_runner.hpp"
 #include "ddooby_controller/control/moveit_task_utils.hpp"
 #include "ddooby_controller/control/planning_scene_utils.hpp"
 #include "ddooby_controller/vision/vision_pick_adapter.hpp"

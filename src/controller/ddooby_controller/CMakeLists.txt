@@ -25,27 +25,20 @@ ament_target_dependencies(manifacture_action_server_node
 )
 
 add_library(ddooby_manufacturing_task_core STATIC
-  src/task/manufacturing_beverage_task.cpp
-  src/task/manufacturing_completed_hotdog_task.cpp
-  src/task/manufacturing_hotdog_steps.cpp
-  src/task/manufacturing_ketchup_task.cpp
   src/task/manufacturing_pick_planner.cpp
   src/task/manufacturing_pick_execution.cpp
   src/task/manufacturing_place_planner.cpp
   src/task/manufacturing_pose_utils.cpp
-  src/task/manufacturing_result_validation.cpp
   src/task/manufacturing_result_validator.cpp
-  src/task/manufacturing_task_assembly.cpp
   src/task/manufacturing_task_common.cpp
   src/task/manufacturing_task_runtime.cpp
-  src/task/manufacturing_task_sequence_runner.cpp
+  src/task/manufacturing_task_sequences.cpp
   src/control/manufacturing_motion_primitives.cpp
   src/control/manufacturing_stage_motion.cpp
   src/control/moveit_task_utils.cpp
   src/control/planning_scene_utils.cpp
   src/simulator/manufacturing_layout_utils.cpp
   src/simulator/manufacturing_target_loading.cpp
-  src/manufacturing_task_runner.cpp
   src/vision/vision_pick_adapter.cpp
   src/vision/vision_pick_detection_store.cpp
 )
